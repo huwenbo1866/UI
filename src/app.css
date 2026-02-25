@@ -807,3 +807,91 @@ body {
 #note-content-container .ProseMirror {
 	padding-bottom: 2rem; /* space for the bottom toolbar */
 }
+
+
+
+
+/* =========================
+   A1 教育风（只对 html.her 生效）
+   ========================= */
+html.her {
+  --a1-bg: #F7F2F4;                 /* A1 底布：几乎纯色 */
+  --a1-surface: rgba(255,255,255,.78);
+  --a1-surface-strong: rgba(255,255,255,.90);
+  --a1-border: rgba(15,23,42,.08);
+  --a1-text: rgba(15,23,42,.90);
+  --a1-muted: rgba(15,23,42,.55);
+  --a1-r-xl: 22px;
+  --a1-r-lg: 16px;
+  --a1-shadow-sm: 0 6px 18px rgba(15,23,42,.06);
+  --a1-shadow: 0 12px 30px rgba(15,23,42,.08);
+  color-scheme: light;
+}
+
+html.her body {
+  background: var(--a1-bg);
+  color: var(--a1-text);
+}
+
+/* App 壳层白底：只在 her 下透出底布 */
+html.her .a1-shell {
+  background-color: transparent !important;
+}
+
+/* A1 卡片通用工具类（后面组件会用） */
+html.her .a1-card {
+  border: 1px solid var(--a1-border);
+  border-radius: var(--a1-r-xl);
+  background: var(--a1-surface-strong);
+  box-shadow: var(--a1-shadow);
+}
+
+html.her .a1-card-soft {
+  border: 1px solid var(--a1-border);
+  border-radius: var(--a1-r-xl);
+  background: var(--a1-surface);
+  box-shadow: var(--a1-shadow-sm);
+}
+
+
+/* =========================
+   A1 Chat Panel（仅 html.her）
+   目标：让“会话页”也像 A1 卡片面板，但不改变滚动/输入逻辑
+   ========================= */
+
+html.her .a1-chat-page {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 18px 16px 22px;
+}
+
+html.her .a1-chat-panel {
+  width: min(980px, 100%);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.76));
+  box-shadow: 0 26px 80px rgba(15, 23, 42, 0.10);
+  overflow: hidden; /* 只裁切圆角，不要把滚动放这里 */
+}
+
+/* 只给消息区一点内边距，让内容更“纸面板” */
+html.her .a1-chat-messages {
+  padding: 14px 14px 8px;
+}
+
+/* 输入条所在区域：与面板融在一起，轻分隔 */
+html.her .a1-chat-composer {
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* 移动端：面板贴边一点，不要显得太厚重 */
+@media (max-width: 640px) {
+  html.her .a1-chat-page { padding: 14px 12px 18px; }
+  html.her .a1-chat-panel { border-radius: 22px; }
+  html.her .a1-chat-messages { padding: 12px 12px 6px; }
+  html.her .a1-chat-composer { padding: 10px 10px 10px; }
+}
+

@@ -64,8 +64,12 @@
 					document.documentElement.classList.add('light');
 					metaThemeColorTag.setAttribute('content', '#ffffff');
 				} else if (localStorage.theme === 'her') {
-					document.documentElement.classList.add('her');
-					metaThemeColorTag.setAttribute('content', '#983724');
+				  // 关键：避免 her 继承 system/light/dark
+				  document.documentElement.classList.remove('dark', 'light');
+				  document.documentElement.classList.add('her');
+
+				  // A1 奶油底色（浏览器地址栏）
+				  metaThemeColorTag.setAttribute('content', '#F7F2F4');
 				} else {
 					document.documentElement.classList.add('dark');
 					metaThemeColorTag.setAttribute('content', '#171717');
@@ -103,7 +107,7 @@
 			})();
 		</script>
 
-		<title>Open WebUI</title>
+		<title>小玲</title>
 
 		%sveltekit.head%
 	</head>
@@ -189,9 +193,8 @@
 			background: #000;
 		}
 
-		html.her #splash-screen {
-			background: #983724;
-		}
+		html.her #splash-screen { background: #F7F2F4; }
+		html.her #logo-her { filter: none; } /* 不要强制 invert(1) */
 
 		#logo-her {
 			display: none;

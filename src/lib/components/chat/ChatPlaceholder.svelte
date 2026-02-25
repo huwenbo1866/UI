@@ -35,104 +35,47 @@
 </script>
 
 {#key mounted}
-	<div class="m-auto w-full max-w-6xl px-8 lg:px-20">
-		<div class="flex justify-start">
-			<div class="flex -space-x-4 mb-0.5" in:fade={{ duration: 200 }}>
-				{#each models as model, modelIdx}
-					<button
-						on:click={() => {
-							selectedModelIdx = modelIdx;
-						}}
-					>
-						<Tooltip
-							content={marked.parse(
-								sanitizeResponseContent(
-									models[selectedModelIdx]?.info?.meta?.description ?? ''
-								).replaceAll('\n', '<br>')
-							)}
-							placement="right"
-						>
-							<img
-								src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model?.id}&lang=${$i18n.language}`}
-								class=" size-[2.7rem] rounded-full border-[1px] border-gray-100 dark:border-none"
-								alt="logo"
-								draggable="false"
-							/>
-						</Tooltip>
-					</button>
-				{/each}
-			</div>
-		</div>
+	<div class="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-10 py-10">
+		<section class="a1-card p-5 sm:p-6 lg:p-7">
+			{#if $temporaryChatEnabled}
+				<Tooltip
+					content={$i18n.t("This chat won't appear in history and your messages will not be saved.")}
+					className="w-full flex justify-start mb-3"
+					placement="top"
+				>
+					<div class="flex items-center gap-2 text-gray-500 text-base w-fit">
+						<EyeSlash strokeWidth="2.5" className="size-4" />
+						{$i18n.t('Temporary Chat')}
+					</div>
+				</Tooltip>
+			{/if}
 
-		{#if $temporaryChatEnabled}
-			<Tooltip
-				content={$i18n.t("This chat won't appear in history and your messages will not be saved.")}
-				className="w-full flex justify-start mb-0.5"
-				placement="top"
-			>
-				<div class="flex items-center gap-2 text-gray-500 text-lg mt-2 w-fit">
-					<EyeSlash strokeWidth="2.5" className="size-5" />{$i18n.t('Temporary Chat')}
-				</div>
-			</Tooltip>
-		{/if}
+			<!-- A1 标题区：更紧凑、更像面板头 -->
+			<div class="flex items-center gap-4 font-primary text-left">
+				<div>
+					<div class="capitalize line-clamp-1 text-3xl sm:text-4xl text-gray-800 dark:text-gray-100" in:fade={{ duration: 200 }}>
+						小玲
+					</div>
 
-		<div
-			class=" mt-2 mb-4 text-3xl text-gray-800 dark:text-gray-100 text-left flex items-center gap-4 font-primary"
-		>
-			<div>
-				<div class=" capitalize line-clamp-1" in:fade={{ duration: 200 }}>
-					{#if models[selectedModelIdx]?.name}
-						{models[selectedModelIdx]?.name}
-					{:else}
-						{$i18n.t('Hello, {{name}}', { name: $user?.name })}
-					{/if}
-				</div>
-
-				<div in:fade={{ duration: 200, delay: 200 }}>
-					{#if models[selectedModelIdx]?.info?.meta?.description ?? null}
-						<div
-							class="mt-0.5 text-base font-normal text-gray-500 dark:text-gray-400 line-clamp-3 markdown"
-						>
-							{@html marked.parse(
-								sanitizeResponseContent(
-									models[selectedModelIdx]?.info?.meta?.description
-								).replaceAll('\n', '<br>')
-							)}
-						</div>
-						{#if models[selectedModelIdx]?.info?.meta?.user}
-							<div class="mt-0.5 text-sm font-normal text-gray-400 dark:text-gray-500">
-								By
-								{#if models[selectedModelIdx]?.info?.meta?.user.community}
-									<a
-										href="https://openwebui.com/m/{models[selectedModelIdx]?.info?.meta?.user
-											.username}"
-										>{models[selectedModelIdx]?.info?.meta?.user.name
-											? models[selectedModelIdx]?.info?.meta?.user.name
-											: `@${models[selectedModelIdx]?.info?.meta?.user.username}`}</a
-									>
-								{:else}
-									{models[selectedModelIdx]?.info?.meta?.user.name}
-								{/if}
-							</div>
-						{/if}
-					{:else}
-						<div class=" text-gray-400 dark:text-gray-500 line-clamp-1 font-p">
+					<div class="mt-2" in:fade={{ duration: 200, delay: 200 }}>
+						<div class="text-sm text-gray-500 dark:text-gray-400 line-clamp-1 font-p">
 							{$i18n.t('How can I help you today?')}
 						</div>
-					{/if}
+					</div>
 				</div>
 			</div>
-		</div>
 
-		<div class=" w-full font-primary" in:fade={{ duration: 200, delay: 300 }}>
-			<Suggestions
-				className="grid grid-cols-2"
-				suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
-					models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
-					$config?.default_prompt_suggestions ??
-					[]}
-				{onSelect}
-			/>
-		</div>
+			<!-- A1 建议：单列 + 卡片化容器 -->
+			<div class="mt-5 a1-suggestions w-full font-primary" in:fade={{ duration: 200, delay: 300 }}>
+				<Suggestions
+					className="grid grid-cols-1 gap-3"
+					suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
+						models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
+						$config?.default_prompt_suggestions ??
+						[]}
+					{onSelect}
+				/>
+			</div>
+		</section>
 	</div>
 {/key}

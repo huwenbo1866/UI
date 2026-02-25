@@ -313,21 +313,7 @@
 				<div class="flex items-center">{$i18n.t('Settings')}</div>
 			</DropdownMenu.Item> -->
 
-			{#if $mobile && ($user?.role === 'admin' || ($user?.permissions.chat?.controls ?? true))}
-				<DropdownMenu.Item
-					class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl select-none w-full"
-					id="chat-controls-button"
-					on:click={async () => {
-						await showControls.set(true);
-						await showOverview.set(false);
-						await showArtifacts.set(false);
-						await showEmbeds.set(false);
-					}}
-				>
-					<AdjustmentsHorizontal className=" size-4" strokeWidth="1.5" />
-					<div class="flex items-center">{$i18n.t('Controls')}</div>
-				</DropdownMenu.Item>
-			{/if}
+			
 
 			<DropdownMenu.Item
 				class="flex gap-2 items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl select-none w-full"

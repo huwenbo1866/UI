@@ -1858,7 +1858,7 @@
 																}
 
 																showCallOverlay.set(true);
-																showControls.set(true);
+																
 															} catch (err) {
 																// If the user denies the permission or an error occurs, show an error message
 																toast.error(

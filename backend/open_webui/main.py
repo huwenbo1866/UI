@@ -10,7 +10,7 @@ import time
 import random
 import re
 from uuid import uuid4
-
+import os
 
 from contextlib import asynccontextmanager
 from urllib.parse import urlencode, parse_qs, urlparse
@@ -1612,9 +1612,21 @@ async def chat_completion(
     if not request.app.state.MODELS:
         await get_all_models(request, user=user)
 
-    model_id = form_data.get("model", None)
     model_item = form_data.pop("model_item", {})
     tasks = form_data.pop("background_tasks", None)
+
+    # ===== Force chat model (ignore client selection) =====
+    forced = os.getenv("WEBUI_FORCED_CHAT_MODEL", "").strip()
+    if forced:
+        forced = forced.split(",")[0].strip()
+        form_data["model"] = forced
+        model_item = {}  # 禁止 direct
+        # 验证日志
+        log.warning("[MODEL_LOCK][main] forced model=%s", forced)
+    # ===== End =====
+
+    # 再读取 model_id（这时一定是强制后的）
+    model_id = form_data.get("model", None)
 
     metadata = {}
     try:

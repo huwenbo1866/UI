@@ -1044,6 +1044,8 @@ async def generate_chat_completion(
         else:
             request_url = f"{url}/chat/completions"
 
+    log.warning("[MODEL_LOCK][OUT] final payload.model=%s, payload.max_tokens=%s", payload.get("model"),payload.get("max_tokens"))
+
     payload = json.dumps(payload)
 
     r = None

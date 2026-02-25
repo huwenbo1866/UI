@@ -155,7 +155,7 @@
 
 <svelte:head>
 	<title>
-		{$i18n.t('Skills')} • {$WEBUI_NAME}
+		{$i18n.t('Skills')} • 小玲
 	</title>
 </svelte:head>
 

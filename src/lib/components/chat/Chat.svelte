@@ -2464,9 +2464,7 @@
 
 <svelte:head>
 	<title>
-		{$settings.showChatTitleInTab !== false && $chatTitle
-			? `${$chatTitle.length > 30 ? `${$chatTitle.slice(0, 30)}...` : $chatTitle} • ${$WEBUI_NAME}`
-			: `${$WEBUI_NAME}`}
+		小玲
 	</title>
 </svelte:head>
 
@@ -2582,111 +2580,118 @@
 
 					<div class="flex flex-col flex-auto z-10 w-full @container overflow-auto">
 						{#if ($settings?.landingPageMode === 'chat' && !$selectedFolder) || createMessagesList(history, history.currentId).length > 0}
-							<div
-								class=" pb-2.5 flex flex-col justify-between w-full flex-auto overflow-auto h-0 max-w-full z-10 scrollbar-hidden"
-								id="messages-container"
-								bind:this={messagesContainerElement}
-								on:scroll={(e) => {
-									autoScroll =
-										messagesContainerElement.scrollHeight - messagesContainerElement.scrollTop <=
-										messagesContainerElement.clientHeight + 5;
-								}}
-							>
-								<div class=" h-full w-full flex flex-col">
-									<Messages
-										chatId={$chatId}
-										bind:history
-										bind:autoScroll
-										bind:prompt
-										setInputText={(text) => {
-											messageInput?.setText(text);
+							<div class="a1-chat-page flex flex-col flex-auto min-h-0">
+							  <section class="a1-chat-panel flex flex-col flex-auto min-h-0 w-full relative">
+							    <div class="a1-chat-messages flex flex-col flex-auto min-h-0">
+							
+									<div
+										class=" pb-2.5 flex flex-col justify-between w-full flex-auto overflow-auto h-0 max-w-full z-10 scrollbar-hidden"
+										id="messages-container"
+										bind:this={messagesContainerElement}
+										on:scroll={(e) => {
+											autoScroll =
+												messagesContainerElement.scrollHeight - messagesContainerElement.scrollTop <=
+												messagesContainerElement.clientHeight + 5;
 										}}
+									>
+										<div class=" h-full w-full flex flex-col">
+											<Messages
+												chatId={$chatId}
+												bind:history
+												bind:autoScroll
+												bind:prompt
+												setInputText={(text) => {
+													messageInput?.setText(text);
+												}}
+												{selectedModels}
+												{atSelectedModel}
+												{sendMessage}
+												{showMessage}
+												{submitMessage}
+												{continueResponse}
+												{regenerateResponse}
+												{mergeResponses}
+												{chatActionHandler}
+												{addMessages}
+												topPadding={true}
+												bottomPadding={files.length > 0}
+												{onSelect}
+											/>
+										</div>
+									</div>
+								</div>
+
+								<div class="a1-chat-composer pb-2 z-10 relative">
+									<MessageInput
+										bind:this={messageInput}
+										{history}
+										{taskIds}
 										{selectedModels}
-										{atSelectedModel}
-										{sendMessage}
-										{showMessage}
-										{submitMessage}
-										{continueResponse}
-										{regenerateResponse}
-										{mergeResponses}
-										{chatActionHandler}
-										{addMessages}
-										topPadding={true}
-										bottomPadding={files.length > 0}
-										{onSelect}
+										bind:files
+										bind:prompt
+										bind:autoScroll
+										bind:selectedToolIds
+										bind:selectedFilterIds
+										bind:imageGenerationEnabled
+										bind:codeInterpreterEnabled
+										bind:webSearchEnabled
+										bind:atSelectedModel
+										bind:showCommands
+										toolServers={$toolServers}
+										{generating}
+										{stopResponse}
+										{createMessagePair}
+										{onUpload}
+										{messageQueue}
+										onQueueSendNow={async (id) => {
+											const item = messageQueue.find((m) => m.id === id);
+											if (item) {
+												// Remove from queue
+												messageQueue = messageQueue.filter((m) => m.id !== id);
+												// Stop current generation first
+												await stopResponse();
+												await tick();
+												// Set files and submit
+												files = item.files;
+												await tick();
+												await submitPrompt(item.prompt);
+											}
+										}}
+										onQueueEdit={(id) => {
+											const item = messageQueue.find((m) => m.id === id);
+											if (item) {
+												// Remove from queue
+												messageQueue = messageQueue.filter((m) => m.id !== id);
+												// Set files and restore prompt to input
+												files = item.files;
+												messageInput?.setText(item.prompt);
+											}
+										}}
+										onQueueDelete={(id) => {
+											messageQueue = messageQueue.filter((m) => m.id !== id);
+										}}
+										onChange={(data) => {
+											if (!$temporaryChatEnabled) {
+												saveDraft(data, $chatId);
+											}
+										}}
+										on:submit={async (e) => {
+											clearDraft();
+											if (e.detail || files.length > 0) {
+												await tick();
+	
+												submitPrompt(e.detail.replaceAll('\n\n', '\n'));
+											}
+										}}
 									/>
+	
+									<div
+										class="absolute bottom-1 text-xs text-gray-500 text-center line-clamp-1 right-0 left-0"
+									>
+										<!-- {$i18n.t('LLMs can make mistakes. Verify important information.')} -->
+									</div>
 								</div>
-							</div>
-
-							<div class=" pb-2 z-10">
-								<MessageInput
-									bind:this={messageInput}
-									{history}
-									{taskIds}
-									{selectedModels}
-									bind:files
-									bind:prompt
-									bind:autoScroll
-									bind:selectedToolIds
-									bind:selectedFilterIds
-									bind:imageGenerationEnabled
-									bind:codeInterpreterEnabled
-									bind:webSearchEnabled
-									bind:atSelectedModel
-									bind:showCommands
-									toolServers={$toolServers}
-									{generating}
-									{stopResponse}
-									{createMessagePair}
-									{onUpload}
-									{messageQueue}
-									onQueueSendNow={async (id) => {
-										const item = messageQueue.find((m) => m.id === id);
-										if (item) {
-											// Remove from queue
-											messageQueue = messageQueue.filter((m) => m.id !== id);
-											// Stop current generation first
-											await stopResponse();
-											await tick();
-											// Set files and submit
-											files = item.files;
-											await tick();
-											await submitPrompt(item.prompt);
-										}
-									}}
-									onQueueEdit={(id) => {
-										const item = messageQueue.find((m) => m.id === id);
-										if (item) {
-											// Remove from queue
-											messageQueue = messageQueue.filter((m) => m.id !== id);
-											// Set files and restore prompt to input
-											files = item.files;
-											messageInput?.setText(item.prompt);
-										}
-									}}
-									onQueueDelete={(id) => {
-										messageQueue = messageQueue.filter((m) => m.id !== id);
-									}}
-									onChange={(data) => {
-										if (!$temporaryChatEnabled) {
-											saveDraft(data, $chatId);
-										}
-									}}
-									on:submit={async (e) => {
-										clearDraft();
-										if (e.detail || files.length > 0) {
-											await tick();
-
-											submitPrompt(e.detail.replaceAll('\n\n', '\n'));
-										}
-									}}
-								/>
-
-								<div
-									class="absolute bottom-1 text-xs text-gray-500 text-center line-clamp-1 right-0 left-0"
-								>
-									<!-- {$i18n.t('LLMs can make mistakes. Verify important information.')} -->
-								</div>
+							  </section>
 							</div>
 						{:else}
 							<div class="flex items-center h-full">

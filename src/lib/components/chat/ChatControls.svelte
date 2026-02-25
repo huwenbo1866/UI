@@ -13,7 +13,7 @@
 		showEmbeds
 	} from '$lib/stores';
 
-	import Controls from './Controls/Controls.svelte';
+	
 	import CallOverlay from './MessageInput/CallOverlay.svelte';
 	import Drawer from '../common/Drawer.svelte';
 	import Artifacts from './Artifacts.svelte';
@@ -149,6 +149,17 @@
 	$: if (!chatId) {
 		closeHandler();
 	}
+
+	$: if (
+		$showControls &&
+		!$showCallOverlay &&
+		!$showEmbeds &&
+		!$showArtifacts &&
+		!$showOverview
+	) {
+		showControls.set(false);
+	}
+
 </script>
 
 {#if !largeScreen}
@@ -198,14 +209,7 @@
 						/>
 					{/await}
 				{:else}
-					<Controls
-						on:close={() => {
-							showControls.set(false);
-						}}
-						{models}
-						bind:chatFiles
-						bind:params
-					/>
+					<!-- Controls removed -->
 				{/if}
 			</div>
 		</Drawer>
@@ -294,14 +298,7 @@
 							/>
 						{/await}
 					{:else}
-						<Controls
-							on:close={() => {
-								showControls.set(false);
-							}}
-							{models}
-							bind:chatFiles
-							bind:params
-						/>
+						<!-- Controls removed -->
 					{/if}
 				</div>
 			</div>
