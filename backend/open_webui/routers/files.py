@@ -2,6 +2,9 @@ import logging
 import os
 import uuid
 import json
+import re
+import requests
+
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
@@ -110,6 +113,312 @@ def has_access_to_file(
     return False
 
 
+def normalize_transcript_text(text: str) -> str:
+    """
+    轻量转写后处理（本地、低成本、稳定）
+    目标：不改语义，只做清洗与可读性提升
+    """
+    if not text:
+        return ""
+
+    t = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # 压缩多余空白
+    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+
+    # 清理常见重复标点
+    t = re.sub(r"[，,]{2,}", "，", t)
+    t = re.sub(r"[。\.]{2,}", "。", t)
+    t = re.sub(r"[！!]{2,}", "！", t)
+    t = re.sub(r"[？?]{2,}", "？", t)
+
+    # 去掉独立成行的语气词（非常保守，避免误删正文）
+    t = re.sub(r"(?m)^\s*(嗯+|呃+|额+|啊+|唉+)\s*$", "", t)
+
+    # 再清一次空行
+    t = re.sub(r"\n{3,}", "\n\n", t).strip()
+    return t
+
+
+def split_text_for_llm(text: str, max_chars: int = 6000, overlap: int = 300) -> list[str]:
+    """
+    按字符切块，尽量在换行处切，避免把一句话硬截断
+    """
+    if not text:
+        return []
+
+    chunks = []
+    n = len(text)
+    start = 0
+
+    while start < n:
+        end = min(start + max_chars, n)
+        # 优先在换行处分块
+        if end < n:
+            cut = text.rfind("\n", start, end)
+            if cut != -1 and cut > start + max_chars // 2:
+                end = cut
+
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+
+        if end >= n:
+            break
+
+        start = max(0, end - overlap)
+
+    return chunks
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _call_openai_compatible_chat(messages: list, model: str, timeout: int = 120) -> str:
+    """
+    调用 OpenAI 兼容 chat completions 接口（可接你现有的模型服务）
+    环境变量：
+      LECTURE_MINUTES_LLM_BASE_URL  例如: http://127.0.0.1:11434/v1 或 https://api.openai.com/v1
+      LECTURE_MINUTES_LLM_API_KEY    可为空（若本地服务不需要）
+      LECTURE_MINUTES_LLM_MODEL      例如: deepseek-chat / gpt-4o-mini / qwen-plus
+    """
+    base_url = (os.getenv("LECTURE_MINUTES_LLM_BASE_URL") or "").rstrip("/")
+    api_key = os.getenv("LECTURE_MINUTES_LLM_API_KEY", "")
+    if not base_url:
+        raise RuntimeError("LECTURE_MINUTES_LLM_BASE_URL is not set")
+
+    url = f"{base_url}/chat/completions"
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.2,
+    }
+
+    resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+
+    try:
+        return data["choices"][0]["message"]["content"].strip()
+    except Exception:
+        raise RuntimeError(f"Unexpected chat response: {data}")
+
+def rewrite_transcript_llm(transcript_text: str, file_name: str = "") -> str:
+    """
+    对 ASR 原始逐字稿做“复述纠正”：
+    - 不做事实扩写
+    - 补标点 / 分句
+    - 修正常见同音误识别（在上下文足够确定时）
+    - 不确定内容可保留原词，不强猜
+    返回空字符串表示未启用或失败（调用方可回退到原文）
+    """
+    text = (transcript_text or "").strip()
+    if not text:
+        return ""
+
+    enabled = _env_bool("STT_LLM_REWRITE_ENABLED", True)
+    if not enabled:
+        return ""
+
+    # 优先使用专用模型；没有就复用纪要模型
+    model = (
+        os.getenv("STT_LLM_REWRITE_MODEL", "").strip()
+        or os.getenv("LECTURE_MINUTES_LLM_MODEL", "").strip()
+    )
+    if not model:
+        log.info("[STT] LLM transcript rewrite skipped: no model configured")
+        return ""
+
+    chunks = split_text_for_llm(text, max_chars=3500, overlap=120)
+    rewritten_parts = []
+
+    for idx, chunk in enumerate(chunks, start=1):
+        system_prompt = (
+            "你是一个中文课堂录音整理助手。"
+            "你的任务是将 ASR（语音识别）原始逐字稿整理为“可读版逐字稿”。"
+            "必须遵守："
+            "1) 不添加原文中没有的新事实；"
+            "2) 优先保持原意，不要改写成摘要；"
+            "3) 只在高置信度时纠正明显同音/近音错误；"
+            "4) 补充标点、断句、分段；"
+            "5) 遇到不确定词语，宁可保留原词，不要强行猜测；"
+            "6) 输出仅为整理后的正文，不要解释。"
+        )
+
+        user_prompt = (
+            f"文件名：{file_name}\n"
+            f"这是第 {idx}/{len(chunks)} 段 ASR 原始逐字稿，请整理为可读版逐字稿（不是摘要）：\n\n"
+            f"{chunk}"
+        )
+
+        # ✅ 注意：按你当前 helper 的签名来调用（messages + model）
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        try:
+            part = _call_openai_compatible_chat(messages=messages, model=model, timeout=120)
+            if part and part.strip():
+                rewritten_parts.append(part.strip())
+            else:
+                rewritten_parts.append(chunk.strip())  # 回退
+        except Exception as e:
+            log.warning(f"[STT] LLM transcript rewrite chunk {idx} failed: {e}")
+            rewritten_parts.append(chunk.strip())
+
+    return "\n".join([p for p in rewritten_parts if p]).strip()
+
+
+def generate_lecture_minutes_llm(transcript_text: str, file_name: str = "") -> str:
+    """
+    可选：用 LLM 将逐字稿整理成课堂听课纪要（成本远低于云 STT）
+    默认关闭；通过环境变量开启。
+    """
+    if not _env_bool("LECTURE_MINUTES_LLM_ENABLED", False):
+        return ""
+
+    model = os.getenv("LECTURE_MINUTES_LLM_MODEL", "").strip()
+    if not model:
+        raise RuntimeError("LECTURE_MINUTES_LLM_MODEL is not set")
+
+    if not transcript_text or len(transcript_text.strip()) < 20:
+        return ""
+
+    system_prompt = (
+        "你是课堂听课纪要整理助手。"
+        "请基于转写文本生成高质量、结构化、可学习的中文听课纪要。"
+        "要求：\n"
+        "1) 忠于原文，不编造未提及内容；\n"
+        "2) 保留关键术语（必要时括号补充英文/原词）；\n"
+        "3) 输出结构清晰，适合学生复习；\n"
+        "4) 若转写有噪声或口误，可在不改变含义前提下整理；\n"
+        "5) 不要输出与课堂无关的客套话。"
+    )
+
+    chunk_prompt_template = (
+        "下面是课堂录音转写文本的一部分，请先做“分块纪要”。\n"
+        "文件名：{file_name}\n\n"
+        "请输出以下结构（Markdown）：\n"
+        "## 本段主题\n"
+        "## 关键知识点（条目化）\n"
+        "## 例子/案例\n"
+        "## 老师强调/易错点\n"
+        "## 待确认内容（若转写不清）\n\n"
+        "转写片段：\n"
+        "{chunk}"
+    )
+
+    final_prompt_template = (
+        "下面是同一堂课多个分块纪要，请合并成最终《课堂录音听课纪要》。\n"
+        "要求：去重、按逻辑重组、保持完整性与可复习性。\n\n"
+        "请输出 Markdown，结构如下：\n"
+        "# 课堂录音听课纪要\n"
+        "## 课程主题\n"
+        "## 核心主线\n"
+        "## 知识点详解\n"
+        "## 例子/案例\n"
+        "## 易错点 / 老师强调\n"
+        "## 课后复习建议\n"
+        "## 待确认片段（若有）\n\n"
+        "分块纪要如下：\n"
+        "{partials}"
+    )
+
+    chunks = split_text_for_llm(
+        transcript_text,
+        max_chars=int(os.getenv("LECTURE_MINUTES_CHUNK_CHARS", "6000")),
+        overlap=int(os.getenv("LECTURE_MINUTES_CHUNK_OVERLAP", "300")),
+    )
+
+    if not chunks:
+        return ""
+
+    partials = []
+    for idx, chunk in enumerate(chunks, 1):
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": chunk_prompt_template.format(
+                    file_name=file_name or "未命名音视频",
+                    chunk=chunk,
+                ),
+            },
+        ]
+        part = _call_openai_compatible_chat(messages, model=model, timeout=180)
+        partials.append(f"### 分块 {idx}\n{part}")
+
+    # 只有一块时，直接返回（避免多一次成本）
+    if len(partials) == 1:
+        return f"# 课堂录音听课纪要\n\n{partials[0]}".strip()
+
+    final_messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": final_prompt_template.format(partials="\n\n".join(partials)),
+        },
+    ]
+    final_minutes = _call_openai_compatible_chat(final_messages, model=model, timeout=240)
+    return final_minutes.strip()
+
+
+def build_audio_learning_document(
+    file_name: str,
+    raw_text: str,
+    corrected_text: Optional[str] = None,
+    lecture_minutes: Optional[str] = None,
+) -> str:
+    parts = [
+        "# 课堂录音处理结果",
+        "",
+        "## 文件名",
+        file_name,
+        "",
+    ]
+
+    if lecture_minutes and lecture_minutes.strip():
+        parts += [
+            "## 课堂录音听课纪要",
+            lecture_minutes.strip(),
+            "",
+        ]
+    else:
+        parts += [
+            "## 课堂录音听课纪要",
+            "（未启用 LLM 纪要整理，当前仅提供逐字稿）",
+            "",
+        ]
+
+    # 保留原始 ASR 结果（便于核对）
+    parts += [
+        "## 课堂录音逐字稿（ASR原始）",
+        (raw_text or "").strip(),
+        "",
+    ]
+
+    # 若有 LLM 纠正版，则额外展示
+    if corrected_text and corrected_text.strip():
+        parts += [
+            "## 课堂录音逐字稿（LLM复述纠正稿）",
+            corrected_text.strip(),
+            "",
+        ]
+
+    return "\n".join(parts).strip() + "\n"
+
+
 ############################
 # Upload File
 ############################
@@ -131,18 +440,87 @@ def process_uploaded_file(
                     request.app.state.config, "STT_SUPPORTED_CONTENT_TYPES", []
                 )
 
+                # ✅ 新增：规范化 content_type（防止带参数，如 video/mp4; codecs=...）
+                content_type = (file.content_type or "").split(";")[0].strip().lower()
+
+                # ✅ 新增：明确只放行 video/mp4（不要放开所有 video/*）
+                is_mp4_video = content_type == "video/mp4"
+
+                # ✅ 修改：把 “STT支持的音频” 和 “video/mp4” 统一视为可转写媒体
                 if strict_match_mime_type(
                     stt_supported_content_types, file.content_type
-                ):
+                ) or is_mp4_video:
                     file_path_processed = Storage.get_file(file_path)
                     result = transcribe(
                         request, file_path_processed, file_metadata, user
                     )
+                    
+                    raw_text = (result.get("text", "") or "").strip()
 
+                    # ✅ 先做一层轻量 normalize（给 LLM 输入更稳定）
+                    normalized_raw_text = normalize_transcript_text(raw_text)
+                    
+                    log.info(
+                        f"[STT] file={getattr(file, 'filename', '')} "
+                        f"raw_text_len={len(raw_text)} normalized_text_len={len(normalized_raw_text)}"
+                    )
+                    
+                    # 1) 先用 LLM 对（normalize 后的）识别结果做“复述纠正”
+                    corrected_text = ""
+                    try:
+                        corrected_text = rewrite_transcript_llm(
+                            transcript_text=normalized_raw_text or raw_text,
+                            file_name=getattr(file, "filename", "") or "",
+                        )
+                        if corrected_text:
+                            log.info(
+                                f"[STT] transcript rewrite generated, len={len(corrected_text)} for file={getattr(file, 'filename', '')}"
+                            )
+                        else:
+                            log.info(
+                                f"[STT] transcript rewrite skipped or disabled for file={getattr(file, 'filename', '')}"
+                            )
+                    except Exception as rewrite_err:
+                        # 纠正失败不影响主链路：仍然入库原始逐字稿
+                        log.warning(
+                            f"[STT] transcript rewrite failed for file={getattr(file, 'filename', '')}: {rewrite_err}"
+                        )
+                        corrected_text = ""
+                    
+                    # 2) （可选）再用 LLM 生成听课纪要：优先基于纠正稿，其次 normalize稿，再次原始稿
+                    lecture_minutes = ""
+                    try:
+                        lecture_minutes = generate_lecture_minutes_llm(
+                            transcript_text=corrected_text or normalized_raw_text or raw_text,
+                            file_name=getattr(file, "filename", "") or "",
+                        )
+                        if lecture_minutes:
+                            log.info(
+                                f"[STT] lecture minutes generated, len={len(lecture_minutes)} for file={getattr(file, 'filename', '')}"
+                            )
+                        else:
+                            log.info(
+                                f"[STT] lecture minutes skipped or disabled for file={getattr(file, 'filename', '')}"
+                            )
+                    except Exception as summary_err:
+                        # 纪要失败不影响主链路：仍然入库逐字稿/纠正稿
+                        log.warning(
+                            f"[STT] lecture minutes generation failed for file={getattr(file, 'filename', '')}: {summary_err}"
+                        )
+                    
+                    # 3) 构建最终入库文本（保留原始稿 + LLM纠正稿 + 可选纪要）
+                    final_text = build_audio_learning_document(
+                        file_name=getattr(file, "filename", "") or "",
+                        raw_text=raw_text,                 # ✅ 注意参数名
+                        corrected_text=corrected_text,     # ✅ 注意参数名
+                        lecture_minutes=lecture_minutes,
+                    )
+                    
                     process_file(
                         request,
                         ProcessFileForm(
-                            file_id=file_item.id, content=result.get("text", "")
+                            file_id=file_item.id,
+                            content=final_text,
                         ),
                         user=user,
                         db=db_session,

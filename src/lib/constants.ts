@@ -33,7 +33,8 @@ export const SUPPORTED_FILE_TYPE = [
 	'audio/mpeg',
 	'audio/wav',
 	'audio/ogg',
-	'audio/x-m4a'
+	'audio/x-m4a',
+	'video/mp4'
 ];
 
 export const SUPPORTED_FILE_EXTENSIONS = [
@@ -92,7 +93,13 @@ export const SUPPORTED_FILE_EXTENSIONS = [
 	'xlsx',
 	'pptx',
 	'ppt',
-	'msg'
+	'msg',
+	'mp3',
+	'mp4',
+	'm4a',
+	'wav',
+	'ogg',
+	'webm',
 ];
 
 export const PASTED_TEXT_CHARACTER_LIMIT = 1000;
