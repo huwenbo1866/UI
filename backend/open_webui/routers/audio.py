@@ -8,8 +8,8 @@ import base64
 from functools import lru_cache
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
-from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional, Callable
 
 from fnmatch import fnmatch
 import aiohttp
@@ -1044,19 +1044,51 @@ def transcription_handler(request, file_path, metadata, user=None):
 
 
 def transcribe(
-    request: Request, file_path: str, metadata: Optional[dict] = None, user=None
+    request: Request,
+    file_path: str,
+    metadata: Optional[dict] = None,
+    user=None,
+    progress_callback: Optional[Callable[..., None]] = None,
 ):
     log.info(f"transcribe: {file_path} {metadata}")
 
+    def emit_progress(**kwargs):
+        if progress_callback:
+            try:
+                progress_callback(**kwargs)
+            except Exception as e:
+                # 不要让进度回调本身影响主流程
+                log.exception(e)
+
+    emit_progress(
+        stage="extracting_audio",
+        progress_pct=5,
+        message="正在抽取音频",
+    )
+
     if is_audio_conversion_required(file_path):
         file_path = convert_audio_to_mp3(file_path)
+
+    emit_progress(
+        stage="preprocessing_audio",
+        progress_pct=10,
+        message="正在预处理音频",
+    )
 
     try:
         file_path = compress_audio(file_path)
     except Exception as e:
         log.exception(e)
 
-    # Always produce a list of chunk paths (could be one entry if small)
+    emit_progress(
+        stage="segmenting",
+        progress_pct=15,
+        message="正在切分音频",
+    )
+
+    # 先给默认值，避免 split_audio 异常时 finally 里 chunk_paths 未定义
+    chunk_paths = [file_path]
+
     try:
         chunk_paths = split_audio(file_path, MAX_FILE_SIZE)
         print(f"Chunk paths: {chunk_paths}")
@@ -1067,27 +1099,61 @@ def transcribe(
             detail=ERROR_MESSAGES.DEFAULT(e),
         )
 
-    results = []
+    total_chunks = len(chunk_paths)
+
+    emit_progress(
+        stage="transcribing",
+        progress_pct=20,
+        current_chunk=0,
+        total_chunks=total_chunks,
+        message=f"正在识别第 0/{total_chunks} 段",
+    )
+
+    # 用固定长度数组保存结果，保证最后拼接顺序和 chunk 顺序一致
+    results = [None] * total_chunks
+
+    # 限制并发，别无脑开满
+    max_workers = max(
+        1,
+        min(int(os.getenv("STT_MAX_WORKERS", "2")), total_chunks),
+    )
+
     try:
-        with ThreadPoolExecutor() as executor:
-            # Submit tasks for each chunk_path
-            futures = [
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_idx = {
                 executor.submit(
                     transcription_handler, request, chunk_path, metadata, user
-                )
-                for chunk_path in chunk_paths
-            ]
-            # Gather results as they complete
-            for future in futures:
+                ): idx
+                for idx, chunk_path in enumerate(chunk_paths)
+            }
+
+            done_count = 0
+
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+
                 try:
-                    results.append(future.result())
+                    result = future.result()
+                    results[idx] = result
+                    done_count += 1
+
+                    pct = 20 + int((done_count / total_chunks) * 55)
+
+                    emit_progress(
+                        stage="transcribing",
+                        progress_pct=pct,
+                        current_chunk=done_count,
+                        total_chunks=total_chunks,
+                        message=f"正在识别第 {done_count}/{total_chunks} 段",
+                    )
+
                 except Exception as transcribe_exc:
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                         detail=f"Error transcribing chunk: {transcribe_exc}",
                     )
     finally:
-        # Clean up only the temporary chunks, never the original file
+        # 只清理临时 chunk，不删主文件
         for chunk_path in chunk_paths:
             if chunk_path != file_path and os.path.isfile(chunk_path):
                 try:
@@ -1095,8 +1161,18 @@ def transcribe(
                 except Exception:
                     pass
 
+    emit_progress(
+        stage="transcribing",
+        progress_pct=75,
+        current_chunk=total_chunks,
+        total_chunks=total_chunks,
+        message="音频识别完成",
+    )
+
     return {
-        "text": " ".join([result["text"] for result in results]),
+        "text": " ".join(
+            [result["text"] for result in results if result and result.get("text")]
+        ).strip(),
     }
 
 

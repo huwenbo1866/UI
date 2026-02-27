@@ -36,6 +36,7 @@ from langchain_text_splitters import (
 )
 from langchain_core.documents import Document
 
+from open_webui.utils.file_progress import update_file_progress
 from open_webui.models.files import FileModel, FileUpdateForm, Files
 from open_webui.models.knowledge import Knowledges
 from open_webui.storage.provider import Storage
@@ -1792,7 +1793,15 @@ def process_file(
             hash = calculate_sha256_string(text_content)
 
             if request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
-                Files.update_file_data_by_id(file.id, {"status": "completed"}, db=db)
+                update_file_progress(
+                    file.id,
+                    db,
+                    status="completed",
+                    stage="completed",
+                    progress_pct=100,
+                    message="处理完成",
+                    content_ready=True,
+                )
                 Files.update_file_hash_by_id(file.id, hash, db=db)
                 return {
                     "status": True,
@@ -1805,6 +1814,16 @@ def process_file(
                     # Commit any pending changes before the slow embedding step.
                     # Note: file is already a Pydantic model (not ORM), so no expunge needed.
                     db.commit()
+
+                    update_file_progress(
+                        file.id,
+                        db,
+                        status="processing",
+                        stage="indexing",
+                        progress_pct=96,
+                        message="正在写入知识库",
+                        content_ready=True,
+                    )
 
                     # External embedding API takes time (5-60s+).
                     # Subsequent updates use fresh sessions via get_db().
@@ -1833,10 +1852,14 @@ def process_file(
                                 db=session,
                             )
 
-                            Files.update_file_data_by_id(
+                            update_file_progress(
                                 file.id,
-                                {"status": "completed"},
-                                db=session,
+                                session,
+                                status="completed",
+                                stage="completed",
+                                progress_pct=100,
+                                message="处理完成",
+                                content_ready=True,
                             )
                             Files.update_file_hash_by_id(file.id, hash, db=session)
 
@@ -1855,14 +1878,18 @@ def process_file(
             log.exception(e)
             # Fresh session for error status update.
             with get_db() as session:
-                Files.update_file_data_by_id(
+                update_file_progress(
                     file.id,
-                    {"status": "failed"},
-                    db=session,
+                    session,
+                    status="failed",
+                    stage="failed",
+                    progress_pct=100,
+                    message="处理失败",
+                    error=str(e),
                 )
                 # Clear the hash so the file can be re-uploaded after fixing the issue
                 Files.update_file_hash_by_id(file.id, None, db=session)
-
+        
             if "No pandoc was found" in str(e):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

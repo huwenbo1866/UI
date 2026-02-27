@@ -266,7 +266,7 @@
 										name={file.name}
 										type={file.type}
 										size={file?.size}
-										loading={file.status === 'uploading'}
+										loading={['uploading', 'pending', 'processing'].includes(file.status)}
 										dismissible={true}
 										edit={true}
 										on:dismiss={async () => {

@@ -23,6 +23,7 @@ from fastapi import (
     Query,
 )
 
+
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from open_webui.internal.db import get_session, SessionLocal
@@ -48,7 +49,7 @@ from open_webui.routers.audio import transcribe
 
 from open_webui.storage.provider import Storage
 
-
+from open_webui.utils.file_progress import update_file_progress
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access
 from open_webui.utils.misc import strict_match_mime_type
@@ -419,6 +420,19 @@ def build_audio_learning_document(
     return "\n".join(parts).strip() + "\n"
 
 
+
+def is_progress_media_file(file: UploadFile) -> bool:
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    filename = (file.filename or "").lower()
+
+    return (
+        content_type in {"audio/mpeg", "audio/mp3", "video/mp4"}
+        or filename.endswith(".mp3")
+        or filename.endswith(".mp4")
+    )
+
+
+
 ############################
 # Upload File
 ############################
@@ -440,22 +454,51 @@ def process_uploaded_file(
                     request.app.state.config, "STT_SUPPORTED_CONTENT_TYPES", []
                 )
 
-                # ✅ 新增：规范化 content_type（防止带参数，如 video/mp4; codecs=...）
                 content_type = (file.content_type or "").split(";")[0].strip().lower()
-
-                # ✅ 新增：明确只放行 video/mp4（不要放开所有 video/*）
                 is_mp4_video = content_type == "video/mp4"
+                should_use_stt = (
+                    strict_match_mime_type(stt_supported_content_types, file.content_type)
+                    or is_mp4_video
+                )
 
-                # ✅ 修改：把 “STT支持的音频” 和 “video/mp4” 统一视为可转写媒体
-                if strict_match_mime_type(
-                    stt_supported_content_types, file.content_type
-                ) or is_mp4_video:
+                if should_use_stt:
+                    update_file_progress(
+                        file_item.id,
+                        db_session,
+                        status="processing",
+                        stage="extracting_audio",
+                        progress_pct=5,
+                        message="正在抽取音频",
+                    )
+
                     file_path_processed = Storage.get_file(file_path)
+
+                    def stt_progress_callback(**kwargs):
+                        update_file_progress(
+                            file_item.id,
+                            db_session,
+                            status="processing",
+                            **kwargs,
+                        )
+
                     result = transcribe(
-                        request, file_path_processed, file_metadata, user
+                        request,
+                        file_path_processed,
+                        file_metadata,
+                        user,
+                        progress_callback=stt_progress_callback,
                     )
                     
                     raw_text = (result.get("text", "") or "").strip()
+
+                    update_file_progress(
+                        file_item.id,
+                        db_session,
+                        status="processing",
+                        stage="normalizing",
+                        progress_pct=78,
+                        message="正在清洗逐字稿",
+                    )
 
                     # ✅ 先做一层轻量 normalize（给 LLM 输入更稳定）
                     normalized_raw_text = normalize_transcript_text(raw_text)
@@ -465,6 +508,15 @@ def process_uploaded_file(
                         f"raw_text_len={len(raw_text)} normalized_text_len={len(normalized_raw_text)}"
                     )
                     
+                    update_file_progress(
+                        file_item.id,
+                        db_session,
+                        status="processing",
+                        stage="rewriting",
+                        progress_pct=84,
+                        message="正在优化可读版逐字稿",
+                    )
+
                     # 1) 先用 LLM 对（normalize 后的）识别结果做“复述纠正”
                     corrected_text = ""
                     try:
@@ -487,6 +539,15 @@ def process_uploaded_file(
                         )
                         corrected_text = ""
                     
+                    update_file_progress(
+                        file_item.id,
+                        db_session,
+                        status="processing",
+                        stage="minutes_generating",
+                        progress_pct=90,
+                        message="正在生成课堂纪要",
+                    )
+
                     # 2) （可选）再用 LLM 生成听课纪要：优先基于纠正稿，其次 normalize稿，再次原始稿
                     lecture_minutes = ""
                     try:
@@ -516,6 +577,16 @@ def process_uploaded_file(
                         lecture_minutes=lecture_minutes,
                     )
                     
+                    update_file_progress(
+                        file_item.id,
+                        db_session,
+                        status="processing",
+                        stage="indexing",
+                        progress_pct=96,
+                        message="正在写入知识库",
+                        content_ready=True,
+                    )
+
                     process_file(
                         request,
                         ProcessFileForm(
@@ -551,13 +622,14 @@ def process_uploaded_file(
 
         except Exception as e:
             log.error(f"Error processing file: {file_item.id}")
-            Files.update_file_data_by_id(
+            update_file_progress(
                 file_item.id,
-                {
-                    "status": "failed",
-                    "error": str(e.detail) if hasattr(e, "detail") else str(e),
-                },
-                db=db_session,
+                db_session,
+                status="failed",
+                stage="failed",
+                progress_pct=100,
+                message="处理失败",
+                error=str(e.detail) if hasattr(e, "detail") else str(e),
             )
 
     if db:
@@ -648,6 +720,8 @@ def upload_file_handler(
             },
         )
 
+        show_process_ui = process and is_progress_media_file(file)
+
         file_item = Files.insert_new_file(
             user.id,
             FileForm(
@@ -656,7 +730,20 @@ def upload_file_handler(
                     "filename": name,
                     "path": file_path,
                     "data": {
-                        **({"status": "pending"} if process else {}),
+                        **(
+                            {
+                                "show_process_ui": True,
+                                "status": "pending",
+                                "stage": "queued",
+                                "progress_pct": 0,
+                                "message": "等待进入处理队列",
+                                "current_chunk": 0,
+                                "total_chunks": 0,
+                                "content_ready": False,
+                            }
+                            if show_process_ui
+                            else {}
+                        ),
                     },
                     "meta": {
                         "name": name,
@@ -890,9 +977,17 @@ async def get_file_process_status(
                         status = data.get("status")
 
                         if status:
-                            event = {"status": status}
-                            if status == "failed":
-                                event["error"] = data.get("error")
+                            event = {
+                                "status": data.get("status", "pending"),
+                                "stage": data.get("stage"),
+                                "progress_pct": data.get("progress_pct", 0),
+                                "message": data.get("message", ""),
+                                "current_chunk": data.get("current_chunk", 0),
+                                "total_chunks": data.get("total_chunks", 0),
+                                "eta_seconds": data.get("eta_seconds"),
+                                "content_ready": data.get("content_ready", False),
+                                "error": data.get("error"),
+                            }
 
                             yield f"data: {json.dumps(event)}\n\n"
                             if status in ("completed", "failed"):
@@ -911,7 +1006,17 @@ async def get_file_process_status(
                 media_type="text/event-stream",
             )
         else:
-            return {"status": file.data.get("status", "pending")}
+            return {
+                "status": file.data.get("status", "pending"),
+                "stage": file.data.get("stage"),
+                "progress_pct": file.data.get("progress_pct", 0),
+                "message": file.data.get("message", ""),
+                "current_chunk": file.data.get("current_chunk", 0),
+                "total_chunks": file.data.get("total_chunks", 0),
+                "eta_seconds": file.data.get("eta_seconds"),
+                "content_ready": file.data.get("content_ready", False),
+                "error": file.data.get("error"),
+            }
     else:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

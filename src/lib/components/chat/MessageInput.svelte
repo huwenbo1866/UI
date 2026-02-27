@@ -49,7 +49,7 @@
 		getUserTimezone,
 		getWeekday
 	} from '$lib/utils';
-	import { uploadFile } from '$lib/apis/files';
+	import { getFileProcessStatus, uploadFile } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
 	import { deleteFileById } from '$lib/apis/files';
 	import { getSessionUser } from '$lib/apis/auths';
@@ -91,6 +91,95 @@
 	import InputModal from '../common/InputModal.svelte';
 	import Expand from '../icons/Expand.svelte';
 	import QueuedMessageItem from './MessageInput/QueuedMessageItem.svelte';
+
+
+	const fileProcessPollers = new Map<string, ReturnType<typeof setInterval>>();
+
+	const isProcessingStatus = (status: string) =>
+		['uploading', 'pending', 'processing'].includes(status);
+
+	const updateLocalFileItem = (itemId: string, patch: Record<string, any>) => {
+		const idx = files.findIndex((f) => f.itemId === itemId || f.id === itemId);
+		if (idx === -1) return;
+
+		files[idx] = {
+			...files[idx],
+			...patch
+		};
+
+		files = [...files];
+	};
+
+
+	const isProgressMediaFile = (file: any) => {
+		const contentType = (file?.content_type || file?.file?.meta?.content_type || '')
+			.split(';')[0]
+			.trim()
+			.toLowerCase();
+
+		const name = (
+			file?.name ||
+			file?.filename ||
+			file?.file?.filename ||
+			''
+		).toLowerCase();
+
+		return (
+			['audio/mpeg', 'audio/mp3', 'video/mp4'].includes(contentType) ||
+			name.endsWith('.mp3') ||
+			name.endsWith('.mp4')
+		);
+	};
+
+
+	const stopFileProcessPolling = (itemId: string) => {
+		const timer = fileProcessPollers.get(itemId);
+		if (timer) {
+			clearInterval(timer);
+			fileProcessPollers.delete(itemId);
+		}
+	};
+
+	const startFileProcessPolling = (itemId: string, fileId: string) => {
+		stopFileProcessPolling(itemId);
+
+		const poll = async () => {
+			try {
+				const res = await getFileProcessStatus(localStorage.token, fileId);
+				if (!res) return;
+
+				const backendStatus = res.status ?? 'pending';
+				const terminal = ['completed', 'failed'].includes(backendStatus);
+
+				updateLocalFileItem(itemId, {
+					status: backendStatus === 'completed' ? 'uploaded' : backendStatus,
+					process_status: backendStatus,
+					stage: res.stage,
+					progress_pct: res.progress_pct ?? 0,
+					message: res.message ?? getStageLabel(res.stage),
+					current_chunk: res.current_chunk ?? 0,
+					total_chunks: res.total_chunks ?? 0,
+					error: res.error ?? ''
+				});
+
+				if (terminal) {
+					stopFileProcessPolling(itemId);
+				}
+			} catch (e) {
+				console.error('Polling file process status failed:', e);
+			}
+		};
+
+		poll();
+		const timer = setInterval(poll, 1000);
+		fileProcessPollers.set(itemId, timer);
+	};
+
+	onDestroy(() => {
+		fileProcessPollers.forEach((timer) => clearInterval(timer));
+		fileProcessPollers.clear();
+	});
+
 
 	const i18n = getContext('i18n');
 
@@ -180,6 +269,26 @@
 			};
 		});
 	};
+
+
+	const FILE_STAGE_LABELS = {
+		queued: '等待进入处理队列',
+		extracting_audio: '正在抽取音频',
+		preprocessing_audio: '正在预处理音频',
+		segmenting: '正在切分音频',
+		transcribing: '正在识别音频',
+		normalizing: '正在清洗逐字稿',
+		rewriting: '正在优化可读版逐字稿',
+		minutes_generating: '正在生成课堂纪要',
+		indexing: '正在写入知识库',
+		completed: '处理完成',
+		failed: '处理失败'
+	};
+
+	const getStageLabel = (stage: string, fallback = '处理中') => {
+		return FILE_STAGE_LABELS[stage] ?? fallback;
+	};
+
 
 	const textVariableHandler = async (text: string) => {
 		if (text.includes('{{CLIPBOARD}}')) {
@@ -607,7 +716,6 @@
 						toast.warning(uploadedFile.error);
 					}
 
-					fileItem.status = 'uploaded';
 					fileItem.file = uploadedFile;
 					fileItem.id = uploadedFile.id;
 					fileItem.collection_name =
@@ -615,7 +723,40 @@
 					fileItem.content_type = uploadedFile.meta?.content_type || uploadedFile.content_type;
 					fileItem.url = `${uploadedFile.id}`;
 
-					files = files;
+					const shouldTrackProgress =
+						process &&
+						isProgressMediaFile({
+							...fileItem,
+							content_type: uploadedFile?.meta?.content_type || file?.type || file?.content_type,
+							filename: fileItem.name
+						});
+
+					if (shouldTrackProgress) {
+						const backendStatus = uploadedFile?.data?.status ?? 'pending';
+
+						fileItem.status = backendStatus === 'completed' ? 'uploaded' : backendStatus;
+						fileItem.process_status = backendStatus;
+						fileItem.stage = uploadedFile?.data?.stage ?? 'queued';
+						fileItem.progress_pct = uploadedFile?.data?.progress_pct ?? 0;
+						fileItem.message =
+							uploadedFile?.data?.message ?? getStageLabel(fileItem.stage, '等待进入处理队列');
+						fileItem.current_chunk = uploadedFile?.data?.current_chunk ?? 0;
+						fileItem.total_chunks = uploadedFile?.data?.total_chunks ?? 0;
+						fileItem.error = uploadedFile?.data?.error ?? '';
+
+						if (uploadedFile.id && !['completed', 'failed'].includes(backendStatus)) {
+							startFileProcessPolling(tempItemId, uploadedFile.id);
+						}
+					} else {
+						fileItem.status = 'uploaded';
+						fileItem.process_status = undefined;
+						fileItem.stage = undefined;
+						fileItem.progress_pct = undefined;
+						fileItem.message = '';
+						fileItem.current_chunk = 0;
+						fileItem.total_chunks = 0;
+						fileItem.error = '';
+					}
 				} else {
 					files = files.filter((item) => item?.itemId !== tempItemId);
 				}
@@ -1255,13 +1396,13 @@
 												name={file.name}
 												type={file.type}
 												size={file?.size}
-												loading={file.status === 'uploading'}
+												loading={isProcessingStatus(file.status)}
 												dismissible={true}
 												edit={true}
 												small={true}
 												modal={['file', 'collection'].includes(file?.type)}
 												on:dismiss={async () => {
-													// Remove from UI state
+													stopFileProcessPolling(file.itemId ?? file.id);
 													files.splice(fileIdx, 1);
 													files = files;
 												}}
@@ -1269,6 +1410,33 @@
 													console.log(file);
 												}}
 											/>
+											
+											{#if isProgressMediaFile(file) && (file.status === 'pending' || file.status === 'processing' || file.process_status === 'failed')}
+												<div class="mt-1 px-1.5 w-full">
+													{#if file.process_status === 'failed' || file.status === 'failed'}
+														<div class="text-[11px] text-red-500">
+															{file.error || '处理失败'}
+														</div>
+													{:else}
+														<div class="text-[11px] text-gray-500 dark:text-gray-400">
+															{file.message || getStageLabel(file.stage)}
+														</div>
+
+														<div class="mt-1 h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+															<div
+																class="h-full rounded-full bg-amber-500 transition-all duration-300"
+																style={`width: ${Math.max(file.progress_pct ?? 0, 4)}%`}
+															/>
+														</div>
+
+														{#if file.total_chunks > 0}
+															<div class="mt-1 text-[10px] text-gray-400">
+																{file.current_chunk ?? 0}/{file.total_chunks} 段
+															</div>
+														{/if}
+													{/if}
+												</div>
+											{/if}
 										{/if}
 									{/each}
 								</div>
