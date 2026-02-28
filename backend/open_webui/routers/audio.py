@@ -7,7 +7,7 @@ import html
 import base64
 from functools import lru_cache
 from pydub import AudioSegment
-from pydub.silence import split_on_silence
+from pydub.silence import detect_nonsilent
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional, Callable
 
@@ -1195,48 +1195,269 @@ def compress_audio(file_path):
         return file_path
 
 
-def split_audio(file_path, max_bytes, format="mp3", bitrate="32k"):
+def _merge_intervals(intervals, max_gap_ms=250):
+    if not intervals:
+        return []
+
+    intervals = sorted(intervals, key=lambda x: x[0])
+    merged = [list(intervals[0])]
+
+    for start, end in intervals[1:]:
+        last = merged[-1]
+        if start <= last[1] + max_gap_ms:
+            last[1] = max(last[1], end)
+        else:
+            merged.append([start, end])
+
+    return [(s, e) for s, e in merged]
+
+
+def _merge_short_intervals(intervals, min_chunk_ms):
     """
-    Splits audio into chunks not exceeding max_bytes.
-    Returns a list of chunk file paths. If audio fits, returns list with original path.
+    把过短片段和后一个片段合并；如果最后一个还太短，就并到前一个。
     """
-    file_size = os.path.getsize(file_path)
-    if file_size <= max_bytes:
-        return [file_path]  # Nothing to split
+    if not intervals:
+        return []
+
+    merged = []
+    i = 0
+    n = len(intervals)
+
+    while i < n:
+        start, end = intervals[i]
+
+        while (end - start) < min_chunk_ms and i + 1 < n:
+            i += 1
+            _, next_end = intervals[i]
+            end = next_end
+
+        merged.append((start, end))
+        i += 1
+
+    if len(merged) >= 2 and (merged[-1][1] - merged[-1][0]) < min_chunk_ms:
+        prev_start, prev_end = merged[-2]
+        last_start, last_end = merged[-1]
+        merged[-2] = (prev_start, last_end)
+        merged.pop()
+
+    return merged
+
+
+def _split_long_interval(start_ms, end_ms, target_chunk_ms, max_chunk_ms, overlap_ms):
+    """
+    过长片段按时长二次切分。
+    注意：这里已经是“静音切完后的结果”，再切只是兜底，不是主策略。
+    """
+    intervals = []
+    cursor = start_ms
+
+    while cursor < end_ms:
+        remaining = end_ms - cursor
+
+        if remaining <= max_chunk_ms:
+            seg_start = cursor
+            seg_end = end_ms
+            intervals.append((seg_start, seg_end))
+            break
+
+        seg_start = cursor
+        seg_end = min(cursor + target_chunk_ms, end_ms)
+
+        intervals.append((seg_start, seg_end))
+        cursor = max(seg_end - overlap_ms, seg_start + 1000)  # 防止 overlap 造成死循环
+
+    return intervals
+
+
+def _export_segment_with_fallback(
+    audio,
+    start_ms,
+    end_ms,
+    base_path,
+    index_holder,
+    max_bytes,
+    format="mp3",
+    bitrate="32k",
+    overlap_ms=700,
+    min_export_ms=5000,
+):
+    """
+    导出某个区间；如果文件大小仍超限，则递归二分继续切。
+    """
+    segment = audio[start_ms:end_ms]
+    chunk_path = f"{base_path}_chunk_{index_holder[0]}.{format}"
+    index_holder[0] += 1
+
+    export_kwargs = {"format": format}
+    if format == "mp3":
+        export_kwargs["bitrate"] = bitrate
+
+    segment.export(chunk_path, **export_kwargs)
+
+    if os.path.getsize(chunk_path) <= max_bytes:
+        return [chunk_path]
+
+    # 超限，删掉刚导出的文件，递归再切
+    try:
+        os.remove(chunk_path)
+    except Exception:
+        pass
+
+    duration_ms = end_ms - start_ms
+    if duration_ms <= min_export_ms:
+        raise Exception("Audio chunk cannot be reduced below max file size.")
+
+    mid = start_ms + duration_ms // 2
+
+    left_end = min(end_ms, mid + overlap_ms // 2)
+    right_start = max(start_ms, mid - overlap_ms // 2)
+
+    left_paths = _export_segment_with_fallback(
+        audio,
+        start_ms,
+        left_end,
+        base_path,
+        index_holder,
+        max_bytes,
+        format=format,
+        bitrate=bitrate,
+        overlap_ms=overlap_ms,
+        min_export_ms=min_export_ms,
+    )
+
+    right_paths = _export_segment_with_fallback(
+        audio,
+        right_start,
+        end_ms,
+        base_path,
+        index_holder,
+        max_bytes,
+        format=format,
+        bitrate=bitrate,
+        overlap_ms=overlap_ms,
+        min_export_ms=min_export_ms,
+    )
+
+    return left_paths + right_paths
+
+
+def split_audio(
+    file_path,
+    max_bytes,
+    format="mp3",
+    bitrate="32k",
+    min_silence_len=600, # 最短边界所需的安静时间
+    silence_thresh=None,  # 多小的声音算静音
+    seek_step=10,     # 检测静音时，每隔多少毫秒扫一次
+    keep_silence_ms=400,   # 切出来的每段前后，额外保留多少静音
+    overlap_ms=700,     # 相邻 chunk 之间重叠多少毫秒
+    min_chunk_ms=8000,   # 小于这个长度的片段，尽量不要单独存在，要合并
+    target_chunk_ms=15000,   # 理想目标段长
+    max_chunk_ms=30000,    # 单段最长不能超过多少
+    merge_gap_ms=250,     # 如果两个语音区间之间间隔很短，小于这个值，就把它们并起来
+):
+    """
+    静音边界优先切分：
+    1) 先找有人声的时间区间
+    2) 两侧保留一点静音/上下文
+    3) 太短片段合并
+    4) 太长片段按时长二次切
+    5) 导出后若仍超 provider 大小限制，再递归二分兜底
+
+    返回：chunk 文件路径列表
+    """
 
     audio = AudioSegment.from_file(file_path)
     duration_ms = len(audio)
-    orig_size = file_size
+    file_size = os.path.getsize(file_path)
 
-    approx_chunk_ms = max(int(duration_ms * (max_bytes / orig_size)) - 1000, 1000)
-    chunks = []
-    start = 0
-    i = 0
+    # 很短且本身不超限，就没必要拆
+    if duration_ms <= target_chunk_ms and file_size <= max_bytes:
+        return [file_path]
 
+    if silence_thresh is None:
+        # 相对阈值：比整体 dBFS 再低一些
+        silence_thresh = audio.dBFS - 16
+
+    # 1) 检测非静音区间（单位 ms）
+    nonsilent_ranges = detect_nonsilent(
+        audio,
+        min_silence_len=min_silence_len,
+        silence_thresh=silence_thresh,
+        seek_step=seek_step,
+    )
+
+    # 如果整段都几乎检测不到静音，就退化为按时长切
+    if not nonsilent_ranges:
+        nonsilent_ranges = [(0, duration_ms)]
+
+    # 2) 每段两侧保留一点静音，同时加一点 overlap
+    expanded = []
+    for start, end in nonsilent_ranges:
+        start = max(0, start - keep_silence_ms)
+        end = min(duration_ms, end + keep_silence_ms)
+        expanded.append((start, end))
+
+    # 先把相邻/重叠片段合一下，避免切太碎
+    intervals = _merge_intervals(expanded, max_gap_ms=merge_gap_ms)
+
+    # 3) 合并过短片段
+    intervals = _merge_short_intervals(intervals, min_chunk_ms=min_chunk_ms)
+
+    # 4) 对过长片段再切
+    final_intervals = []
+    for start, end in intervals:
+        if (end - start) <= max_chunk_ms:
+            final_intervals.append((start, end))
+        else:
+            final_intervals.extend(
+                _split_long_interval(
+                    start,
+                    end,
+                    target_chunk_ms=target_chunk_ms,
+                    max_chunk_ms=max_chunk_ms,
+                    overlap_ms=overlap_ms,
+                )
+            )
+
+    # 再做一次轻微 merge，防止边界处理后出现重叠粘连
+    final_intervals = _merge_intervals(final_intervals, max_gap_ms=0)
+
+    # 如果结果仍然只有 1 段，但音频很长，则按时长强制切
+    if len(final_intervals) == 1 and duration_ms > max_chunk_ms:
+        start, end = final_intervals[0]
+        final_intervals = _split_long_interval(
+            start,
+            end,
+            target_chunk_ms=target_chunk_ms,
+            max_chunk_ms=max_chunk_ms,
+            overlap_ms=overlap_ms,
+        )
+
+    # 5) 导出 + provider size limit 兜底
     base, _ = os.path.splitext(file_path)
+    chunk_paths = []
+    index_holder = [0]
 
-    while start < duration_ms:
-        end = min(start + approx_chunk_ms, duration_ms)
-        chunk = audio[start:end]
-        chunk_path = f"{base}_chunk_{i}.{format}"
-        chunk.export(chunk_path, format=format, bitrate=bitrate)
+    for start, end in final_intervals:
+        # 给导出区间再补一点 overlap，上下文更稳
+        export_start = max(0, start - overlap_ms)
+        export_end = min(duration_ms, end + overlap_ms)
 
-        # Reduce chunk duration if still too large
-        while os.path.getsize(chunk_path) > max_bytes and (end - start) > 5000:
-            end = start + ((end - start) // 2)
-            chunk = audio[start:end]
-            chunk.export(chunk_path, format=format, bitrate=bitrate)
+        paths = _export_segment_with_fallback(
+            audio,
+            export_start,
+            export_end,
+            base_path=base,
+            index_holder=index_holder,
+            max_bytes=max_bytes,
+            format=format,
+            bitrate=bitrate,
+            overlap_ms=overlap_ms,
+        )
+        chunk_paths.extend(paths)
 
-        if os.path.getsize(chunk_path) > max_bytes:
-            os.remove(chunk_path)
-            raise Exception("Audio chunk cannot be reduced below max file size.")
-
-        chunks.append(chunk_path)
-        start = end
-        i += 1
-
-    return chunks
-
+    return chunk_paths
 
 @router.post("/transcriptions")
 def transcription(
