@@ -1340,46 +1340,323 @@ def _export_segment_with_fallback(
 
     return left_paths + right_paths
 
+def get_dynamic_split_params(audio: AudioSegment):
+    duration_ms = len(audio)
+    duration_min = duration_ms / 60000
+
+    if audio.dBFS == float("-inf"):
+        silence_thresh = -40
+    else:
+        # 比整体平均音量低一些，别太激进
+        silence_thresh = max(-45, audio.dBFS - 14)
+
+    if duration_min <= 5:
+        return {
+            "min_silence_len": 400,
+            "silence_thresh": silence_thresh,
+            "seek_step": 10,
+            "keep_silence_ms": 250,
+            "overlap_ms": 450,
+            "min_chunk_ms": 4000,
+            "target_chunk_ms": 10000,
+            "max_chunk_ms": 16000,
+            "merge_gap_ms": 150,
+        }
+    elif duration_min <= 30:
+        return {
+            "min_silence_len": 500,
+            "silence_thresh": silence_thresh,
+            "seek_step": 10,
+            "keep_silence_ms": 300,
+            "overlap_ms": 600,
+            "min_chunk_ms": 5000,
+            "target_chunk_ms": 14000,
+            "max_chunk_ms": 22000,
+            "merge_gap_ms": 200,
+        }
+    elif duration_min <= 90:
+        return {
+            "min_silence_len": 650,
+            "silence_thresh": silence_thresh,
+            "seek_step": 15,
+            "keep_silence_ms": 350,
+            "overlap_ms": 700,
+            "min_chunk_ms": 7000,
+            "target_chunk_ms": 18000,
+            "max_chunk_ms": 28000,
+            "merge_gap_ms": 250,
+        }
+    else:
+        return {
+            "min_silence_len": 800,
+            "silence_thresh": silence_thresh,
+            "seek_step": 20,
+            "keep_silence_ms": 400,
+            "overlap_ms": 800,
+            "min_chunk_ms": 8000,
+            "target_chunk_ms": 22000,
+            "max_chunk_ms": 32000,
+            "merge_gap_ms": 300,
+        }
+
+
+def _merge_intervals(intervals, max_gap_ms=200):
+    if not intervals:
+        return []
+
+    intervals = sorted(intervals, key=lambda x: x[0])
+    merged = [list(intervals[0])]
+
+    for start, end in intervals[1:]:
+        last = merged[-1]
+        if start <= last[1] + max_gap_ms:
+            last[1] = max(last[1], end)
+        else:
+            merged.append([start, end])
+
+    return [(s, e) for s, e in merged]
+
+
+def _merge_short_intervals(intervals, min_chunk_ms):
+    if not intervals:
+        return []
+
+    merged = []
+    i = 0
+    n = len(intervals)
+
+    while i < n:
+        start, end = intervals[i]
+
+        while (end - start) < min_chunk_ms and i + 1 < n:
+            i += 1
+            _, next_end = intervals[i]
+            end = next_end
+
+        merged.append((start, end))
+        i += 1
+
+    if len(merged) >= 2 and (merged[-1][1] - merged[-1][0]) < min_chunk_ms:
+        prev_start, _ = merged[-2]
+        _, last_end = merged[-1]
+        merged[-2] = (prev_start, last_end)
+        merged.pop()
+
+    return merged
+
+
+def _find_best_split_point(
+    audio: AudioSegment,
+    desired_ms: int,
+    search_start_ms: int,
+    search_end_ms: int,
+    silence_thresh: float,
+    seek_step: int = 10,
+    probe_ms: int = 300,
+):
+    """
+    在 desired_ms 附近找一个更像“静音边界”的切点。
+    找不到就退回 desired_ms。
+    """
+    best_point = desired_ms
+    best_score = None
+
+    half_probe = probe_ms // 2
+    search_start_ms = max(0, search_start_ms)
+    search_end_ms = min(len(audio), search_end_ms)
+
+    for p in range(search_start_ms, search_end_ms + 1, seek_step):
+        left = max(0, p - half_probe)
+        right = min(len(audio), p + half_probe)
+        seg = audio[left:right]
+
+        dbfs = seg.dBFS
+        if dbfs == float("-inf"):
+            dbfs = -100
+
+        if dbfs < silence_thresh:
+            score = abs(p - desired_ms)
+            if best_score is None or score < best_score:
+                best_score = score
+                best_point = p
+
+    return best_point
+
+
+def _split_long_interval_by_silence(
+    audio: AudioSegment,
+    start_ms: int,
+    end_ms: int,
+    target_chunk_ms: int,
+    max_chunk_ms: int,
+    min_chunk_ms: int,
+    silence_thresh: float,
+    seek_step: int,
+):
+    """
+    对过长区间继续切，但尽量切在“目标位置附近的静音点”。
+    注意：这里返回的是“逻辑区间”，不带 overlap。
+    overlap 只在导出文件时再加，避免子区间又被合并回去。
+    """
+    intervals = []
+    cursor = start_ms
+
+    while cursor < end_ms:
+        remaining = end_ms - cursor
+        if remaining <= max_chunk_ms:
+            intervals.append((cursor, end_ms))
+            break
+
+        desired_cut = cursor + target_chunk_ms
+        search_window_ms = min(5000, max(1500, target_chunk_ms // 3))
+
+        cut = _find_best_split_point(
+            audio=audio,
+            desired_ms=desired_cut,
+            search_start_ms=max(cursor + min_chunk_ms, desired_cut - search_window_ms),
+            search_end_ms=min(end_ms - min_chunk_ms, desired_cut + search_window_ms),
+            silence_thresh=silence_thresh,
+            seek_step=seek_step,
+            probe_ms=300,
+        )
+
+        if cut - cursor < min_chunk_ms:
+            cut = min(cursor + target_chunk_ms, end_ms)
+
+        if cut - cursor > max_chunk_ms:
+            cut = cursor + max_chunk_ms
+
+        if end_ms - cut < min_chunk_ms and (end_ms - cursor) <= (max_chunk_ms + min_chunk_ms):
+            intervals.append((cursor, end_ms))
+            break
+
+        if cut <= cursor or cut >= end_ms:
+            cut = min(cursor + target_chunk_ms, end_ms)
+
+        intervals.append((cursor, cut))
+        cursor = cut
+
+    return intervals
+
+
+def _export_segment_with_fallback(
+    audio,
+    start_ms,
+    end_ms,
+    base_path,
+    index_holder,
+    max_bytes,
+    format="mp3",
+    bitrate="48k",
+    overlap_ms=600,
+    min_export_ms=4000,
+):
+    """
+    导出区间；如果仍超大小限制，则递归二分。
+    """
+    segment = audio[start_ms:end_ms]
+    chunk_path = f"{base_path}_chunk_{index_holder[0]}.{format}"
+    index_holder[0] += 1
+
+    export_kwargs = {"format": format}
+    if format == "mp3":
+        export_kwargs["bitrate"] = bitrate
+
+    segment.export(chunk_path, **export_kwargs)
+
+    if os.path.getsize(chunk_path) <= max_bytes:
+        return [chunk_path]
+
+    try:
+        os.remove(chunk_path)
+    except Exception:
+        pass
+
+    duration_ms = end_ms - start_ms
+    if duration_ms <= min_export_ms:
+        raise Exception("Audio chunk cannot be reduced below max file size.")
+
+    mid = start_ms + duration_ms // 2
+
+    left_end = min(end_ms, mid + overlap_ms // 2)
+    right_start = max(start_ms, mid - overlap_ms // 2)
+
+    left_paths = _export_segment_with_fallback(
+        audio,
+        start_ms,
+        left_end,
+        base_path,
+        index_holder,
+        max_bytes,
+        format=format,
+        bitrate=bitrate,
+        overlap_ms=overlap_ms,
+        min_export_ms=min_export_ms,
+    )
+
+    right_paths = _export_segment_with_fallback(
+        audio,
+        right_start,
+        end_ms,
+        base_path,
+        index_holder,
+        max_bytes,
+        format=format,
+        bitrate=bitrate,
+        overlap_ms=overlap_ms,
+        min_export_ms=min_export_ms,
+    )
+
+    return left_paths + right_paths
+
+
 
 def split_audio(
     file_path,
     max_bytes,
     format="mp3",
-    bitrate="32k",
-    min_silence_len=600, # 最短边界所需的安静时间
-    silence_thresh=None,  # 多小的声音算静音
-    seek_step=10,     # 检测静音时，每隔多少毫秒扫一次
-    keep_silence_ms=400,   # 切出来的每段前后，额外保留多少静音
-    overlap_ms=700,     # 相邻 chunk 之间重叠多少毫秒
-    min_chunk_ms=8000,   # 小于这个长度的片段，尽量不要单独存在，要合并
-    target_chunk_ms=15000,   # 理想目标段长
-    max_chunk_ms=30000,    # 单段最长不能超过多少
-    merge_gap_ms=250,     # 如果两个语音区间之间间隔很短，小于这个值，就把它们并起来
+    bitrate="48k",
+    min_silence_len=None,
+    silence_thresh=None,
+    seek_step=None,
+    keep_silence_ms=None,
+    overlap_ms=None,
+    min_chunk_ms=None,
+    target_chunk_ms=None,
+    max_chunk_ms=None,
+    merge_gap_ms=None,
 ):
     """
-    静音边界优先切分：
-    1) 先找有人声的时间区间
-    2) 两侧保留一点静音/上下文
-    3) 太短片段合并
-    4) 太长片段按时长二次切
-    5) 导出后若仍超 provider 大小限制，再递归二分兜底
+    更适合课堂录音的切分逻辑：
 
-    返回：chunk 文件路径列表
+    1) 先按静音边界找语音区间
+    2) 扩边保留一点上下文
+    3) 合并过短片段 / 近邻片段
+    4) 对过长片段在“附近静音点”继续切
+    5) 导出时再加 overlap
+    6) 若 chunk 仍超大小限制，再递归二分兜底
     """
 
     audio = AudioSegment.from_file(file_path)
     duration_ms = len(audio)
     file_size = os.path.getsize(file_path)
 
-    # 很短且本身不超限，就没必要拆
-    if duration_ms <= target_chunk_ms and file_size <= max_bytes:
+    dyn = get_dynamic_split_params(audio)
+
+    min_silence_len = dyn["min_silence_len"] if min_silence_len is None else min_silence_len
+    silence_thresh = dyn["silence_thresh"] if silence_thresh is None else silence_thresh
+    seek_step = dyn["seek_step"] if seek_step is None else seek_step
+    keep_silence_ms = dyn["keep_silence_ms"] if keep_silence_ms is None else keep_silence_ms
+    overlap_ms = dyn["overlap_ms"] if overlap_ms is None else overlap_ms
+    min_chunk_ms = dyn["min_chunk_ms"] if min_chunk_ms is None else min_chunk_ms
+    target_chunk_ms = dyn["target_chunk_ms"] if target_chunk_ms is None else target_chunk_ms
+    max_chunk_ms = dyn["max_chunk_ms"] if max_chunk_ms is None else max_chunk_ms
+    merge_gap_ms = dyn["merge_gap_ms"] if merge_gap_ms is None else merge_gap_ms
+
+    # 只有“既短又不超限”时才不切
+    if duration_ms <= max_chunk_ms and file_size <= max_bytes:
         return [file_path]
 
-    if silence_thresh is None:
-        # 相对阈值：比整体 dBFS 再低一些
-        silence_thresh = audio.dBFS - 16
-
-    # 1) 检测非静音区间（单位 ms）
     nonsilent_ranges = detect_nonsilent(
         audio,
         min_silence_len=min_silence_len,
@@ -1387,67 +1664,54 @@ def split_audio(
         seek_step=seek_step,
     )
 
-    # 如果整段都几乎检测不到静音，就退化为按时长切
     if not nonsilent_ranges:
         nonsilent_ranges = [(0, duration_ms)]
 
-    # 2) 每段两侧保留一点静音，同时加一点 overlap
     expanded = []
     for start, end in nonsilent_ranges:
-        start = max(0, start - keep_silence_ms)
-        end = min(duration_ms, end + keep_silence_ms)
-        expanded.append((start, end))
+        expanded.append((
+            max(0, start - keep_silence_ms),
+            min(duration_ms, end + keep_silence_ms),
+        ))
 
-    # 先把相邻/重叠片段合一下，避免切太碎
     intervals = _merge_intervals(expanded, max_gap_ms=merge_gap_ms)
-
-    # 3) 合并过短片段
     intervals = _merge_short_intervals(intervals, min_chunk_ms=min_chunk_ms)
 
-    # 4) 对过长片段再切
-    final_intervals = []
+    # 对过长区间继续切 —— 注意：这里得到的是“非重叠逻辑区间”
+    logical_intervals = []
     for start, end in intervals:
         if (end - start) <= max_chunk_ms:
-            final_intervals.append((start, end))
+            logical_intervals.append((start, end))
         else:
-            final_intervals.extend(
-                _split_long_interval(
-                    start,
-                    end,
+            logical_intervals.extend(
+                _split_long_interval_by_silence(
+                    audio=audio,
+                    start_ms=start,
+                    end_ms=end,
                     target_chunk_ms=target_chunk_ms,
                     max_chunk_ms=max_chunk_ms,
-                    overlap_ms=overlap_ms,
+                    min_chunk_ms=min_chunk_ms,
+                    silence_thresh=silence_thresh,
+                    seek_step=seek_step,
                 )
             )
 
-    # 再做一次轻微 merge，防止边界处理后出现重叠粘连
-    final_intervals = _merge_intervals(final_intervals, max_gap_ms=0)
+    # 再做一次“短尾合并”，但不要再做 merge_intervals，
+    # 否则会把长段切分成果重新合并回去。
+    logical_intervals = _merge_short_intervals(logical_intervals, min_chunk_ms=min_chunk_ms)
 
-    # 如果结果仍然只有 1 段，但音频很长，则按时长强制切
-    if len(final_intervals) == 1 and duration_ms > max_chunk_ms:
-        start, end = final_intervals[0]
-        final_intervals = _split_long_interval(
-            start,
-            end,
-            target_chunk_ms=target_chunk_ms,
-            max_chunk_ms=max_chunk_ms,
-            overlap_ms=overlap_ms,
-        )
-
-    # 5) 导出 + provider size limit 兜底
     base, _ = os.path.splitext(file_path)
     chunk_paths = []
     index_holder = [0]
 
-    for start, end in final_intervals:
-        # 给导出区间再补一点 overlap，上下文更稳
+    for idx, (start, end) in enumerate(logical_intervals):
         export_start = max(0, start - overlap_ms)
         export_end = min(duration_ms, end + overlap_ms)
 
         paths = _export_segment_with_fallback(
-            audio,
-            export_start,
-            export_end,
+            audio=audio,
+            start_ms=export_start,
+            end_ms=export_end,
             base_path=base,
             index_holder=index_holder,
             max_bytes=max_bytes,
