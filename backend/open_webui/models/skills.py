@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from typing import Optional
@@ -8,7 +9,7 @@ from open_webui.internal.db import Base, JSONField, get_db_context
 from open_webui.models.groups import Groups
 from open_webui.models.users import Users, UserResponse
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import BigInteger, Boolean, Column, Integer, String, Text, JSON
 
 from open_webui.utils.access_control import has_access
@@ -64,6 +65,35 @@ class SkillModel(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator("access_control", mode="before")
+    @classmethod
+    def normalize_access_control(cls, v):
+        if v is None:
+            return None
+
+        if isinstance(v, dict):
+            return v
+
+        if isinstance(v, str):
+            s = v.strip()
+
+            if s == "" or s.lower() in {"null", "none"}:
+                return None
+
+            try:
+                parsed = json.loads(s)
+            except Exception:
+                raise ValueError("access_control must be a dict or null")
+
+            if parsed is None:
+                return None
+
+            if isinstance(parsed, dict):
+                return parsed
+
+            raise ValueError("access_control must be a dict or null")
+
+        raise ValueError("access_control must be a dict or null")
 
 ####################
 # Forms
