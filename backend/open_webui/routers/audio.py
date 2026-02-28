@@ -125,6 +125,46 @@ def convert_audio_to_mp3(file_path):
         return None
 
 
+
+def prepare_audio_for_stt(file_path):
+    """
+    将输入音视频统一转换为适合 STT 的中间格式：
+    - 16kHz
+    - mono
+    - wav (PCM)
+    并做轻量预处理，目标是提升可识别性，而不是单纯缩小体积。
+    """
+    try:
+        base, _ = os.path.splitext(file_path)
+        output_path = f"{base}_stt.wav"
+
+        audio = AudioSegment.from_file(file_path)
+
+        # 统一采样率与声道
+        audio = audio.set_frame_rate(16000).set_channels(1)
+
+        # 轻量音量归一化：避免过轻/过响
+        try:
+            from pydub.effects import normalize
+            audio = normalize(audio, headroom=1.0)
+        except Exception:
+            pass
+
+        # 轻量高通，减弱低频噪声（空调/桌面震动/环境低频）
+        try:
+            audio = audio.high_pass_filter(80)
+        except Exception:
+            pass
+
+        audio.export(output_path, format="wav")
+        log.info(f"Prepared STT audio: {file_path} -> {output_path}")
+        return output_path
+    except Exception as e:
+        log.error(f"Error preparing audio for STT: {e}")
+        return file_path
+
+
+
 def set_faster_whisper_model(model: str, auto_update: bool = False):
     whisper_model = None
     if model:
@@ -147,6 +187,32 @@ def set_faster_whisper_model(model: str, auto_update: bool = False):
             faster_whisper_kwargs["local_files_only"] = False
             whisper_model = WhisperModel(**faster_whisper_kwargs)
     return whisper_model
+
+
+
+
+def resolve_stt_profile(metadata: Optional[dict] = None, profile: Optional[str] = None) -> str:
+    """
+    区分两类 STT 场景：
+    - interactive: 语音输入 / 语音模式，优先低时延
+    - artifact: 音视频文件纪要，优先稳态质量与结构化产物
+    """
+    normalized = (profile or '').strip().lower()
+    if normalized in {'interactive', 'realtime', 'voice', 'dictation'}:
+        return 'interactive'
+    if normalized in {'artifact', 'minutes', 'file', 'upload'}:
+        return 'artifact'
+
+    metadata = metadata or {}
+    for key in ('stt_profile', 'profile', 'mode', 'purpose', 'source'):
+        value = str(metadata.get(key, '')).strip().lower()
+        if value in {'interactive', 'realtime', 'voice', 'dictation'}:
+            return 'interactive'
+        if value in {'artifact', 'minutes', 'file', 'upload'}:
+            return 'artifact'
+
+    # 默认保守：API /audio/transcriptions 走 interactive，文件处理显式传 artifact
+    return 'interactive'
 
 
 ##########################################
@@ -600,20 +666,41 @@ def transcription_handler(request, file_path, metadata, user=None):
             )
 
         model = request.app.state.faster_whisper_model
-        segments, info = model.transcribe(
+        segments_iter, info = model.transcribe(
             file_path,
             beam_size=5,
             vad_filter=WHISPER_VAD_FILTER,
             language=languages[0],
             multilingual=WHISPER_MULTILINGUAL,
         )
+
         log.info(
             "Detected language '%s' with probability %f"
             % (info.language, info.language_probability)
         )
 
-        transcript = "".join([segment.text for segment in list(segments)])
-        data = {"text": transcript.strip()}
+        segment_items = []
+        transcript_parts = []
+
+        for segment in segments_iter:
+            text = (segment.text or "").strip()
+            if not text:
+                continue
+
+            transcript_parts.append(text)
+            segment_items.append(
+                {
+                    "start_ms": int(segment.start * 1000),
+                    "end_ms": int(segment.end * 1000),
+                    "text": text,
+                }
+            )
+
+        data = {
+            "text": " ".join(transcript_parts).strip(),
+            "detected_language": info.language,
+            "segments": segment_items,
+        }
 
         # save the transcript to a json file
         transcript_file = f"{file_dir}/{id}.json"
@@ -651,7 +738,12 @@ def transcription_handler(request, file_path, metadata, user=None):
                     break
 
             r.raise_for_status()
-            data = r.json()
+            response_data = r.json()
+            data = {
+                "text": (response_data.get("text") or "").strip(),
+                "detected_language": response_data.get("language"),
+                "segments": response_data.get("segments", []),
+            }
 
             # save the transcript to a json file
             transcript_file = f"{file_dir}/{id}.json"
@@ -723,7 +815,11 @@ def transcription_handler(request, file_path, metadata, user=None):
                 raise Exception(
                     "Failed to parse Deepgram response - unexpected response format"
                 )
-            data = {"text": transcript.strip()}
+            data = {
+                "text": transcript.strip(),
+                "detected_language": metadata.get("language") if metadata else None,
+                "segments": [],
+            }
 
             # Save transcript
             transcript_file = f"{file_dir}/{id}.json"
@@ -829,7 +925,11 @@ def transcription_handler(request, file_path, metadata, user=None):
             if not transcript:
                 raise ValueError("Empty transcript in response")
 
-            data = {"text": transcript}
+            data = {
+                "text": transcript.strip(),
+                "detected_language": metadata.get("language") if metadata else None,
+                "segments": [],
+            }
 
             # Save transcript to json file (consistent with other providers)
             transcript_file = f"{file_dir}/{id}.json"
@@ -969,7 +1069,11 @@ def transcription_handler(request, file_path, metadata, user=None):
                 if not transcript:
                     raise ValueError("Empty transcript in response")
 
-                data = {"text": transcript}
+                data = {
+                    "text": transcript.strip(),
+                    "detected_language": metadata.get("language") if metadata else None,
+                    "segments": [],
+                }
 
             else:
                 # Use dedicated transcriptions API
@@ -1007,7 +1111,11 @@ def transcription_handler(request, file_path, metadata, user=None):
                 if not transcript:
                     raise ValueError("Empty transcript in response")
 
-                data = {"text": transcript}
+                data = {
+                    "text": transcript.strip(),
+                    "detected_language": metadata.get("language") if metadata else None,
+                    "segments": [],
+                }
 
             # Save transcript to json file (consistent with other providers)
             transcript_file = f"{file_dir}/{id}.json"
@@ -1049,8 +1157,11 @@ def transcribe(
     metadata: Optional[dict] = None,
     user=None,
     progress_callback: Optional[Callable[..., None]] = None,
+    profile: Optional[str] = None,
 ):
     log.info(f"transcribe: {file_path} {metadata}")
+
+    stt_profile = resolve_stt_profile(metadata, profile)
 
     def emit_progress(**kwargs):
         if progress_callback:
@@ -1060,14 +1171,33 @@ def transcribe(
                 # 不要让进度回调本身影响主流程
                 log.exception(e)
 
+    if stt_profile == "interactive":
+        emit_progress(
+            stage="transcribing",
+            progress_pct=15,
+            message="正在识别语音",
+        )
+
+        result = transcription_handler(request, file_path, metadata, user)
+
+        emit_progress(
+            stage="transcribing",
+            progress_pct=100,
+            message="语音识别完成",
+        )
+
+        return {
+            "text": (result.get("text") or "").strip(),
+            "segments": result.get("segments") or [],
+            "detected_language": result.get("detected_language"),
+            "chunk_count": 1,
+        }
+
     emit_progress(
         stage="extracting_audio",
         progress_pct=5,
         message="正在抽取音频",
     )
-
-    if is_audio_conversion_required(file_path):
-        file_path = convert_audio_to_mp3(file_path)
 
     emit_progress(
         stage="preprocessing_audio",
@@ -1076,7 +1206,7 @@ def transcribe(
     )
 
     try:
-        file_path = compress_audio(file_path)
+        file_path = prepare_audio_for_stt(file_path)
     except Exception as e:
         log.exception(e)
 
@@ -1086,12 +1216,24 @@ def transcribe(
         message="正在切分音频",
     )
 
-    # 先给默认值，避免 split_audio 异常时 finally 里 chunk_paths 未定义
-    chunk_paths = [file_path]
+    chunk_items = [
+        {
+            "index": 0,
+            "path": file_path,
+            "logical_start_ms": 0,
+            "logical_end_ms": 0,
+            "export_start_ms": 0,
+            "export_end_ms": 0,
+        }
+    ]
 
     try:
-        chunk_paths = split_audio(file_path, MAX_FILE_SIZE)
-        print(f"Chunk paths: {chunk_paths}")
+        chunk_items = split_audio(
+            file_path,
+            MAX_FILE_SIZE,
+            format="wav",
+        )
+        log.info(f"Chunk items: {chunk_items}")
     except Exception as e:
         log.exception(e)
         raise HTTPException(
@@ -1099,7 +1241,7 @@ def transcribe(
             detail=ERROR_MESSAGES.DEFAULT(e),
         )
 
-    total_chunks = len(chunk_paths)
+    total_chunks = len(chunk_items)
 
     emit_progress(
         stage="transcribing",
@@ -1122,9 +1264,9 @@ def transcribe(
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_idx = {
                 executor.submit(
-                    transcription_handler, request, chunk_path, metadata, user
+                    transcription_handler, request, chunk["path"], metadata, user
                 ): idx
-                for idx, chunk_path in enumerate(chunk_paths)
+                for idx, chunk in enumerate(chunk_items)
             }
 
             done_count = 0
@@ -1134,6 +1276,11 @@ def transcribe(
 
                 try:
                     result = future.result()
+                    chunk = chunk_items[idx]
+
+                    # 把 chunk 的时间信息挂到结果上，后面统一合并
+                    result["_chunk"] = chunk
+
                     results[idx] = result
                     done_count += 1
 
@@ -1154,7 +1301,8 @@ def transcribe(
                     )
     finally:
         # 只清理临时 chunk，不删主文件
-        for chunk_path in chunk_paths:
+        for chunk in chunk_items:
+            chunk_path = chunk["path"]
             if chunk_path != file_path and os.path.isfile(chunk_path):
                 try:
                     os.remove(chunk_path)
@@ -1169,10 +1317,58 @@ def transcribe(
         message="音频识别完成",
     )
 
+    merged_texts = []
+    merged_segments = []
+    detected_languages = []
+
+    for result in results:
+        if not result:
+            continue
+
+        text = (result.get("text") or "").strip()
+        if text:
+            merged_texts.append(text)
+
+        if result.get("detected_language"):
+            detected_languages.append(result["detected_language"])
+
+        chunk = result.get("_chunk", {})
+        chunk_export_start_ms = chunk.get("export_start_ms", 0)
+        chunk_export_end_ms = chunk.get("export_end_ms", chunk_export_start_ms)
+
+        raw_segments = result.get("segments") or []
+
+        if raw_segments:
+            for seg in raw_segments:
+                seg_text = (seg.get("text") or "").strip()
+                if not seg_text:
+                    continue
+
+                merged_segments.append(
+                    {
+                        "start_ms": chunk_export_start_ms + int(seg.get("start_ms", 0)),
+                        "end_ms": chunk_export_start_ms + int(seg.get("end_ms", 0)),
+                        "text": seg_text,
+                    }
+                )
+        else:
+            # provider 没有返回细粒度 segments，就退化成一个 chunk 级 segment
+            if text:
+                merged_segments.append(
+                    {
+                        "start_ms": chunk_export_start_ms,
+                        "end_ms": chunk_export_end_ms,
+                        "text": text,
+                    }
+                )
+
+    final_detected_language = detected_languages[0] if detected_languages else None
+
     return {
-        "text": " ".join(
-            [result["text"] for result in results if result and result.get("text")]
-        ).strip(),
+        "text": " ".join(merged_texts).strip(),
+        "segments": merged_segments,
+        "detected_language": final_detected_language,
+        "chunk_count": total_chunks,
     }
 
 
@@ -1195,150 +1391,6 @@ def compress_audio(file_path):
         return file_path
 
 
-def _merge_intervals(intervals, max_gap_ms=250):
-    if not intervals:
-        return []
-
-    intervals = sorted(intervals, key=lambda x: x[0])
-    merged = [list(intervals[0])]
-
-    for start, end in intervals[1:]:
-        last = merged[-1]
-        if start <= last[1] + max_gap_ms:
-            last[1] = max(last[1], end)
-        else:
-            merged.append([start, end])
-
-    return [(s, e) for s, e in merged]
-
-
-def _merge_short_intervals(intervals, min_chunk_ms):
-    """
-    把过短片段和后一个片段合并；如果最后一个还太短，就并到前一个。
-    """
-    if not intervals:
-        return []
-
-    merged = []
-    i = 0
-    n = len(intervals)
-
-    while i < n:
-        start, end = intervals[i]
-
-        while (end - start) < min_chunk_ms and i + 1 < n:
-            i += 1
-            _, next_end = intervals[i]
-            end = next_end
-
-        merged.append((start, end))
-        i += 1
-
-    if len(merged) >= 2 and (merged[-1][1] - merged[-1][0]) < min_chunk_ms:
-        prev_start, prev_end = merged[-2]
-        last_start, last_end = merged[-1]
-        merged[-2] = (prev_start, last_end)
-        merged.pop()
-
-    return merged
-
-
-def _split_long_interval(start_ms, end_ms, target_chunk_ms, max_chunk_ms, overlap_ms):
-    """
-    过长片段按时长二次切分。
-    注意：这里已经是“静音切完后的结果”，再切只是兜底，不是主策略。
-    """
-    intervals = []
-    cursor = start_ms
-
-    while cursor < end_ms:
-        remaining = end_ms - cursor
-
-        if remaining <= max_chunk_ms:
-            seg_start = cursor
-            seg_end = end_ms
-            intervals.append((seg_start, seg_end))
-            break
-
-        seg_start = cursor
-        seg_end = min(cursor + target_chunk_ms, end_ms)
-
-        intervals.append((seg_start, seg_end))
-        cursor = max(seg_end - overlap_ms, seg_start + 1000)  # 防止 overlap 造成死循环
-
-    return intervals
-
-
-def _export_segment_with_fallback(
-    audio,
-    start_ms,
-    end_ms,
-    base_path,
-    index_holder,
-    max_bytes,
-    format="mp3",
-    bitrate="32k",
-    overlap_ms=700,
-    min_export_ms=5000,
-):
-    """
-    导出某个区间；如果文件大小仍超限，则递归二分继续切。
-    """
-    segment = audio[start_ms:end_ms]
-    chunk_path = f"{base_path}_chunk_{index_holder[0]}.{format}"
-    index_holder[0] += 1
-
-    export_kwargs = {"format": format}
-    if format == "mp3":
-        export_kwargs["bitrate"] = bitrate
-
-    segment.export(chunk_path, **export_kwargs)
-
-    if os.path.getsize(chunk_path) <= max_bytes:
-        return [chunk_path]
-
-    # 超限，删掉刚导出的文件，递归再切
-    try:
-        os.remove(chunk_path)
-    except Exception:
-        pass
-
-    duration_ms = end_ms - start_ms
-    if duration_ms <= min_export_ms:
-        raise Exception("Audio chunk cannot be reduced below max file size.")
-
-    mid = start_ms + duration_ms // 2
-
-    left_end = min(end_ms, mid + overlap_ms // 2)
-    right_start = max(start_ms, mid - overlap_ms // 2)
-
-    left_paths = _export_segment_with_fallback(
-        audio,
-        start_ms,
-        left_end,
-        base_path,
-        index_holder,
-        max_bytes,
-        format=format,
-        bitrate=bitrate,
-        overlap_ms=overlap_ms,
-        min_export_ms=min_export_ms,
-    )
-
-    right_paths = _export_segment_with_fallback(
-        audio,
-        right_start,
-        end_ms,
-        base_path,
-        index_holder,
-        max_bytes,
-        format=format,
-        bitrate=bitrate,
-        overlap_ms=overlap_ms,
-        min_export_ms=min_export_ms,
-    )
-
-    return left_paths + right_paths
 
 def get_dynamic_split_params(audio: AudioSegment):
     duration_ms = len(audio)
@@ -1655,7 +1707,16 @@ def split_audio(
 
     # 只有“既短又不超限”时才不切
     if duration_ms <= max_chunk_ms and file_size <= max_bytes:
-        return [file_path]
+        return [
+            {
+                "index": 0,
+                "path": file_path,
+                "logical_start_ms": 0,
+                "logical_end_ms": duration_ms,
+                "export_start_ms": 0,
+                "export_end_ms": duration_ms,
+            }
+        ]
 
     nonsilent_ranges = detect_nonsilent(
         audio,
@@ -1701,7 +1762,7 @@ def split_audio(
     logical_intervals = _merge_short_intervals(logical_intervals, min_chunk_ms=min_chunk_ms)
 
     base, _ = os.path.splitext(file_path)
-    chunk_paths = []
+    chunk_items = []
     index_holder = [0]
 
     for idx, (start, end) in enumerate(logical_intervals):
@@ -1719,9 +1780,22 @@ def split_audio(
             bitrate=bitrate,
             overlap_ms=overlap_ms,
         )
-        chunk_paths.extend(paths)
 
-    return chunk_paths
+        # 第一版先假设大多数逻辑区间只导出成 1 个文件
+        # 如果 fallback 递归切成多个文件，先粗略继承同一时间范围，下一步我们再细化。
+        for path in paths:
+            chunk_items.append(
+                {
+                    "index": len(chunk_items),
+                    "path": path,
+                    "logical_start_ms": start,
+                    "logical_end_ms": end,
+                    "export_start_ms": export_start,
+                    "export_end_ms": export_end,
+                }
+            )
+
+    return chunk_items
 
 @router.post("/transcriptions")
 def transcription(
@@ -1768,7 +1842,7 @@ def transcription(
             if language:
                 metadata = {"language": language}
 
-            result = transcribe(request, file_path, metadata, user)
+            result = transcribe(request, file_path, metadata, user, profile="interactive")
 
             return {
                 **result,

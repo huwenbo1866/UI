@@ -487,6 +487,7 @@ def process_uploaded_file(
                         file_metadata,
                         user,
                         progress_callback=stt_progress_callback,
+                        profile="artifact",
                     )
                     
                     raw_text = (result.get("text", "") or "").strip()
