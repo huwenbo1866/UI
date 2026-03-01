@@ -35,6 +35,7 @@
 
 	export let selectedModels: string[] = [];
 	export let fileUploadCapableModels: string[] = [];
+	export let photoQuestionEnabled = false;
 
 	export let screenCaptureHandler: Function;
 	export let uploadFilesHandler: Function;
@@ -44,6 +45,7 @@
 	export let uploadOneDriveHandler: Function;
 
 	export let onUpload: Function;
+	export let photoQuestionHandler: Function;
 	export let onClose: Function;
 
 	let show = false;
@@ -129,6 +131,25 @@
 		>
 			{#if tab === ''}
 				<div in:fly={{ x: -20, duration: 150 }}>
+					<Tooltip
+						content={!photoQuestionEnabled ? $i18n.t('Selected model(s) do not support image inputs') : ''}
+						className="w-full"
+					>
+						<DropdownMenu.Item
+							class="flex gap-2 items-center px-3 py-1.5 text-sm  cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50  rounded-xl {!photoQuestionEnabled
+								? 'opacity-50'
+								: ''}"
+							on:click={async () => {
+								if (photoQuestionEnabled) {
+									await photoQuestionHandler();
+								}
+							}}
+						>
+							<Camera />
+							<div class=" line-clamp-1">拍照搜题</div>
+						</DropdownMenu.Item>
+					</Tooltip>
+
 					<Tooltip
 						content={fileUploadCapableModels.length !== selectedModels.length
 							? $i18n.t('Model(s) do not support file upload')
