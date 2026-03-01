@@ -179,3 +179,33 @@ export const downloadDatabase = async (token: string) => {
 		throw error;
 	}
 };
+
+export const recognizePhotoQuestion = async (token: string, imageDataUrl: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/utils/photo-question/recognize`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({
+			image_data_url: imageDataUrl
+		})
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err?.detail ?? err;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res?.text ?? '';
+};

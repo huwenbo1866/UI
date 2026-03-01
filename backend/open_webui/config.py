@@ -1093,6 +1093,25 @@ OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 
 
 ####################################
+# PHOTO QUESTION (VISION)
+####################################
+
+PHOTO_QUESTION_VISION_API_BASE_URL = os.environ.get(
+    "PHOTO_QUESTION_VISION_API_BASE_URL",
+    os.environ.get("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
+)
+if PHOTO_QUESTION_VISION_API_BASE_URL.endswith("/"):
+    PHOTO_QUESTION_VISION_API_BASE_URL = PHOTO_QUESTION_VISION_API_BASE_URL[:-1]
+
+PHOTO_QUESTION_VISION_API_KEY = os.environ.get(
+    "PHOTO_QUESTION_VISION_API_KEY", os.environ.get("OPENAI_API_KEY", "")
+)
+PHOTO_QUESTION_VISION_MODEL = os.environ.get(
+    "PHOTO_QUESTION_VISION_MODEL", "gpt-4o-mini"
+)
+
+
+####################################
 # MODELS
 ####################################
 
