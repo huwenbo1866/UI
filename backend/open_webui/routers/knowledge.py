@@ -6,6 +6,7 @@ from fastapi.concurrency import run_in_threadpool
 import logging
 import io
 import zipfile
+import time
 
 from sqlalchemy.orm import Session
 from open_webui.internal.db import get_session
@@ -538,6 +539,25 @@ class KnowledgeFileIdForm(BaseModel):
     file_id: str
 
 
+def wait_for_file_content(file_id: str, db: Session, timeout_seconds: int = 45):
+    deadline = time.time() + timeout_seconds
+    last_file = Files.get_file_by_id(file_id, db=db)
+
+    while time.time() < deadline:
+        if last_file and last_file.data and last_file.data.get("content"):
+            return last_file
+
+        status = (last_file.data or {}).get("status") if last_file and last_file.data else None
+        if status == "failed":
+            return last_file
+
+        time.sleep(1)
+        last_file = Files.get_file_by_id(file_id, db=db)
+
+    return last_file
+
+
+
 @router.post("/{id}/file/add", response_model=Optional[KnowledgeFilesResponse])
 def add_file_to_knowledge_by_id(
     request: Request,
@@ -569,11 +589,23 @@ def add_file_to_knowledge_by_id(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
-    if not file.data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.FILE_NOT_PROCESSED,
-        )
+    
+    # Upload uses background processing by default. If user clicks
+    # "add to knowledge" immediately, wait briefly for extraction to finish
+    # instead of force-triggering a second processing pipeline.
+    if not file.data or not file.data.get("content"):
+        file = wait_for_file_content(form_data.file_id, db=db)
+
+        if not file or not file.data or not file.data.get("content"):
+            error_detail = ERROR_MESSAGES.FILE_NOT_PROCESSED
+            if file and file.data:
+                if file.data.get("status") == "failed" and file.data.get("error"):
+                    error_detail = file.data.get("error")
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_detail,
+            )
 
     # Add content to the vector database
     try:
