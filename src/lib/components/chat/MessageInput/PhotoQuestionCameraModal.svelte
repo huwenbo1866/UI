@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
-
+	import Portal from '$lib/components/common/Portal.svelte';
 	const dispatch = createEventDispatcher();
 
 	export let show = false;
@@ -81,9 +81,6 @@
 		stopCamera();
 	}
 
-	onDestroy(() => {
-		stopCamera();
-	});
 
 	const close = () => {
 		show = false;
@@ -121,14 +118,17 @@
 		await emitCapturedFile(file);
 	};
 
-	const handleImport = async (event) => {
-		const file = event.target?.files?.[0];
+	const handleImport = async (event: Event) => {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = ''; // 允许重复选择同一张
 		if (!file) return;
 		await emitCapturedFile(file);
 	};
 </script>
 
 {#if show}
+<Portal target="body">
 	<div class="fixed inset-0 z-[80] bg-black text-white">
 		{#if mediaStream}
 			<video
@@ -165,9 +165,9 @@
 
 
 				<button
-					class="h-20 w-20 rounded-full border-4 border-white bg-sky-500 shadow-lg disabled:opacity-50"
-					disabled={!cameraReady}
-					on:click={capturePhoto}
+				  class="h-20 w-20 rounded-full border-4 border-white bg-white/15 shadow-lg disabled:opacity-50 active:scale-95"
+				  disabled={!cameraReady}
+				  on:click={capturePhoto}
 				/>
 			</div>
 		</div>
@@ -180,4 +180,5 @@
 			on:change={handleImport}
 		/>
 	</div>
+</Portal>
 {/if}
