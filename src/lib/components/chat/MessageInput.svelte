@@ -719,52 +719,60 @@
 						name: fileItem.name,
 						collection: uploadedFile?.meta?.collection_name
 					});
-
+				
 					if (uploadedFile.error) {
 						console.warn('File upload warning:', uploadedFile.error);
 						toast.warning(uploadedFile.error);
 					}
-
-					fileItem.file = uploadedFile;
-					fileItem.id = uploadedFile.id;
-					fileItem.collection_name =
-						uploadedFile?.meta?.collection_name || uploadedFile?.collection_name;
-					fileItem.content_type = uploadedFile.meta?.content_type || uploadedFile.content_type;
-					fileItem.url = `${uploadedFile.id}`;
-
+				
+					const basePatch = {
+						file: uploadedFile,
+						id: uploadedFile.id,
+						collection_name: uploadedFile?.meta?.collection_name || uploadedFile?.collection_name || '',
+						content_type: uploadedFile?.meta?.content_type || uploadedFile?.content_type,
+						url: `${uploadedFile.id}`
+					};
+				
 					const shouldTrackProgress =
 						process &&
 						isProgressMediaFile({
 							...fileItem,
-							content_type: uploadedFile?.meta?.content_type || file?.type || file?.content_type,
+							...basePatch,
+							content_type: basePatch.content_type || file?.type || file?.content_type,
 							filename: fileItem.name
 						});
-
+				
 					if (shouldTrackProgress) {
 						const backendStatus = uploadedFile?.data?.status ?? 'pending';
-
-						fileItem.status = backendStatus === 'completed' ? 'uploaded' : backendStatus;
-						fileItem.process_status = backendStatus;
-						fileItem.stage = uploadedFile?.data?.stage ?? 'queued';
-						fileItem.progress_pct = uploadedFile?.data?.progress_pct ?? 0;
-						fileItem.message =
-							uploadedFile?.data?.message ?? getStageLabel(fileItem.stage, '等待进入处理队列');
-						fileItem.current_chunk = uploadedFile?.data?.current_chunk ?? 0;
-						fileItem.total_chunks = uploadedFile?.data?.total_chunks ?? 0;
-						fileItem.error = uploadedFile?.data?.error ?? '';
-
+						const stage = uploadedFile?.data?.stage ?? 'queued';
+				
+						updateLocalFileItem(tempItemId, {
+							...basePatch,
+							status: backendStatus === 'completed' ? 'uploaded' : backendStatus,
+							process_status: backendStatus,
+							stage,
+							progress_pct: uploadedFile?.data?.progress_pct ?? 0,
+							message: uploadedFile?.data?.message ?? getStageLabel(stage, '等待进入处理队列'),
+							current_chunk: uploadedFile?.data?.current_chunk ?? 0,
+							total_chunks: uploadedFile?.data?.total_chunks ?? 0,
+							error: uploadedFile?.data?.error ?? ''
+						});
+				
 						if (uploadedFile.id && !['completed', 'failed'].includes(backendStatus)) {
 							startFileProcessPolling(tempItemId, uploadedFile.id);
 						}
 					} else {
-						fileItem.status = 'uploaded';
-						fileItem.process_status = undefined;
-						fileItem.stage = undefined;
-						fileItem.progress_pct = undefined;
-						fileItem.message = '';
-						fileItem.current_chunk = 0;
-						fileItem.total_chunks = 0;
-						fileItem.error = '';
+						updateLocalFileItem(tempItemId, {
+							...basePatch,
+							status: 'uploaded',
+							process_status: undefined,
+							stage: undefined,
+							progress_pct: undefined,
+							message: '',
+							current_chunk: 0,
+							total_chunks: 0,
+							error: ''
+						});
 					}
 				} else {
 					files = files.filter((item) => item?.itemId !== tempItemId);
