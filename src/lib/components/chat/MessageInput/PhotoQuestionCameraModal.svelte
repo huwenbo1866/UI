@@ -10,7 +10,7 @@
 	let cameraError = '';
 	let cameraReady = false;
 	let isStartingCamera = false;
-	let mode: 'single' | 'page' = 'single';
+
 	let mediaStream: MediaStream | null = null;
 
 	const attachStreamToVideo = async () => {
@@ -91,7 +91,7 @@
 	};
 
 	const emitCapturedFile = async (file: File) => {
-		dispatch('capture', { file, mode });
+		dispatch('capture', { file });
 		close();
 	};
 
@@ -105,23 +105,11 @@
 		const vw = videoElement.videoWidth;
 		const vh = videoElement.videoHeight;
 
-		if (mode === 'single') {
-			const cropWidth = Math.floor(vw * 0.86);
-			const cropHeight = Math.floor(cropWidth * 0.58);
-			const sx = Math.floor((vw - cropWidth) / 2);
-			const sy = Math.floor((vh - cropHeight) / 2);
-
-			canvas.width = cropWidth;
-			canvas.height = cropHeight;
-
-			const ctx = canvas.getContext('2d');
-			ctx?.drawImage(videoElement, sx, sy, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-		} else {
-			canvas.width = vw;
-			canvas.height = vh;
-			const ctx = canvas.getContext('2d');
-			ctx?.drawImage(videoElement, 0, 0, vw, vh);
-		}
+		canvas.width = vw;
+		canvas.height = vh;
+		const ctx = canvas.getContext('2d');
+		ctx?.drawImage(videoElement, 0, 0, vw, vh);
+		
 
 		const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
 		if (!blob) {
@@ -162,18 +150,9 @@
 		<div class="absolute inset-0 flex flex-col justify-between p-4">
 			<div class="flex items-center justify-between">
 				<button class="rounded-full bg-black/40 px-4 py-2 text-sm" on:click={close}>关闭</button>
-				<div class="rounded-full bg-black/40 px-4 py-2 text-sm">拍照搜题</div>
-				<button class="rounded-full bg-black/40 px-4 py-2 text-sm" on:click={() => fileInputElement.click()}>
-					相册
-				</button>
 			</div>
 
-			<div class="mx-auto mb-20 mt-10 w-full max-w-3xl px-2">
-				<div class="rounded-3xl border-2 border-white/80 bg-white/5 px-6 py-10 text-center shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]">
-					<div class="text-3xl font-semibold tracking-wide">平行纸面</div>
-					<div class="mt-2 text-xl">题目放在框内识别更准确</div>
-				</div>
-			</div>
+			
 
 			<div class="mb-2 flex flex-col items-center gap-4">
 				{#if !cameraReady && !cameraError}
@@ -184,20 +163,6 @@
 					<div class="rounded-xl bg-red-500/80 px-3 py-2 text-sm">{cameraError}</div>
 				{/if}
 
-				<div class="flex rounded-full bg-white/35 p-1 text-sm">
-					<button
-						class="rounded-full px-6 py-2 {mode === 'single' ? 'bg-white text-black' : 'text-white'}"
-						on:click={() => (mode = 'single')}
-					>
-						搜单题
-					</button>
-					<button
-						class="rounded-full px-6 py-2 {mode === 'page' ? 'bg-white text-black' : 'text-white'}"
-						on:click={() => (mode = 'page')}
-					>
-						搜整页
-					</button>
-				</div>
 
 				<button
 					class="h-20 w-20 rounded-full border-4 border-white bg-sky-500 shadow-lg disabled:opacity-50"

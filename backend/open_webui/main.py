@@ -747,24 +747,7 @@ app.state.config.ENABLE_OPENAI_API = ENABLE_OPENAI_API
 app.state.config.OPENAI_API_BASE_URLS = OPENAI_API_BASE_URLS
 app.state.config.OPENAI_API_KEYS = OPENAI_API_KEYS
 app.state.config.OPENAI_API_CONFIGS = OPENAI_API_CONFIGS
-app.state.config.PHOTO_QUESTION_VISION_API_BASE_URL = PersistentConfig(
-    "PHOTO_QUESTION_VISION_API_BASE_URL",
-    "photo_question.vision_api_base_url",
-    os.environ.get(
-        "PHOTO_QUESTION_VISION_API_BASE_URL",
-        os.environ.get("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
-    ).rstrip("/"),
-)
-app.state.config.PHOTO_QUESTION_VISION_API_KEY = PersistentConfig(
-    "PHOTO_QUESTION_VISION_API_KEY",
-    "photo_question.vision_api_key",
-    os.environ.get("PHOTO_QUESTION_VISION_API_KEY", os.environ.get("OPENAI_API_KEY", "")),
-)
-app.state.config.PHOTO_QUESTION_VISION_MODEL = PersistentConfig(
-    "PHOTO_QUESTION_VISION_MODEL",
-    "photo_question.vision_model",
-    os.environ.get("PHOTO_QUESTION_VISION_MODEL", "gpt-4o-mini"),
-)
+
 
 app.state.OPENAI_MODELS = {}
 

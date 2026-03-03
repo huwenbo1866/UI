@@ -146,7 +146,7 @@
 							}}
 						>
 							<Camera />
-							<div class=" line-clamp-1">拍照搜题</div>
+							<div class=" line-clamp-1">拍照</div>
 						</DropdownMenu.Item>
 					</Tooltip>
 

@@ -1,7 +1,7 @@
 import black
 import logging
 import markdown
-import aiohttp
+
 
 from open_webui.models.chats import ChatTitleMessagesForm
 from open_webui.config import DATA_DIR, ENABLE_ADMIN_EXPORT
@@ -87,73 +87,6 @@ class ChatForm(BaseModel):
     messages: list[dict]
 
 
-class PhotoQuestionRecognizeForm(BaseModel):
-    image_data_url: str
-
-
-@router.post("/photo-question/recognize")
-async def recognize_photo_question(
-    request: Request,
-    form_data: PhotoQuestionRecognizeForm,
-    user=Depends(get_verified_user),
-):
-    base_url = request.app.state.config.PHOTO_QUESTION_VISION_API_BASE_URL
-    api_key = request.app.state.config.PHOTO_QUESTION_VISION_API_KEY
-    model = request.app.state.config.PHOTO_QUESTION_VISION_MODEL
-
-    if not base_url or not model:
-        raise HTTPException(
-            status_code=400,
-            detail="Photo question vision provider is not configured.",
-        )
-
-    payload = {
-        "model": model,
-        "stream": False,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "请识别图片中的题目原文，只返回题目文字，不要答案、不要解释。",
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": form_data.image_data_url},
-                    },
-                ],
-            }
-        ],
-    }
-
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    async with aiohttp.ClientSession(trust_env=True) as session:
-        async with session.post(
-            f"{base_url}/chat/completions",
-            json=payload,
-            headers=headers,
-            timeout=aiohttp.ClientTimeout(total=90),
-        ) as response:
-            if not response.ok:
-                detail = await response.text()
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Photo question recognition failed: {detail}",
-                )
-
-            data = await response.json()
-
-    recognized_text = (
-        ((data.get("choices") or [{}])[0].get("message") or {}).get("content")
-        or ((data.get("choices") or [{}])[0].get("text"))
-        or ""
-    )
-
-    return {"text": recognized_text.strip()}
 
 
 @router.post("/pdf")

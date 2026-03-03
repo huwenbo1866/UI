@@ -51,7 +51,7 @@
 	} from '$lib/utils';
 	import { getFileProcessStatus, uploadFile } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
-	import { recognizePhotoQuestion } from '$lib/apis/utils';
+	
 	import { deleteFileById } from '$lib/apis/files';
 	import { getSessionUser } from '$lib/apis/auths';
 	import { getTools } from '$lib/apis/tools';
@@ -545,11 +545,7 @@
 
 	let showInputModal = false;
 	let showPhotoQuestionCamera = false;
-	let showPhotoQuestionResult = false;
-	let questionImagePreview = '';
-	let recognizedQuestion = '';
-	let photoQuestionRecognizing = false;
-	let photoQuestionError = '';
+	
 
 	let dragged = false;
 	let shiftKey = false;
@@ -926,75 +922,13 @@
 		});
 	};
 
-	const fileToDataUrl = (file: File): Promise<string> =>
-		new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onload = () => resolve((reader.result as string) || '');
-			reader.onerror = reject;
-			reader.readAsDataURL(file);
-		});
-
-	const extractQuestionFromImage = async (file: File) => {
-		const imageUrl = await fileToDataUrl(file);
-		return await recognizePhotoQuestion(localStorage.token, imageUrl);
-	};
-
-	const processQuestionPhoto = async (file: File) => {
-		if (!file) return;
-
-		try {
-			photoQuestionRecognizing = true;
-			photoQuestionError = '';
-			questionImagePreview = await fileToDataUrl(file);
-			recognizedQuestion = '';
-			showPhotoQuestionResult = true;
-
-			recognizedQuestion = await extractQuestionFromImage(file);
-
-			if (!recognizedQuestion) {
-				photoQuestionError = '未识别到题目内容，请重新拍照或换一张更清晰的图片。';
-				return;
-			}
-		} catch (error) {
-			console.error('Photo question OCR failed:', error);
-			photoQuestionError = `拍照识别失败：${error?.message ?? error}`;
-		} finally {
-			photoQuestionRecognizing = false;
-		}
-	};
+	
 
 	const photoQuestionHandler = async () => {
 		showPhotoQuestionCamera = true;
 	};
 
-	const sendRecognizedQuestionToAI = async () => {
-		if (!recognizedQuestion || photoQuestionRecognizing) return;
-
-		await insertTextAtCursor(`请详细解答这道题：\n${recognizedQuestion}`);
-		showPhotoQuestionResult = false;
-		await tick();
-		document.getElementById('chat-input')?.focus();
-	};
-
-	const searchQuestionInKnowledgeBase = async () => {
-		if (!recognizedQuestion || photoQuestionRecognizing) return;
-
-		await insertTextAtCursor(
-			`请先在你的知识库/题库中查找这道题的标准答案和解析；如果找不到再说明并给出解题思路：\n${recognizedQuestion}`
-		);
-		showPhotoQuestionResult = false;
-		await tick();
-		document.getElementById('chat-input')?.focus();
-	};
-
-	const retakeQuestionPhoto = async () => {
-		showPhotoQuestionResult = false;
-		questionImagePreview = '';
-		recognizedQuestion = '';
-		photoQuestionError = '';
-		await tick();
-		showPhotoQuestionCamera = true;
-	};
+	
 
 	const createNote = async () => {
 		if (inputContent?.md.trim() === '' && inputContent?.html.trim() === '') {
@@ -1222,11 +1156,16 @@
 <ToolServersModal bind:show={showTools} {selectedToolIds} />
 
 <PhotoQuestionCameraModal
-	bind:show={showPhotoQuestionCamera}
-	on:capture={async (e) => {
-		const file = e.detail?.file;
-		await processQuestionPhoto(file);
-	}}
+  bind:show={showPhotoQuestionCamera}
+  on:capture={async (e) => {
+    const file = e.detail?.file;
+    if (file) {
+      await inputFilesHandler([file]);
+    }
+    showPhotoQuestionCamera = false;
+    await tick();
+    document.getElementById('chat-input')?.focus();
+  }}
 />
 
 <InputVariablesModal
@@ -1262,66 +1201,6 @@
 	}}
 />
 
-{#if showPhotoQuestionResult}
-	<div
-		class="fixed inset-0 z-[70] bg-black/45 flex items-center justify-center px-4"
-		on:click={() => {
-			showPhotoQuestionResult = false;
-		}}
-	>
-		<div
-			class="w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-900 shadow-xl p-4 md:p-5"
-			on:click|stopPropagation
-		>
-			<div class="text-base md:text-lg font-semibold mb-3">拍照识题结果</div>
-			{#if photoQuestionRecognizing}
-				<div class="text-sm text-gray-500 mb-2">正在识别题目，请稍候…</div>
-			{/if}
-
-			{#if questionImagePreview}
-				<img
-					src={questionImagePreview}
-					alt="question preview"
-					class="w-full max-h-64 object-contain rounded-xl border border-gray-200 dark:border-gray-700 mb-3"
-				/>
-			{/if}
-
-			<div class="text-xs text-gray-500 mb-1">识别到的题目</div>
-			<textarea
-				class="w-full h-36 rounded-xl border border-gray-200 dark:border-gray-700 bg-transparent p-3 text-sm"
-				disabled={photoQuestionRecognizing}
-				bind:value={recognizedQuestion}
-			/>
-			{#if photoQuestionError}
-				<div class="mt-2 text-sm text-red-500">{photoQuestionError}</div>
-			{/if}
-
-			<div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
-				<button
-					class="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm"
-					on:click={retakeQuestionPhoto}
-					disabled={photoQuestionRecognizing}
-				>
-					重拍
-				</button>
-				<button
-					class="px-3 py-2 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-black text-sm"
-					on:click={searchQuestionInKnowledgeBase}
-					disabled={photoQuestionRecognizing || !recognizedQuestion}
-				>
-					从题库找答案解析
-				</button>
-				<button
-					class="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm"
-					on:click={sendRecognizedQuestionToAI}
-					disabled={photoQuestionRecognizing || !recognizedQuestion}
-				>
-					发送给AI解答
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
 
 {#if loaded}
 	<div class="w-full font-primary">
