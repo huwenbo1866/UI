@@ -697,12 +697,24 @@
 			try {
 				// If the file is an audio file, provide the language for STT.
 				let metadata = null;
+				const isPhotoQuestionCapture =
+					file?.type?.startsWith('image/') &&
+					typeof file?.name === 'string' &&
+					file.name.startsWith('photo-question-');
 				if (
 					(file.type.startsWith('audio/') || file.type.startsWith('video/')) &&
 					$settings?.audio?.stt?.language
 				) {
 					metadata = {
 						language: $settings?.audio?.stt?.language
+					};
+				}
+
+				if (isPhotoQuestionCapture) {
+					metadata = {
+						...(metadata ?? {}),
+						source: 'photo-question',
+						scene: 'ocr'
 					};
 				}
 
@@ -824,6 +836,11 @@
 		}
 
 		inputFiles.forEach(async (file) => {
+			const isPhotoQuestionImage =
+				file?.type?.startsWith('image/') &&
+				(typeof file?.name === 'string'
+					? file.name.startsWith('photo-question-') || file.name.startsWith('camera-photo-question-')
+					: false);
 			console.log('Processing file:', {
 				name: file.name,
 				type: file.type,
@@ -853,7 +870,11 @@
 					return;
 				}
 
-				const compressImageHandler = async (imageUrl, settings = {}, config = {}) => {
+				const compressImageHandler = async (imageUrl, settings = {}, config = {}, bypass = false) => {
+					if (bypass) {
+						return imageUrl;
+					}
+
 					// Quick shortcut so we don’t do unnecessary work.
 					const settingsCompression = settings?.imageCompression ?? false;
 					const configWidth = config?.file?.image_compression?.width ?? null;
@@ -884,7 +905,10 @@
 
 					// Do the compression if required
 					if (width || height) {
-						return await compressImage(imageUrl, width, height);
+						return await compressImage(imageUrl, width, height, {
+							quality: 0.98,
+							minShortEdge: 1200
+						});
 					}
 					return imageUrl;
 				};
@@ -896,7 +920,12 @@
 
 					// Compress the image if settings or config require it
 					if ($settings?.imageCompression && $settings?.imageCompressionInChannels) {
-						imageUrl = await compressImageHandler(imageUrl, $settings, $config);
+						imageUrl = await compressImageHandler(
+							imageUrl,
+							$settings,
+							$config,
+							isPhotoQuestionImage
+						);
 					}
 
 					if ($temporaryChatEnabled) {
@@ -925,6 +954,31 @@
 	
 
 	const photoQuestionHandler = async () => {
+		const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+		const isMobile = /android|iphone|ipad|ipod|windows phone/i.test(userAgent);
+
+		if (isMobile) {
+			const cameraInput = document.createElement('input');
+			cameraInput.type = 'file';
+			cameraInput.accept = 'image/*';
+			cameraInput.setAttribute('capture', 'environment');
+
+			cameraInput.onchange = async () => {
+				const originalFile = cameraInput.files?.[0];
+				if (!originalFile) return;
+
+				const ext = originalFile.type === 'image/png' ? 'png' : 'jpg';
+				const photoQuestionFile = new File([originalFile], `photo-question-${Date.now()}.${ext}`, {
+					type: originalFile.type || 'image/jpeg'
+				});
+
+				await inputFilesHandler([photoQuestionFile]);
+			};
+
+			cameraInput.click();
+			return;
+		}
+
 		showPhotoQuestionCamera = true;
 	};
 

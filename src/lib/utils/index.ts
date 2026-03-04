@@ -274,13 +274,33 @@ export const canvasPixelTest = () => {
 	return true;
 };
 
-export const compressImage = async (imageUrl, maxWidth, maxHeight) => {
+type CompressImageOptions = {
+	quality?: number;
+	minShortEdge?: number | null;
+};
+
+export const compressImage = async (
+	imageUrl,
+	maxWidth,
+	maxHeight,
+	options: CompressImageOptions = {}
+) => {
 	return new Promise((resolve, reject) => {
 		const img = new Image();
 		img.onload = () => {
 			const canvas = document.createElement('canvas');
 			let width = img.width;
 			let height = img.height;
+			const quality = typeof options?.quality === 'number' ? options.quality : 0.96;
+			const minShortEdge = options?.minShortEdge ?? null;
+
+			if (minShortEdge) {
+				const shortEdge = Math.min(width, height);
+				if (shortEdge < minShortEdge) {
+					resolve(imageUrl);
+					return;
+				}
+			}
 
 			// Maintain aspect ratio while resizing
 
@@ -329,7 +349,7 @@ export const compressImage = async (imageUrl, maxWidth, maxHeight) => {
 
 			// Get compressed image URL
 			const mimeType = imageUrl.match(/^data:([^;]+);/)?.[1];
-			const compressedUrl = canvas.toDataURL(mimeType);
+			const compressedUrl = canvas.toDataURL(mimeType, quality);
 			resolve(compressedUrl);
 		};
 		img.onerror = (error) => reject(error);
