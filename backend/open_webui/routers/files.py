@@ -4,6 +4,7 @@ import uuid
 import json
 import re
 import requests
+import io
 
 from pathlib import Path
 from typing import Optional
@@ -53,6 +54,11 @@ from open_webui.utils.file_progress import update_file_progress
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access
 from open_webui.utils.misc import strict_match_mime_type
+from open_webui.utils.images.ocr_preprocess import (
+    preprocess_image_for_ocr,
+    should_enable_ocr_preprocess,
+    is_photo_question_file,
+)
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
@@ -706,12 +712,44 @@ def upload_file_handler(
                     ),
                 )
 
+        uploaded_stream = file.file
+
+        should_preprocess_photo_question = (
+            isinstance(file.content_type, str)
+            and file.content_type.startswith("image/")
+            and should_enable_ocr_preprocess()
+            and str(file_metadata.get("source", "")).lower() == "photo-question"
+            and is_photo_question_file(filename, file_metadata)
+        )
+
+        ocr_preprocess_meta = None
+        if should_preprocess_photo_question:
+            raw_bytes = file.file.read()
+            file.file.seek(0)
+            if raw_bytes:
+                try:
+                    profile = os.getenv("OCR_PREPROCESS_PROFILE", "text_document")
+                    enhanced_bytes, preprocess_meta = preprocess_image_for_ocr(
+                        raw_bytes, profile=profile
+                    )
+                    uploaded_stream = io.BytesIO(enhanced_bytes)
+                    ocr_preprocess_meta = {
+                        **preprocess_meta,
+                        "enabled": True,
+                        "original_size": len(raw_bytes),
+                        "enhanced_size": len(enhanced_bytes),
+                    }
+                except Exception as preprocess_error:
+                    log.warning(
+                        "OCR preprocessing failed for %s: %s", filename, preprocess_error
+                    )
+
         # replace filename with uuid
         id = str(uuid.uuid4())
         name = filename
         filename = f"{id}_{filename}"
         contents, file_path = Storage.upload_file(
-            file.file,
+            uploaded_stream,
             filename,
             {
                 "OpenWebUI-User-Email": user.email,
@@ -754,6 +792,11 @@ def upload_file_handler(
                             else None
                         ),
                         "size": len(contents),
+                        **(
+                            {"ocr_preprocess": ocr_preprocess_meta}
+                            if ocr_preprocess_meta
+                            else {}
+                        ),
                         "data": file_metadata,
                     },
                 }

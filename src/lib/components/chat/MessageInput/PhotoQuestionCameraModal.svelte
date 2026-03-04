@@ -11,6 +11,8 @@
 	let cameraError = '';
 	let cameraReady = false;
 	let isStartingCamera = false;
+	let isCapturing = false;
+	let isStabilizing = false;
 
 	let mediaStream: MediaStream | null = null;
 
@@ -60,6 +62,9 @@
 		}
 	}
 
+	const OCR_MIN_WIDTH = 1600;
+	const OCR_MIN_HEIGHT = 1200;
+
 	function formatTrackInfo(track: MediaStreamTrack) {
 		const s = track.getSettings?.() as any;
 		const w = s?.width ?? '?';
@@ -74,9 +79,27 @@
 			{
 				video: {
 					facingMode: { ideal: 'environment' },
-					width: { ideal: 3840 },
-					height: { ideal: 2160 },
-					frameRate: { ideal: 30, max: 30 }
+					width: { ideal: 4032 },
+					height: { ideal: 3024 },
+					frameRate: { ideal: 30, min: 24 }
+				},
+				audio: false
+			},
+			{
+				video: {
+					facingMode: { ideal: 'environment' },
+					width: { ideal: 3264 },
+					height: { ideal: 2448 },
+					frameRate: { ideal: 30, min: 20 }
+				},
+				audio: false
+			},
+			{
+				video: {
+					facingMode: { ideal: 'environment' },
+					width: { ideal: 2560 },
+					height: { ideal: 1920 },
+					frameRate: { ideal: 24, min: 20 }
 				},
 				audio: false
 			},
@@ -85,16 +108,7 @@
 					facingMode: { ideal: 'environment' },
 					width: { ideal: 1920 },
 					height: { ideal: 1080 },
-					frameRate: { ideal: 30, max: 30 }
-				},
-				audio: false
-			},
-			{
-				video: {
-					facingMode: { ideal: 'environment' },
-					width: { ideal: 1280 },
-					height: { ideal: 720 },
-					frameRate: { max: 15 }
+					frameRate: { ideal: 24, min: 15 }
 				},
 				audio: false
 			},
@@ -118,10 +132,15 @@
 
 	// 关键：拿到 stream 后，再用 capabilities 强制 applyConstraints 到“设备支持的最高值”
 	async function upgradeTrackToMax(track: MediaStreamTrack) {
+		const appliedConstraints: string[] = [];
+
 		try {
 			const caps = (track.getCapabilities?.() as any) ?? null;
 			
-			if (!caps) return;
+			if (!caps) {
+				debugText = `${debugText} | capabilities unavailable`;
+				return;
+			}
 
 			// caps.width / caps.height 有时是 {min,max}
 			const maxW = caps.width?.max;
@@ -137,10 +156,11 @@
 			await track.applyConstraints({
 				width: { ideal: targetW },
 				height: { ideal: targetH },
-				frameRate: { max: 15 }
+				frameRate: { ideal: 24, min: 15 }
 			});
+			appliedConstraints.push(`resolution~${targetW}x${targetH}`);
 		} catch {
-			// 忽略：有的设备/浏览器不支持
+			appliedConstraints.push('resolution upgrade failed');
 		}
 
 		// 尝试连续对焦/曝光（支持则更稳）
@@ -153,7 +173,87 @@
 					{ frameRate: 15 as any }
 				]
 			} as any);
-		} catch {}
+			appliedConstraints.push('focus/exposure advanced applied');
+		} catch {
+			appliedConstraints.push('focus/exposure advanced unsupported');
+		}
+
+		if (appliedConstraints.length > 0) {
+			debugText = `${debugText}${debugText ? ' | ' : ''}${appliedConstraints.join(' | ')}`;
+		}
+	}
+
+	function meetsOcrResolution(track: MediaStreamTrack) {
+		const s = (track.getSettings?.() as any) ?? {};
+		const w = Number(s?.width ?? 0);
+		const h = Number(s?.height ?? 0);
+		return w >= OCR_MIN_WIDTH && h >= OCR_MIN_HEIGHT;
+	}
+
+	async function waitForNextFrame() {
+		if (!videoElement) return;
+		const anyVideo = videoElement as any;
+		if (typeof anyVideo.requestVideoFrameCallback === 'function') {
+			await new Promise<void>((resolve) => anyVideo.requestVideoFrameCallback(() => resolve()));
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+
+	function computeSharpnessScoreFromCurrentFrame() {
+		if (!videoElement || !videoElement.videoWidth || !videoElement.videoHeight) return 0;
+		const sampleWidth = Math.min(640, videoElement.videoWidth);
+		const sampleHeight = Math.max(1, Math.round((sampleWidth * videoElement.videoHeight) / videoElement.videoWidth));
+
+		const canvas = document.createElement('canvas');
+		canvas.width = sampleWidth;
+		canvas.height = sampleHeight;
+		const ctx = canvas.getContext('2d', { willReadFrequently: true });
+		if (!ctx) return 0;
+
+		ctx.drawImage(videoElement, 0, 0, sampleWidth, sampleHeight);
+		const imageData = ctx.getImageData(0, 0, sampleWidth, sampleHeight).data;
+		const gray = new Float32Array(sampleWidth * sampleHeight);
+
+		for (let i = 0, p = 0; i < imageData.length; i += 4, p++) {
+			gray[p] = 0.299 * imageData[i] + 0.587 * imageData[i + 1] + 0.114 * imageData[i + 2];
+		}
+
+		let sum = 0;
+		let sumSq = 0;
+		let count = 0;
+		for (let y = 1; y < sampleHeight - 1; y++) {
+			for (let x = 1; x < sampleWidth - 1; x++) {
+				const idx = y * sampleWidth + x;
+				const lap =
+					gray[idx - sampleWidth] + gray[idx + sampleWidth] + gray[idx - 1] + gray[idx + 1] - 4 * gray[idx];
+				sum += lap;
+				sumSq += lap * lap;
+				count++;
+			}
+		}
+
+		if (!count) return 0;
+		const mean = sum / count;
+		return sumSq / count - mean * mean;
+	}
+
+	async function waitForStableFrames() {
+		isStabilizing = true;
+		try {
+			const scores: number[] = [];
+			for (let i = 0; i < 6; i++) {
+				await waitForNextFrame();
+				scores.push(computeSharpnessScoreFromCurrentFrame());
+			}
+
+			const tail = scores.slice(-3);
+			const avg = tail.reduce((a, b) => a + b, 0) / Math.max(tail.length, 1);
+			const spread = Math.max(...tail) - Math.min(...tail);
+			debugText = `${debugText}${debugText ? ' | ' : ''}sharpness~${avg.toFixed(1)} Δ${spread.toFixed(1)}`;
+		} finally {
+			isStabilizing = false;
+		}
 	}
 
 	const startCamera = async () => {
@@ -182,6 +282,10 @@
 			// 尽可能升级到设备可用的高分辨率
 			await upgradeTrackToMax(track);
 
+			if (!meetsOcrResolution(track)) {
+				debugText = `${debugText}${debugText ? ' | ' : ''}低于OCR建议分辨率(${OCR_MIN_WIDTH}x${OCR_MIN_HEIGHT})`;
+			}
+
 			// 保存
 			mediaStream = stream;
 
@@ -200,7 +304,7 @@
 			// 调试：显示 video 实际尺寸 + track 设置
 			const vInfo = `video: ${videoElement.videoWidth}x${videoElement.videoHeight}`;
 			const tInfo = formatTrackInfo(track);
-			debugText = `${vInfo} | ${tInfo}`;
+			debugText = `${vInfo} | ${tInfo}${debugText ? ' | ' + debugText : ''}`;
 		} catch (error: any) {
 			const errorName = error?.name ?? '';
 			if (errorName === 'NotAllowedError') {
@@ -222,6 +326,8 @@
 
 		cameraReady = false;
 		isStartingCamera = false;
+		isCapturing = false;
+		isStabilizing = false;
 		showVideo = false;
 		debugText = '';
 
@@ -264,57 +370,66 @@
 	}
 
 	const capturePhoto = async () => {
-		if (!show || !mediaStream) {
-			cameraError = '相机尚未就绪，请稍后重试。';
-			return;
-		}
+		if (isCapturing) return;
+		isCapturing = true;
 
-		const track = mediaStream.getVideoTracks()?.[0];
-		if (!track) {
-			cameraError = '相机轨道不可用，请重试。';
-			return;
-		}
+		try {
+			if (!show || !mediaStream) {
+				cameraError = '相机尚未就绪，请稍后重试。';
+				return;
+			}
 
-		// 1) ImageCapture
-		const photoBlob = await tryTakePhoto(track);
-		if (photoBlob) {
-			const file = new File([photoBlob], `photo-question-${Date.now()}.jpg`, {
-				type: photoBlob.type || 'image/jpeg'
-			});
+			const track = mediaStream.getVideoTracks()?.[0];
+			if (!track) {
+				cameraError = '相机轨道不可用，请重试。';
+				return;
+			}
+
+			await waitForStableFrames();
+
+			// 1) ImageCapture
+			const photoBlob = await tryTakePhoto(track);
+			if (photoBlob) {
+				const file = new File([photoBlob], `photo-question-${Date.now()}.jpg`, {
+					type: photoBlob.type || 'image/jpeg'
+				});
+				await emitCapturedFile(file);
+				return;
+			}
+
+			// 2) fallback：截取视频帧（质量取决于预览流分辨率）
+			if (!videoElement || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+				cameraError = '相机画面未准备好，请稍后重试。';
+				return;
+			}
+
+			const vw = videoElement.videoWidth;
+			const vh = videoElement.videoHeight;
+
+			const canvas = document.createElement('canvas');
+			canvas.width = vw;
+			canvas.height = vh;
+			const ctx = canvas.getContext('2d');
+			if (!ctx) {
+				cameraError = '拍照失败（无法创建画布），请重试。';
+				return;
+			}
+
+			ctx.drawImage(videoElement, 0, 0, vw, vh);
+
+			const blob = await new Promise<Blob | null>((resolve) =>
+				canvas.toBlob(resolve, 'image/jpeg', 0.98)
+			);
+
+			if (!blob) {
+				cameraError = '拍照失败，请重试。';
+				return;
+			}
+			const file = new File([blob], `photo-question-${Date.now()}.jpg`, { type: 'image/jpeg' });
 			await emitCapturedFile(file);
-			return;
+		} finally {
+			isCapturing = false;
 		}
-
-		// 2) fallback：截取视频帧（质量取决于预览流分辨率）
-		if (!videoElement || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
-			cameraError = '相机画面未准备好，请稍后重试。';
-			return;
-		}
-
-		const vw = videoElement.videoWidth;
-		const vh = videoElement.videoHeight;
-
-		const canvas = document.createElement('canvas');
-		canvas.width = vw;
-		canvas.height = vh;
-		const ctx = canvas.getContext('2d');
-		if (!ctx) {
-			cameraError = '拍照失败（无法创建画布），请重试。';
-			return;
-		}
-
-		ctx.drawImage(videoElement, 0, 0, vw, vh);
-
-		const blob = await new Promise<Blob | null>((resolve) =>
-			canvas.toBlob(resolve, 'image/jpeg', 0.98)
-		);
-
-		if (!blob) {
-			cameraError = '拍照失败，请重试。';
-			return;
-		}
-		const file = new File([blob], `photo-question-${Date.now()}.jpg`, { type: 'image/jpeg' });
-		await emitCapturedFile(file);
 	};
 
 	const handleImport = async (event: Event) => {
@@ -363,15 +478,23 @@
 						</div>
 					{/if}
 
+					{#if isStabilizing}
+						<div class="rounded-xl bg-black/50 px-3 py-2 text-sm">正在对焦并稳定画面…</div>
+					{/if}
+
 					{#if cameraError}
 						<div class="rounded-xl bg-red-500/80 px-3 py-2 text-sm">{cameraError}</div>
 					{/if}
 
 					<button
 						class="h-20 w-20 rounded-full border-4 border-white bg-white/15 shadow-lg disabled:opacity-50 active:scale-95"
-						disabled={!cameraReady}
+						disabled={!cameraReady || isCapturing}
 						on:click={capturePhoto}
-					/>
+					>
+						{#if isCapturing}
+							<span class="text-xs">处理中</span>
+						{/if}
+					</button>
 				</div>
 			</div>
 
