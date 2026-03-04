@@ -49,6 +49,7 @@
 		getUserTimezone,
 		getWeekday
 	} from '$lib/utils';
+	import { capturePhotoViaNativeBridge } from '$lib/utils/native-camera';
 	import { getFileProcessStatus, uploadFile } from '$lib/apis/files';
 	import { generateAutoCompletion } from '$lib/apis';
 	
@@ -958,6 +959,17 @@
 		const isMobile = /android|iphone|ipad|ipod|windows phone/i.test(userAgent);
 
 		if (isMobile) {
+			const nativeCapturedFile = await capturePhotoViaNativeBridge({
+				preferFacingMode: 'environment',
+				preferResolution: 'max',
+				timeoutMs: 10000
+			});
+
+			if (nativeCapturedFile) {
+				await inputFilesHandler([nativeCapturedFile]);
+				return;
+			}
+
 			const cameraInput = document.createElement('input');
 			cameraInput.type = 'file';
 			cameraInput.accept = 'image/*';
