@@ -587,8 +587,12 @@
 		window.addEventListener('message', onMessageHandler);
 		$socket?.on('events', chatEventHandler);
 
-		audioQueue.set(new AudioQueue(document.getElementById('audioElement')));
+		await tick(); // 确保 <audio> 已经在 DOM 里
+		const audioEl = document.getElementById('audioElement') as HTMLAudioElement | null;
 
+		// 兜底：拿不到元素也不要让初始化失败
+		audioQueue.set(new AudioQueue(audioEl ?? undefined));
+		
 		pageSubscribe = page.subscribe(async (p) => {
 			if (p.url.pathname === '/') {
 				await tick();
