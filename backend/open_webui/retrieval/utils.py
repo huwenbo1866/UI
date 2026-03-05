@@ -1039,7 +1039,42 @@ async def get_sources_from_items(
                     "metadatas": [[{"url": item.get("url"), "name": item.get("url")}]],
                 }
         elif item.get("type") == "file":
-            if (
+            # Chapter-specific content retrieval
+            chapter = item.get("chapter")
+            if chapter and item.get("id"):
+                try:
+                    from open_webui.utils.chapters import extract_pdf_page_range_text
+
+                    file_object = Files.get_file_by_id(item.get("id"))
+                    if file_object:
+                        from open_webui.storage.provider import Storage
+                        file_path = Storage.get_file(file_object.path)
+                        chapter_text = extract_pdf_page_range_text(
+                            file_path,
+                            chapter.get("start_page", 0),
+                            chapter.get("end_page", 0),
+                        )
+                        chapter_title = chapter.get("title", "")
+                        query_result = {
+                            "documents": [[chapter_text]],
+                            "metadatas": [
+                                [
+                                    {
+                                        "file_id": item.get("id"),
+                                        "name": f"{file_object.filename} - {chapter_title}",
+                                        "source": file_object.filename,
+                                        "chapter": chapter_title,
+                                        "start_page": chapter.get("start_page"),
+                                        "end_page": chapter.get("end_page"),
+                                    }
+                                ]
+                            ],
+                        }
+                except Exception as e:
+                    log.warning(f"Failed to extract chapter content: {e}")
+                    # Fall through to normal file handling
+
+            if query_result is None and (
                 item.get("context") == "full"
                 or request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL
             ):
@@ -1077,7 +1112,7 @@ async def get_sources_from_items(
                                 ]
                             ],
                         }
-            else:
+            elif query_result is None:
                 # Fallback to collection names
                 if item.get("legacy"):
                     collection_names.append(f"{item['id']}")

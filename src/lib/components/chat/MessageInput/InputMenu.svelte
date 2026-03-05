@@ -76,7 +76,12 @@
 	};
 
 	const onSelect = (item) => {
-		if (files.find((f) => f.id === item.id)) {
+		// Allow multiple chapters from the same file; deduplicate by id + chapter page range
+		const isDuplicate = files.find((f) =>
+			f.id === item.id &&
+			(!item.chapter || (f.chapter?.start_page === item.chapter?.start_page && f.chapter?.end_page === item.chapter?.end_page))
+		);
+		if (isDuplicate) {
 			return;
 		}
 		files = [

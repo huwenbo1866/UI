@@ -5,6 +5,7 @@
 	import { knowledge } from '$lib/stores';
 
 	import { getKnowledgeBases, searchKnowledgeFilesById } from '$lib/apis/knowledge';
+	import { getFileChapters } from '$lib/apis/files';
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Database from '$lib/components/icons/Database.svelte';
@@ -22,6 +23,11 @@
 	let selectedIdx = 0;
 
 	let selectedItem = null;
+
+	// Chapter expansion state for files
+	let expandedFileId: string | null = null;
+	let expandedFileChapters: any[] = [];
+	let expandedFileChaptersLoading = false;
 
 	let selectedFileItemsPage = 1;
 
@@ -232,30 +238,103 @@
 							</div>
 						{:else}
 							{#each selectedFileItems as file, fileIdx (file.id)}
-								<button
-									class=" px-2.5 py-1 rounded-xl w-full text-left flex justify-between items-center text-sm hover:bg-gray-50 hover:dark:bg-gray-800 hover:dark:text-gray-100"
-									type="button"
-									on:click={() => {
-										console.log(file);
-										onSelect({
-											type: 'file',
-											name: file?.meta?.name,
-											...file
-										});
-									}}
-								>
-									<div class=" flex items-center gap-1.5">
-										<Tooltip content={$i18n.t('Collection')} placement="top">
-											<DocumentPage className="size-4" />
-										</Tooltip>
+								{@const isFilePdf = (file?.meta?.content_type === 'application/pdf' || (file?.meta?.name || '').toLowerCase().endsWith('.pdf'))}
+								<div class="flex flex-col">
+									<div class="flex items-center">
+										<button
+											class=" px-2.5 py-1 rounded-xl flex-1 text-left flex justify-between items-center text-sm hover:bg-gray-50 hover:dark:bg-gray-800 hover:dark:text-gray-100"
+											type="button"
+											on:click={() => {
+												console.log(file);
+												onSelect({
+													type: 'file',
+													name: file?.meta?.name,
+													...file
+												});
+											}}
+										>
+											<div class=" flex items-center gap-1.5">
+												<Tooltip content={$i18n.t('Collection')} placement="top">
+													<DocumentPage className="size-4" />
+												</Tooltip>
 
-										<Tooltip content={decodeString(file?.meta?.name)} placement="top-start">
-											<div class="line-clamp-1 flex-1 text-sm">
-												{decodeString(file?.meta?.name)}
+												<Tooltip content={decodeString(file?.meta?.name)} placement="top-start">
+													<div class="line-clamp-1 flex-1 text-sm">
+														{decodeString(file?.meta?.name)}
+													</div>
+												</Tooltip>
 											</div>
-										</Tooltip>
+										</button>
+
+										{#if isFilePdf}
+											<Tooltip content={$i18n.t('Show Chapters')} placement="top">
+												<button
+													type="button"
+													class="ml-1 mr-1 opacity-50 hover:opacity-100 transition"
+													on:click={async () => {
+														if (expandedFileId === file.id) {
+															expandedFileId = null;
+															expandedFileChapters = [];
+														} else {
+															expandedFileId = file.id;
+															expandedFileChapters = [];
+															expandedFileChaptersLoading = true;
+															try {
+																expandedFileChapters = await getFileChapters(localStorage.token, file.id);
+															} catch (e) {
+																console.error('Failed to load chapters:', e);
+																expandedFileChapters = [];
+															}
+															expandedFileChaptersLoading = false;
+														}
+													}}
+												>
+													{#if expandedFileId === file.id}
+														<ChevronDown className="size-3" />
+													{:else}
+														<ChevronRight className="size-3" />
+													{/if}
+												</button>
+											</Tooltip>
+										{/if}
 									</div>
-								</button>
+
+									<!-- Chapter list for expanded PDF file -->
+									{#if expandedFileId === file.id}
+										<div class="pl-6 mb-1 flex flex-col gap-0.5">
+											{#if expandedFileChaptersLoading}
+												<div class="py-1 flex justify-center">
+													<Spinner className="size-3" />
+												</div>
+											{:else if expandedFileChapters.length === 0}
+												<div class="text-xs text-gray-500 dark:text-gray-400 italic py-0.5 px-2">
+													{$i18n.t('No chapters found')}
+												</div>
+											{:else}
+												{#each expandedFileChapters as chapter}
+													<button
+														class="px-2 py-1 rounded-lg w-full text-left text-xs hover:bg-gray-50 hover:dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+														type="button"
+														on:click={() => {
+															onSelect({
+																type: 'file',
+																name: file?.meta?.name,
+																...file,
+																chapter: {
+																	title: chapter.title,
+																	start_page: chapter.start_page,
+																	end_page: chapter.end_page
+																}
+															});
+														}}
+													>
+														<span class="line-clamp-1">{chapter.title}</span>
+													</button>
+												{/each}
+											{/if}
+										</div>
+									{/if}
+								</div>
 							{/each}
 
 							{#if !selectedFileAllItemsLoaded && !selectedFileItemsLoading}

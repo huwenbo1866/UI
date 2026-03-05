@@ -38,6 +38,10 @@ from open_webui.models.files import (
     FileModel,
     FileModelResponse,
     Files,
+    FileChapters,
+    FileChapterModel,
+    FileSections,
+    FileSectionModel,
 )
 from open_webui.models.chats import Chats
 from open_webui.models.knowledge import Knowledges
@@ -1097,6 +1101,279 @@ def update_file_data_content_by_id(
             log.error(f"Error processing file: {file.id}")
 
         return {"content": file.data.get("content", "")}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+
+############################
+# Get File Chapters (PDF)
+############################
+
+
+@router.get("/{id}/chapters")
+async def get_file_chapters(
+    id: str,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    """返回 PDF 文件的一级章节列表。"""
+    file = Files.get_file_by_id(id, db=db)
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "read", user, db=db)
+    ):
+        chapters = FileChapters.get_chapters_by_file_id(id, db=db)
+        return {"chapters": [ch.model_dump() for ch in chapters]}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+
+############################
+# Re-extract File Chapters/Sections
+############################
+
+
+@router.post("/{id}/chapters/extract")
+async def extract_file_chapters(
+    id: str,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    """对已上传文件重新提取章节（PDF）或段落（txt/docx）。"""
+    file = Files.get_file_by_id(id, db=db)
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "read", user, db=db)
+    ):
+        file_path = file.path
+        if not file_path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File path not found",
+            )
+
+        file_path = Storage.get_file(file_path)
+        content_type = file.meta.get("content_type", "") if file.meta else ""
+        file_name = (file.meta.get("name", "") if file.meta else "") or file.filename or ""
+        file_lower = file_name.lower()
+
+        result = {"chapters": [], "sections": [], "type": "unknown"}
+
+        if content_type == "application/pdf" or file_lower.endswith(".pdf"):
+            from open_webui.utils.chapters import extract_primary_chapters, get_pdf_total_pages
+
+            chapters = extract_primary_chapters(file_path)
+            total_pages = get_pdf_total_pages(file_path)
+
+            FileChapters.insert_chapters(
+                id,
+                [
+                    {
+                        "title": ch["title"],
+                        "start_page": ch["start_page"],
+                        "end_page": ch["end_page"],
+                    }
+                    for ch in chapters
+                ],
+                db=db,
+            )
+
+            # Store total_pages in file meta
+            meta = file.meta or {}
+            meta["total_pages"] = total_pages
+            Files.update_file_metadata_by_id(id, meta, db=db)
+
+            stored = FileChapters.get_chapters_by_file_id(id, db=db)
+            result = {
+                "chapters": [ch.model_dump() for ch in stored],
+                "sections": [],
+                "type": "pdf",
+                "total_pages": total_pages,
+            }
+        elif file_lower.endswith(".txt") or file_lower.endswith(".docx"):
+            from open_webui.utils.chapters import extract_text_sections
+
+            content = file.data.get("content", "") if file.data else ""
+            sections = extract_text_sections(content)
+
+            FileSections.insert_sections(
+                id,
+                [
+                    {
+                        "title": sec["title"],
+                        "content": sec["content"],
+                        "order_index": sec["order_index"],
+                    }
+                    for sec in sections
+                ],
+                db=db,
+            )
+
+            stored = FileSections.get_sections_by_file_id(id, db=db)
+            result = {
+                "chapters": [],
+                "sections": [sec.model_dump() for sec in stored],
+                "type": "text",
+            }
+
+        return result
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+
+############################
+# Get File Chapter Content (PDF page range text)
+############################
+
+
+@router.get("/{id}/chapter-content")
+async def get_file_chapter_content(
+    id: str,
+    start: int = Query(..., description="Start page (0-indexed, inclusive)"),
+    end: int = Query(..., description="End page (0-indexed, inclusive)"),
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    """提取 PDF 指定页码范围的文本（按章节区间）。"""
+    file = Files.get_file_by_id(id, db=db)
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "read", user, db=db)
+    ):
+        from open_webui.utils.chapters import extract_pdf_page_range_text
+
+        file_path = file.path
+        if not file_path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File path not found",
+            )
+
+        file_path = Storage.get_file(file_path)
+
+        # 验证请求的区间在已知章节范围内（防止任意页面访问）
+        chapters = FileChapters.get_chapters_by_file_id(id, db=db)
+        valid_range = False
+        for ch in chapters:
+            if ch.start_page == start and ch.end_page == end:
+                valid_range = True
+                break
+
+        if not valid_range and chapters:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Requested page range does not match any chapter",
+            )
+
+        text = extract_pdf_page_range_text(file_path, start, end)
+        return {"content": text, "start_page": start, "end_page": end}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+
+############################
+# Get File Sections (txt/docx)
+############################
+
+
+@router.get("/{id}/sections")
+async def get_file_sections(
+    id: str,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    """返回 txt/docx 文件的段落列表。"""
+    file = Files.get_file_by_id(id, db=db)
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "read", user, db=db)
+    ):
+        sections = FileSections.get_sections_by_file_id(id, db=db)
+        return {"sections": [sec.model_dump() for sec in sections]}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+
+############################
+# Get File Section Content
+############################
+
+
+@router.get("/{id}/section-content")
+async def get_file_section_content(
+    id: str,
+    section_id: str = Query(..., description="Section ID"),
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    """返回指定段落的文本内容。"""
+    file = Files.get_file_by_id(id, db=db)
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "read", user, db=db)
+    ):
+        section = FileSections.get_section_by_id(section_id, db=db)
+        if not section or section.file_id != id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Section not found",
+            )
+        return {"title": section.title, "content": section.content, "order_index": section.order_index}
     else:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

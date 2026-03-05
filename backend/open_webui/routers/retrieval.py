@@ -37,7 +37,7 @@ from langchain_text_splitters import (
 from langchain_core.documents import Document
 
 from open_webui.utils.file_progress import update_file_progress
-from open_webui.models.files import FileModel, FileUpdateForm, Files
+from open_webui.models.files import FileModel, FileUpdateForm, Files, FileChapters, FileSections
 from open_webui.models.knowledge import Knowledges
 from open_webui.storage.provider import Storage
 from open_webui.internal.db import get_session, get_db
@@ -1790,6 +1790,44 @@ def process_file(
                 {"content": text_content},
                 db=db,
             )
+
+            # --- Chapter/Section extraction ---
+            try:
+                content_type = file.meta.get("content_type", "") if file.meta else ""
+                filename_lower = file.filename.lower() if file.filename else ""
+
+                if content_type == "application/pdf" or filename_lower.endswith(".pdf"):
+                    # PDF: extract primary chapters
+                    if file_path:
+                        from open_webui.utils.chapters import extract_primary_chapters, get_pdf_total_pages
+                        actual_path = Storage.get_file(file.path) if file.path else None
+                        if actual_path:
+                            chapters = extract_primary_chapters(actual_path)
+                            if chapters:
+                                FileChapters.insert_chapters(file.id, chapters, db=db)
+                                log.info(f"Extracted {len(chapters)} chapters for file {file.id}")
+                            total_pages = get_pdf_total_pages(actual_path)
+                            if total_pages > 0:
+                                Files.update_file_metadata_by_id(
+                                    file.id,
+                                    {"total_pages": total_pages},
+                                    db=db,
+                                )
+                elif (
+                    content_type in ("text/plain", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                    or filename_lower.endswith(".txt")
+                    or filename_lower.endswith(".docx")
+                ):
+                    # txt/docx: extract text sections
+                    from open_webui.utils.chapters import extract_text_sections
+                    sections = extract_text_sections(text_content)
+                    if sections:
+                        FileSections.insert_sections(file.id, sections, db=db)
+                        log.info(f"Extracted {len(sections)} sections for file {file.id}")
+            except Exception as e:
+                log.warning(f"Chapter/section extraction failed for file {file.id}: {e}")
+                # Non-fatal: don't block the main processing pipeline
+
             hash = calculate_sha256_string(text_content)
 
             if request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:

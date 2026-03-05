@@ -1,11 +1,12 @@
 import logging
 import time
-from typing import Optional
+import uuid
+from typing import Optional, List
 
 from sqlalchemy.orm import Session
 from open_webui.internal.db import Base, JSONField, get_db, get_db_context
 from pydantic import BaseModel, ConfigDict, model_validator
-from sqlalchemy import BigInteger, Column, String, Text, JSON
+from sqlalchemy import BigInteger, Column, Integer, String, Text, JSON, ForeignKey
 
 log = logging.getLogger(__name__)
 
@@ -402,3 +403,190 @@ class FilesTable:
 
 
 Files = FilesTable()
+
+
+####################
+# FileChapter DB Schema (PDF 一级章节)
+####################
+
+
+class FileChapter(Base):
+    __tablename__ = "file_chapter"
+    id = Column(String, primary_key=True)
+    file_id = Column(String, ForeignKey("file.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(Text, nullable=False)
+    start_page = Column(Integer, nullable=False)  # 0-indexed
+    end_page = Column(Integer, nullable=False)    # 0-indexed, inclusive
+    created_at = Column(BigInteger)
+
+
+class FileChapterModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    file_id: str
+    title: str
+    start_page: int
+    end_page: int
+    created_at: Optional[int] = None
+
+
+class FileChaptersTable:
+    def insert_chapters(
+        self, file_id: str, chapters: List[dict], db: Optional[Session] = None
+    ) -> List[FileChapterModel]:
+        """批量插入章节，先清除旧数据。"""
+        with get_db_context(db) as db:
+            try:
+                # 先删除旧章节
+                db.query(FileChapter).filter_by(file_id=file_id).delete()
+                db.flush()
+
+                now = int(time.time())
+                results = []
+                for ch in chapters:
+                    record = FileChapter(
+                        id=str(uuid.uuid4()),
+                        file_id=file_id,
+                        title=ch["title"],
+                        start_page=ch["start_page"],
+                        end_page=ch["end_page"],
+                        created_at=now,
+                    )
+                    db.add(record)
+                    results.append(record)
+
+                db.commit()
+                return [FileChapterModel.model_validate(r) for r in results]
+            except Exception as e:
+                log.exception(f"Error inserting chapters for file {file_id}: {e}")
+                db.rollback()
+                return []
+
+    def get_chapters_by_file_id(
+        self, file_id: str, db: Optional[Session] = None
+    ) -> List[FileChapterModel]:
+        with get_db_context(db) as db:
+            try:
+                rows = (
+                    db.query(FileChapter)
+                    .filter_by(file_id=file_id)
+                    .order_by(FileChapter.start_page.asc())
+                    .all()
+                )
+                return [FileChapterModel.model_validate(r) for r in rows]
+            except Exception:
+                return []
+
+    def delete_chapters_by_file_id(
+        self, file_id: str, db: Optional[Session] = None
+    ) -> bool:
+        with get_db_context(db) as db:
+            try:
+                db.query(FileChapter).filter_by(file_id=file_id).delete()
+                db.commit()
+                return True
+            except Exception:
+                return False
+
+
+FileChapters = FileChaptersTable()
+
+
+####################
+# FileSection DB Schema (txt/docx 段落分段)
+####################
+
+
+class FileSection(Base):
+    __tablename__ = "file_section"
+    id = Column(String, primary_key=True)
+    file_id = Column(String, ForeignKey("file.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(Text, nullable=False)
+    content = Column(Text, nullable=False)
+    order_index = Column(Integer, nullable=False)
+    created_at = Column(BigInteger)
+
+
+class FileSectionModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    file_id: str
+    title: str
+    content: str
+    order_index: int
+    created_at: Optional[int] = None
+
+
+class FileSectionsTable:
+    def insert_sections(
+        self, file_id: str, sections: List[dict], db: Optional[Session] = None
+    ) -> List[FileSectionModel]:
+        """批量插入段落，先清除旧数据。"""
+        with get_db_context(db) as db:
+            try:
+                db.query(FileSection).filter_by(file_id=file_id).delete()
+                db.flush()
+
+                now = int(time.time())
+                results = []
+                for sec in sections:
+                    record = FileSection(
+                        id=str(uuid.uuid4()),
+                        file_id=file_id,
+                        title=sec["title"],
+                        content=sec["content"],
+                        order_index=sec["order_index"],
+                        created_at=now,
+                    )
+                    db.add(record)
+                    results.append(record)
+
+                db.commit()
+                return [FileSectionModel.model_validate(r) for r in results]
+            except Exception as e:
+                log.exception(f"Error inserting sections for file {file_id}: {e}")
+                db.rollback()
+                return []
+
+    def get_sections_by_file_id(
+        self, file_id: str, db: Optional[Session] = None
+    ) -> List[FileSectionModel]:
+        with get_db_context(db) as db:
+            try:
+                rows = (
+                    db.query(FileSection)
+                    .filter_by(file_id=file_id)
+                    .order_by(FileSection.order_index.asc())
+                    .all()
+                )
+                return [FileSectionModel.model_validate(r) for r in rows]
+            except Exception:
+                return []
+
+    def get_section_by_id(
+        self, section_id: str, db: Optional[Session] = None
+    ) -> Optional[FileSectionModel]:
+        with get_db_context(db) as db:
+            try:
+                row = db.get(FileSection, section_id)
+                if row:
+                    return FileSectionModel.model_validate(row)
+                return None
+            except Exception:
+                return None
+
+    def delete_sections_by_file_id(
+        self, file_id: str, db: Optional[Session] = None
+    ) -> bool:
+        with get_db_context(db) as db:
+            try:
+                db.query(FileSection).filter_by(file_id=file_id).delete()
+                db.commit()
+                return True
+            except Exception:
+                return False
+
+
+FileSections = FileSectionsTable()

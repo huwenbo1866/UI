@@ -22,7 +22,12 @@
 		updateFileDataContentById,
 		uploadFile,
 		deleteFileById,
-		getFileById
+		getFileById,
+		getFileChapters,
+		getFileChapterContent,
+		getFileSections,
+		getFileSectionContent,
+		extractFileChapters
 	} from '$lib/apis/files';
 	import {
 		addFileToKnowledgeById,
@@ -46,6 +51,8 @@
 
 	import SyncConfirmDialog from '../../common/ConfirmDialog.svelte';
 	import Drawer from '$lib/components/common/Drawer.svelte';
+	import PdfViewer from '$lib/components/common/PdfViewer.svelte';
+	import ChapterOutline from './KnowledgeBase/ChapterOutline.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import LockClosed from '$lib/components/icons/LockClosed.svelte';
 	import AccessControlModal from '../common/AccessControlModal.svelte';
@@ -84,6 +91,20 @@
 	let selectedFileId = null;
 	let selectedFile = null;
 	let selectedFileContent = '';
+
+	// Chapter/Section state
+	let drawerTab: 'preview' | 'content' = 'content';
+	let fileChapters: any[] = [];
+	let fileSections: any[] = [];
+	let selectedChapterIndex = -1;
+	let selectedSectionIndex = -1;
+	let chapterContent = '';
+	let chapterContentLoading = false;
+	let pdfCurrentPage = 1;
+
+	// Helper: is the selected file a PDF?
+	$: isPdf = selectedFile?.meta?.content_type === 'application/pdf' ||
+		(selectedFile?.meta?.name || selectedFile?.filename || '').toLowerCase().endsWith('.pdf');
 
 	let inputFiles = null;
 
@@ -169,9 +190,96 @@
 		try {
 			selectedFile = file;
 			selectedFileContent = selectedFile?.data?.content || '';
+
+			// Reset chapter/section state
+			fileChapters = [];
+			fileSections = [];
+			selectedChapterIndex = -1;
+			selectedSectionIndex = -1;
+			chapterContent = '';
+
+			const fileName = file?.meta?.name || file?.filename || '';
+			const contentType = file?.meta?.content_type || '';
+			const fileLower = fileName.toLowerCase();
+
+			if (contentType === 'application/pdf' || fileLower.endsWith('.pdf')) {
+				// PDF: load chapters and default to preview tab
+				drawerTab = 'preview';
+				try {
+					fileChapters = await getFileChapters(localStorage.token, file.id);
+				} catch (e) {
+					fileChapters = [];
+				}
+				// Auto-extract: if no chapters in DB, run extraction
+				if (fileChapters.length === 0) {
+					try {
+						const res = await extractFileChapters(localStorage.token, file.id);
+						if (res?.chapters?.length > 0) {
+							fileChapters = res.chapters;
+						}
+					} catch (e) {
+						console.error('Auto chapter extraction failed:', e);
+					}
+				}
+			} else {
+				// txt/docx: load sections, only content tab
+				drawerTab = 'content';
+				try {
+					fileSections = await getFileSections(localStorage.token, file.id);
+				} catch (e) {
+					fileSections = [];
+				}
+				// Auto-extract: if no sections in DB, run extraction
+				if (fileSections.length === 0) {
+					try {
+						const res = await extractFileChapters(localStorage.token, file.id);
+						if (res?.sections?.length > 0) {
+							fileSections = res.sections;
+						}
+					} catch (e) {
+						console.error('Auto section extraction failed:', e);
+					}
+				}
+			}
 		} catch (e) {
 			toast.error($i18n.t('Failed to load file content.'));
 		}
+	};
+
+	const loadChapterContent = async (chapter: any) => {
+		if (!selectedFile) return;
+		chapterContentLoading = true;
+		try {
+			const res = await getFileChapterContent(
+				localStorage.token,
+				selectedFile.id,
+				chapter.start_page,
+				chapter.end_page
+			);
+			chapterContent = res?.content || '';
+		} catch (e) {
+			console.error('Failed to load chapter content:', e);
+			chapterContent = '';
+			toast.error($i18n.t('Failed to load chapter content.'));
+		}
+		chapterContentLoading = false;
+	};
+
+	const loadSectionContent = async (section: any) => {
+		if (!selectedFile) return;
+		chapterContentLoading = true;
+		try {
+			const res = await getFileSectionContent(
+				localStorage.token,
+				selectedFile.id,
+				section.id
+			);
+			chapterContent = res?.content || '';
+		} catch (e) {
+			console.error('Failed to load section content:', e);
+			chapterContent = '';
+		}
+		chapterContentLoading = false;
 	};
 
 	const createFileFromText = (name, content) => {
@@ -1055,8 +1163,9 @@
 							}}
 						>
 							<div class="flex flex-col justify-start h-full max-h-full">
-								<div class=" flex flex-col w-full h-full max-h-full">
-									<div class="shrink-0 flex items-center p-2">
+								<div class="flex flex-col w-full h-full max-h-full">
+									<!-- Header: back + filename + tabs + save -->
+									<div class="shrink-0 flex items-center p-2 border-b dark:border-gray-700">
 										<div class="mr-2">
 											<button
 												class="w-full text-left text-sm p-1.5 rounded-lg dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-gray-850"
@@ -1068,11 +1177,31 @@
 												<ChevronLeft strokeWidth="2.5" />
 											</button>
 										</div>
-										<div class=" flex-1 text-lg line-clamp-1">
+										<div class="flex-1 text-lg line-clamp-1">
 											{selectedFile?.meta?.name}
 										</div>
 
-										{#if knowledge?.write_access}
+										<!-- Tab buttons -->
+										<div class="flex items-center gap-1 mr-2">
+											{#if isPdf}
+												<button
+													class="text-xs px-2.5 py-1 rounded-lg transition-colors
+														{drawerTab === 'preview' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+													on:click={() => { drawerTab = 'preview'; }}
+												>
+													{$i18n.t('Preview')}
+												</button>
+											{/if}
+											<button
+												class="text-xs px-2.5 py-1 rounded-lg transition-colors
+													{drawerTab === 'content' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+												on:click={() => { drawerTab = 'content'; }}
+											>
+												{$i18n.t('Content')}
+											</button>
+										</div>
+
+										{#if knowledge?.write_access && drawerTab === 'content' && !isPdf}
 											<div>
 												<button
 													class="flex self-center w-fit text-sm py-1 px-2.5 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1092,13 +1221,138 @@
 										{/if}
 									</div>
 
+									<!-- Tab content -->
 									{#key selectedFile.id}
-										<textarea
-											class="w-full h-full text-sm outline-none resize-none px-3 py-2"
-											bind:value={selectedFileContent}
-											disabled={!knowledge?.write_access}
-											placeholder={$i18n.t('Add content here')}
-										/>
+										{#if drawerTab === 'preview' && isPdf}
+											<!-- PDF Preview Tab: left outline + right PDF viewer -->
+											<div class="flex flex-1 overflow-hidden">
+												<!-- Left: Chapter outline -->
+												{#if fileChapters.length > 0}
+													<div class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+														<ChapterOutline
+															items={fileChapters}
+															selectedIndex={selectedChapterIndex}
+															type="chapter"
+															onClick={(chapter, index) => {
+																selectedChapterIndex = index;
+																pdfCurrentPage = chapter.start_page + 1;
+															}}
+														/>
+													</div>
+												{/if}
+
+												<!-- Right: PDF viewer -->
+												<div class="flex-1 overflow-hidden">
+													<PdfViewer
+														fileId={selectedFile.id}
+														token={localStorage.token}
+														page={pdfCurrentPage}
+													/>
+												</div>
+											</div>
+
+										{:else if drawerTab === 'content'}
+											<!-- Content Tab -->
+											<div class="flex flex-1 overflow-hidden">
+												<!-- Left: Chapter/Section outline -->
+												{#if isPdf && fileChapters.length > 0}
+													<div class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+														<ChapterOutline
+															items={fileChapters}
+															selectedIndex={selectedChapterIndex}
+															type="chapter"
+															onClick={(chapter, index) => {
+																selectedChapterIndex = index;
+																loadChapterContent(chapter);
+															}}
+														/>
+													</div>
+												{:else if !isPdf && fileSections.length > 0}
+													<div class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+														<ChapterOutline
+															items={fileSections}
+															selectedIndex={selectedSectionIndex}
+															type="section"
+															onClick={(section, index) => {
+																selectedSectionIndex = index;
+																loadSectionContent(section);
+															}}
+														/>
+													</div>
+												{/if}
+
+												<!-- Right: Content area -->
+												<div class="flex-1 flex flex-col overflow-hidden">
+													{#if isPdf && fileChapters.length > 0}
+														<!-- PDF with chapters: show chapter content -->
+														{#if selectedChapterIndex < 0}
+															<div class="flex items-center justify-center h-full text-sm text-gray-400">
+																{$i18n.t('Select a chapter to view content')}
+															</div>
+														{:else if chapterContentLoading}
+															<div class="flex items-center justify-center h-full">
+																<Spinner className="size-4" />
+															</div>
+														{:else}
+															<div class="px-1 py-1 text-xs text-gray-500 dark:text-gray-400 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 font-medium">
+																{fileChapters[selectedChapterIndex]?.title}
+															</div>
+															<textarea
+																class="w-full flex-1 text-sm outline-none resize-none px-3 py-2 bg-white dark:bg-gray-950"
+																value={chapterContent}
+																readonly
+																placeholder={$i18n.t('No content')}
+															/>
+														{/if}
+													{:else if !isPdf && fileSections.length > 0}
+														<!-- txt/docx with sections: show section content -->
+														{#if selectedSectionIndex < 0}
+															<div class="flex items-center justify-center h-full text-sm text-gray-400">
+																{$i18n.t('Select a section to view content')}
+															</div>
+														{:else if chapterContentLoading}
+															<div class="flex items-center justify-center h-full">
+																<Spinner className="size-4" />
+															</div>
+														{:else}
+															<div class="px-1 py-1 text-xs text-gray-500 dark:text-gray-400 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 font-medium">
+																{fileSections[selectedSectionIndex]?.title}
+															</div>
+															<textarea
+																class="w-full flex-1 text-sm outline-none resize-none px-3 py-2 bg-white dark:bg-gray-950"
+																value={chapterContent}
+																readonly
+																placeholder={$i18n.t('No content')}
+															/>
+														{/if}
+													{:else}
+														<!-- Fallback: no chapters/sections, full text editor -->
+														<div class="flex flex-col h-full">
+															<textarea
+																class="w-full flex-1 text-sm outline-none resize-none px-3 py-2"
+																bind:value={selectedFileContent}
+																disabled={!knowledge?.write_access}
+																placeholder={$i18n.t('Add content here')}
+															/>
+															{#if knowledge?.write_access}
+																<div class="shrink-0 flex justify-end p-2 border-t dark:border-gray-700">
+																	<button
+																		class="text-sm py-1 px-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+																		disabled={isSaving}
+																		on:click={() => { updateFileContentHandler(); }}
+																	>
+																		{$i18n.t('Save')}
+																		{#if isSaving}
+																			<Spinner />
+																		{/if}
+																	</button>
+																</div>
+															{/if}
+														</div>
+													{/if}
+												</div>
+											</div>
+										{/if}
 									{/key}
 								</div>
 							</div>
