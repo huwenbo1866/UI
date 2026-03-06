@@ -10,6 +10,9 @@
 	import { getChatList } from '$lib/apis/chats';
 	import { updateFolderById } from '$lib/apis/folders';
 
+	import XiaoLingAvatar from '$lib/components/chat/XiaoLingAvatar.svelte';
+	import { xiaolingState } from '$lib/stores/xiaoling';
+
 	import {
 		config,
 		user,
@@ -68,6 +71,16 @@
 	}
 
 	$: models = selectedModels.map((id) => $_models.find((m) => m.id === id));
+
+	let homepageXiaoLingState: 'idle' | 'sleep1' | 'sleep2' | 'sleep3' = 'idle';
+
+	$: {
+		if ($xiaolingState === 'sleep1' || $xiaolingState === 'sleep2' || $xiaolingState === 'sleep3') {
+			homepageXiaoLingState = $xiaolingState;
+		} else {
+			homepageXiaoLingState = 'idle';
+		}
+	}
 </script>
 
 <div class="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-10 py-10">
@@ -131,13 +144,8 @@
 			<FolderPlaceholder folder={$selectedFolder} />
 		</div>
 	{:else}
-		<div class="mb-6 flex justify-center">
-			<img
-				src="/static/XiaoLing/idle.png"
-				alt="小玲"
-				class="h-60 w-auto object-contain select-none pointer-events-none"
-				draggable="false"
-			/>
+		<div class="mb-4 flex justify-center">
+			<XiaoLingAvatar state={homepageXiaoLingState} size={220} />
 		</div>
 		
 		<!-- A1：首页“卡片工作台” -->
