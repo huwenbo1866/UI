@@ -725,7 +725,9 @@ def upload_file_handler(
             },
         )
 
-        show_process_ui = process and is_progress_media_file(file)
+        # Track processing status for all processed files so frontend can
+        # block send until indexing is complete.
+        show_process_ui = process
 
         file_item = Files.insert_new_file(
             user.id,
