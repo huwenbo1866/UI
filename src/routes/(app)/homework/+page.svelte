@@ -146,11 +146,11 @@
 	};
 
 	const closeHomeworkPage = async () => {
-		if (window.history.length > 1) {
-			window.history.back();
-			return;
+		try {
+			await goto('/');
+		} catch {
+			window.location.assign('/');
 		}
-		await goto('/');
 	};
 
 	const validateSelectedFile = (file: File) => {
