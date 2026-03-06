@@ -1,21 +1,28 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 
-	export let state: 'idle' | 'speaking' = 'idle';
-	export let size = 44;
+	export let state: 'idle' | 'speaking' | 'sleep1' | 'sleep2' | 'sleep3' = 'idle';
+	export let size = 46;
 
 	const idleSrc = '/static/XiaoLing/idle.png';
 
 	const talkFrames = [
 		'/static/XiaoLing/talk1.png',
 		'/static/XiaoLing/talk2.png',
-		'/static/XiaoLing/talk3.png',
-		'/static/XiaoLing/talk2.png'
+		'/static/XiaoLing/talk1.png',
+		'/static/XiaoLing/talk3.png'
 	];
+
+	const sleepMap = {
+		sleep1: '/static/XiaoLing/sleep1.png',
+		sleep2: '/static/XiaoLing/sleep2.png',
+		sleep3: '/static/XiaoLing/sleep3.png'
+	} as const;
 
 	let frameIndex = 0;
 	let timer: ReturnType<typeof setInterval> | null = null;
-	let activeMode: 'idle' | 'speaking' = 'idle';
+	let currentSrc = idleSrc;
+	let activeMode: 'idle' | 'speaking' | 'sleep1' | 'sleep2' | 'sleep3' = 'idle';
 
 	function clearTimer() {
 		if (timer) {
@@ -29,26 +36,39 @@
 		clearTimer();
 		activeMode = 'idle';
 		frameIndex = 0;
+		currentSrc = idleSrc;
 	}
 
 	function enterSpeaking() {
-		if (activeMode === 'speaking' && timer) return;
+		if (activeMode === 'speaking') return;
+
 		clearTimer();
 		activeMode = 'speaking';
 		frameIndex = 0;
+		currentSrc = talkFrames[frameIndex];
 
 		timer = setInterval(() => {
 			frameIndex = (frameIndex + 1) % talkFrames.length;
+			currentSrc = talkFrames[frameIndex];
 		}, 1000);
 	}
 
-	$: if (state === 'speaking') {
-		enterSpeaking();
-	} else {
-		enterIdle();
+	function enterSleep(mode: 'sleep1' | 'sleep2' | 'sleep3') {
+		if (activeMode === mode) return;
+		clearTimer();
+		activeMode = mode;
+		currentSrc = sleepMap[mode];
 	}
 
-	$: currentSrc = state === 'speaking' ? talkFrames[frameIndex] : idleSrc;
+	$: {
+		if (state === 'speaking') {
+			enterSpeaking();
+		} else if (state === 'sleep1' || state === 'sleep2' || state === 'sleep3') {
+			enterSleep(state);
+		} else {
+			enterIdle();
+		}
+	}
 
 	onDestroy(() => {
 		clearTimer();
@@ -59,27 +79,17 @@
 	src={currentSrc}
 	alt="小玲"
 	class="xiaoling-avatar"
-	class:speaking={state === 'speaking'}
 	style={`width:${size}px;height:${size}px;`}
 />
 
 <style>
 	.xiaoling-avatar {
-		object-fit: contain;
 		display: block;
-		pointer-events: none;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
 		user-select: none;
-		transform-origin: center;
+		pointer-events: none;
 		flex-shrink: 0;
-	}
-
-	.xiaoling-avatar.speaking {
-		animation: xiaoling-float 1.1s ease-in-out infinite;
-	}
-
-	@keyframes xiaoling-float {
-		0% { transform: translateY(0px) scale(1); }
-		50% { transform: translateY(-2px) scale(1.03); }
-		100% { transform: translateY(0px) scale(1); }
 	}
 </style>

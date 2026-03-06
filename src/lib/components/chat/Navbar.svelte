@@ -16,7 +16,8 @@
 		user
 	} from '$lib/stores';
 
-	import { xiaolingState } from '$lib/stores/xiaoling';
+	import { xiaolingState, initXiaoLingState } from '$lib/stores/xiaoling';
+	import { onMount } from 'svelte';
 
 	import { slide } from 'svelte/transition';
 	import { page } from '$app/stores';
@@ -63,6 +64,10 @@
 
 	let showShareChatModal = false;
 	let showDownloadChatModal = false;
+
+	onMount(() => {
+		initXiaoLingState();
+	});
 </script>
 
 <ShareChatModal bind:show={showShareChatModal} chatId={$chatId} />
@@ -117,7 +122,7 @@
 					  <div class="text-lg font-semibold font-primary leading-none">小玲</div>
 					  {#if $chatId}
 						<div class="flex items-center">
-							<XiaoLingAvatar state={$xiaolingState} size={46} />
+							<XiaoLingAvatar state={$xiaolingState} size={70} />
 						</div>
 					  {/if}
 					</div>

@@ -45,7 +45,11 @@
 		showEmbeds
 	} from '$lib/stores';
 
-	import { xiaolingState } from '$lib/stores/xiaoling';
+	import {
+		startXiaoLingSpeaking,
+		stopXiaoLingSpeaking,
+		wakeXiaoLing
+	} from '$lib/stores/xiaoling';
 
 	import {
 		convertMessagesToHistory,
@@ -1588,7 +1592,7 @@
 				})
 			);
 
-			xiaolingState.set('idle');
+			stopXiaoLingSpeaking();
 
 			history.messages[message.id] = message;
 
@@ -1946,8 +1950,9 @@
 		);
 
 		scrollToBottom();
-		xiaolingState.set('speaking');
-
+		wakeXiaoLing();
+		startXiaoLingSpeaking();
+		
 		eventTarget.dispatchEvent(
 			new CustomEvent('chat:start', {
 				detail: {
@@ -2183,7 +2188,7 @@
 
 		history.messages[responseMessage.id] = responseMessage;
 
-		xiaolingState.set('idle');
+		stopXiaoLingSpeaking();
 	};
 
 	const stopResponse = async () => {
@@ -2218,7 +2223,7 @@
 			generationController = null;
 		}
 
-		xiaolingState.set('idle');
+		stopXiaoLingSpeaking();
 	};
 
 	const submitMessage = async (parentId, prompt) => {
