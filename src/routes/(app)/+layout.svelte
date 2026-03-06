@@ -50,8 +50,10 @@
 	let loaded = false;
 	let DB = null;
 	let localDBChats = [];
+	let isStandalonePage = false;
 
 	let version;
+	$: isStandalonePage = $page.url.pathname.startsWith('/homework');
 
 	const clearChatInputStorage = () => {
 		const chatInputKeys = Object.keys(localStorage).filter((key) => key.startsWith('chat-input'));
@@ -383,13 +385,16 @@
 					</div>
 				{/if}
 
-				<Sidebar />
+				{#if !isStandalonePage}
+					<Sidebar />
+				{/if}
 
 				{#if loaded}
 					<slot />
 				{:else}
 					<div
-						class="w-full flex-1 h-full flex items-center justify-center {$showSidebar
+						class="w-full flex-1 h-full flex items-center justify-center {!isStandalonePage &&
+						$showSidebar
 							? '  md:max-w-[calc(100%-var(--sidebar-width))]'
 							: ' '}"
 					>
