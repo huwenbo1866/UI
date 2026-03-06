@@ -16,12 +16,16 @@
 		user
 	} from '$lib/stores';
 
+	import { xiaolingState } from '$lib/stores/xiaoling';
+
 	import { slide } from 'svelte/transition';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 
 	import ShareChatModal from '../chat/ShareChatModal.svelte';
 	
+	import XiaoLingAvatar from '$lib/components/chat/XiaoLingAvatar.svelte';
+
 	import Tooltip from '../common/Tooltip.svelte';
 	import Menu from '$lib/components/layout/Navbar/Menu.svelte';
 	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
@@ -110,8 +114,13 @@
 				  class="flex-1 overflow-hidden max-w-full py-0.5 {$showSidebar ? 'ml-1' : ''}"
 				>
 				  <div class="flex items-center gap-2 px-2 py-2 select-none">
-				    <div class="text-lg font-semibold font-primary leading-none">小玲</div>
-				  </div>
+					  <div class="text-lg font-semibold font-primary leading-none">小玲</div>
+					  {#if $chatId}
+						<div class="flex items-center">
+							<XiaoLingAvatar state={$xiaolingState} size={46} />
+						</div>
+					  {/if}
+					</div>
 				</div>
 
 				<div class="self-start flex flex-none items-center text-gray-600 dark:text-gray-400">

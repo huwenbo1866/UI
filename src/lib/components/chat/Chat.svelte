@@ -45,6 +45,8 @@
 		showEmbeds
 	} from '$lib/stores';
 
+	import { xiaolingState } from '$lib/stores/xiaoling';
+
 	import {
 		convertMessagesToHistory,
 		copyToClipboard,
@@ -1586,6 +1588,8 @@
 				})
 			);
 
+			xiaolingState.set('idle');
+
 			history.messages[message.id] = message;
 
 			await tick();
@@ -1942,6 +1946,8 @@
 		);
 
 		scrollToBottom();
+		xiaolingState.set('speaking');
+
 		eventTarget.dispatchEvent(
 			new CustomEvent('chat:start', {
 				detail: {
@@ -2176,6 +2182,8 @@
 		}
 
 		history.messages[responseMessage.id] = responseMessage;
+
+		xiaolingState.set('idle');
 	};
 
 	const stopResponse = async () => {
@@ -2209,6 +2217,8 @@
 			generationController?.abort();
 			generationController = null;
 		}
+
+		xiaolingState.set('idle');
 	};
 
 	const submitMessage = async (parentId, prompt) => {

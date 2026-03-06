@@ -131,15 +131,18 @@
 			<FolderPlaceholder folder={$selectedFolder} />
 		</div>
 	{:else}
+		<div class="mb-6 flex justify-center">
+			<img
+				src="/static/XiaoLing/idle.png"
+				alt="小玲"
+				class="h-60 w-auto object-contain select-none pointer-events-none"
+				draggable="false"
+			/>
+		</div>
+		
 		<!-- A1：首页“卡片工作台” -->
 		<section class="a1-card p-5 sm:p-6 lg:p-7">
 			<div class="flex flex-col items-center text-center">
-				<div class="text-3xl sm:text-4xl font-primary text-gray-800 dark:text-gray-100">
-					小玲
-				</div>
-
-				
-
 				{#if models[selectedModelIdx]?.info?.meta?.description ?? null}
 					<div class="mt-2">
 						<Tooltip
@@ -163,7 +166,8 @@
 				{/if}
 			</div>
 
-			<!-- 输入框：用软卡片包一层，立刻像 A1 -->
+
+			<!-- 输入框：用软卡片包一层-->
 			<div class="mt-5">
 				
 					<MessageInput
