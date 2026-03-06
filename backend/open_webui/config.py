@@ -2919,7 +2919,7 @@ RAG_EXTERNAL_RERANKER_TIMEOUT = PersistentConfig(
 RAG_TEXT_SPLITTER = PersistentConfig(
     "RAG_TEXT_SPLITTER",
     "rag.text_splitter",
-    os.environ.get("RAG_TEXT_SPLITTER", ""),
+    os.environ.get("RAG_TEXT_SPLITTER", os.environ.get("TEXT_SPLITTER", "")),
 )
 
 ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER = PersistentConfig(

@@ -226,6 +226,81 @@ def _extract_json_block(text: str) -> Any:
     raise ValueError("Model output is not valid JSON")
 
 
+def _split_text_chunks(text: str, chunk_size: int, overlap: int) -> list[str]:
+    content = (text or "").strip()
+    if not content:
+        return []
+    if chunk_size <= 0:
+        return [content]
+
+    chunks = []
+    start = 0
+    size = len(content)
+    step = max(1, chunk_size - max(0, overlap))
+
+    while start < size:
+        end = min(size, start + chunk_size)
+        chunk = content[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= size:
+            break
+        start += step
+
+    return chunks
+
+
+def _sample_evenly(items: list[str], max_count: int) -> list[str]:
+    if max_count <= 0 or not items:
+        return []
+    if len(items) <= max_count:
+        return items
+    if max_count == 1:
+        return [items[0]]
+
+    indexes = sorted(
+        {
+            int(round(i * (len(items) - 1) / (max_count - 1)))
+            for i in range(max_count)
+        }
+    )
+    return [items[idx] for idx in indexes]
+
+
+def _build_balanced_source_context(
+    source_content: str, max_chars: int, segment_count: int
+) -> str:
+    content = (source_content or "").strip()
+    if not content:
+        return ""
+    if max_chars <= 0 or len(content) <= max_chars:
+        return content
+
+    sampled_chunks = _sample_evenly(
+        _split_text_chunks(
+            content,
+            chunk_size=max(1200, max_chars // max(1, segment_count)),
+            overlap=0,
+        ),
+        max_count=max(1, segment_count),
+    )
+
+    if not sampled_chunks:
+        return content[:max_chars]
+
+    sections = []
+    total = 0
+    for idx, chunk in enumerate(sampled_chunks):
+        section = f"[教材片段{idx + 1}]\n{chunk}\n"
+        if total + len(section) > max_chars and sections:
+            break
+        sections.append(section)
+        total += len(section)
+
+    result = "\n".join(sections).strip()
+    return result[:max_chars] if result else content[:max_chars]
+
+
 def _resolve_base_model_id(request: Request, model_hint: Optional[str]) -> str:
     models = request.app.state.MODELS
     if model_hint and model_hint in models:
@@ -287,6 +362,65 @@ async def _chat_json(
     if not text:
         raise ValueError("Empty model output")
     return _extract_json_block(text)
+
+
+async def _extract_knowledge_points_from_large_source(
+    request: Request,
+    user: UserModel,
+    model_id: str,
+    source_content: str,
+) -> list[str]:
+    knowledge_chunk_chars = int(os.getenv("HOMEWORK_KNOWLEDGE_CHUNK_CHARS", "12000"))
+    knowledge_chunk_overlap = int(os.getenv("HOMEWORK_KNOWLEDGE_CHUNK_OVERLAP", "1200"))
+    knowledge_max_chunks = int(os.getenv("HOMEWORK_KNOWLEDGE_MAX_CHUNKS", "6"))
+    knowledge_max_points = int(os.getenv("HOMEWORK_KNOWLEDGE_MAX_POINTS", "40"))
+
+    chunks = _split_text_chunks(source_content, knowledge_chunk_chars, knowledge_chunk_overlap)
+    chunks = _sample_evenly(chunks, knowledge_max_chunks)
+
+    if not chunks:
+        return []
+
+    system_prompt = (
+        "你是教材知识点提取助手。"
+        "请从教材片段提取核心知识点，返回JSON数组字符串。"
+        "格式: [\"知识点1\", \"知识点2\"]。"
+        "禁止输出JSON以外内容。"
+    )
+
+    merged: list[str] = []
+    seen = set()
+
+    for idx, chunk in enumerate(chunks):
+        user_prompt = f"教材片段（第{idx + 1}/{len(chunks)}段）:\n{chunk}"
+        try:
+            data = await _chat_json(
+                request,
+                user,
+                model_id,
+                system_prompt,
+                user_prompt,
+                f"homework_knowledge_extraction_chunk_{idx + 1}",
+            )
+            points = data.get("knowledge_points", []) if isinstance(data, dict) else data
+            if not isinstance(points, list):
+                continue
+            for item in points:
+                point = str(item).strip()
+                normalized = re.sub(r"\s+", " ", point)
+                if not normalized:
+                    continue
+                key = normalized.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(normalized)
+                if len(merged) >= knowledge_max_points:
+                    return merged
+        except Exception as e:
+            log.warning(f"Knowledge extraction chunk {idx + 1} fallback: {e}")
+
+    return merged[:knowledge_max_points]
 
 
 def _normalize_questions(items: Any) -> list[dict]:
@@ -477,8 +611,13 @@ async def generate_homework(
             detail="Source content is empty. Please upload and process a file first.",
         )
 
-    source_max_chars = int(os.getenv("HOMEWORK_SOURCE_MAX_CHARS", "15000"))
-    source_content = source_content[:source_max_chars]
+    source_max_chars = int(os.getenv("HOMEWORK_SOURCE_MAX_CHARS", "60000"))
+    source_segment_count = int(os.getenv("HOMEWORK_SOURCE_SEGMENT_COUNT", "8"))
+    generation_source_content = _build_balanced_source_context(
+        source_content,
+        source_max_chars,
+        source_segment_count,
+    )
 
     difficulty_config = {
         "easy": max(0, int(form_data.difficulty_config.easy)),
@@ -498,32 +637,13 @@ async def generate_homework(
     base_model_id = _resolve_base_model_id(request, form_data.model)
     task_model_id = _resolve_task_model_id(request, base_model_id)
 
-    knowledge_system_prompt = (
-        "你是教材知识点提取助手。"
-        "请从教材片段提取核心知识点，返回JSON数组字符串。"
-        "格式: [\"知识点1\", \"知识点2\"]。"
-        "禁止输出JSON以外内容。"
-    )
-    knowledge_user_prompt = f"教材片段:\n{source_content}"
-
     try:
-        knowledge_points_data = await _chat_json(
+        knowledge_points = await _extract_knowledge_points_from_large_source(
             request,
             user,
             task_model_id,
-            knowledge_system_prompt,
-            knowledge_user_prompt,
-            "homework_knowledge_extraction",
+            source_content,
         )
-        if isinstance(knowledge_points_data, dict):
-            knowledge_points = knowledge_points_data.get("knowledge_points", [])
-        else:
-            knowledge_points = knowledge_points_data
-        if not isinstance(knowledge_points, list):
-            raise ValueError("knowledge points should be list")
-        knowledge_points = [
-            str(item).strip() for item in knowledge_points if str(item).strip()
-        ][:20]
     except Exception as e:
         log.warning(f"Knowledge extraction fallback: {e}")
         knowledge_points = []
@@ -536,7 +656,7 @@ async def generate_homework(
     )
     generation_user_prompt = (
         "根据以下教材内容、知识点和用户要求生成作业题：\n\n"
-        f"教材内容:\n{source_content}\n\n"
+        f"教材内容（全书均衡采样摘要）:\n{generation_source_content}\n\n"
         f"知识点:\n{json.dumps(knowledge_points, ensure_ascii=False)}\n\n"
         f"用户要求:\n{form_data.description or '无特殊要求'}\n\n"
         "难度分布:\n"
