@@ -3,28 +3,19 @@
 
 3-layer detection pipeline:
   1. PDF 书签/大纲提取 (最可靠)
-  2. 目录页解析 (dot-leader 格式)
-  3. 正文标题扫描 (正则匹配)
+  2. 目录页解析
+  3. 正文标题扫描
 
-适配学科：
-  - 数学/物理/化学/地理：第X章
-  - 生物：单元→章→节 → 保留单元
-  - 语文：单元 → 保留单元
-  - 历史/道法：单元→课 → 保留单元
-
-输出：一级章节列表，0-indexed 页码
-不使用 OCR。
+输出：一级章节列表，0-indexed 页码。
 """
 
+import os
 import re
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 
 log = logging.getLogger(__name__)
 
-# ============================================================
-# 一级章节标题正则
-# ============================================================
 
 CHAPTER_PATTERNS = [
     r"第\s*[一二三四五六七八九十百零〇\d]+\s*章",
@@ -34,32 +25,25 @@ CHAPTER_PATTERNS = [
 ]
 
 CHAPTER_RE = re.compile("|".join(CHAPTER_PATTERNS))
-
-# 用于区分不同层级的精确匹配
 _RE_ZHANG = re.compile(r"第\s*[一二三四五六七八九十百零〇\d]+\s*章")
-_RE_UNIT  = re.compile(r"第\s*[一二三四五六七八九十百零〇\d]+\s*单\s*元")
-_RE_KE    = re.compile(r"第\s*[一二三四五六七八九十百零〇\d]+\s*课")
+_RE_UNIT = re.compile(r"第\s*[一二三四五六七八九十百零〇\d]+\s*单\s*元")
+_RE_KE = re.compile(r"第\s*[一二三四五六七八九十百零〇\d]+\s*课")
 
-# 目录行正则：标题 + 连续点号/省略号 + 页码
-# e.g. "第一章 力 .......... 3"
 CATALOG_LINE_RE = re.compile(r"(.+?)\s*[\.．…·•]{2,}\s*(\d+)")
+CATALOG_TRAILING_PAGE_RE = re.compile(r"(.+?)\s+(\d+)\s*$")
+CATALOG_FLEXIBLE_PAGE_RE = re.compile(
+    r"(.+?)(?:\s*[\.．…·•]{2,})?\s+([0-9０-９](?:[\s\u3000]*[0-9０-９])*)\s*$"
+)
+FULLWIDTH_DIGIT_TRANS = str.maketrans("０１２３４５６７８９", "0123456789")
 
-# 正文扫描最大行长度（避免误匹配正文段落）
 MAX_TITLE_LENGTH = 40
 
+POLICY_CHAPTER_ONLY = "chapter_only"
+POLICY_UNIT_ONLY = "unit_only"
+POLICY_AUTO = "auto"
 
-# ============================================================
-# 主入口
-# ============================================================
 
-def extract_chapters_from_pdf(pdf_path: str) -> List[Dict]:
-    """
-    3-layer chapter detection pipeline.
-
-    Returns:
-        [{"title": str, "start_page": int, "end_page": int}, ...]
-        页码为 0-indexed。
-    """
+def extract_chapters_from_pdf(pdf_path: str, source_name: Optional[str] = None) -> List[Dict]:
     from pypdf import PdfReader
 
     try:
@@ -72,53 +56,71 @@ def extract_chapters_from_pdf(pdf_path: str) -> List[Dict]:
     if total_pages == 0:
         return []
 
-    # 预先检测目录页（各层共用）
+    source_label = source_name or os.path.basename(pdf_path)
+    level_policy = _determine_level_policy(source_label)
+    min_content_page = _determine_min_content_page(source_label)
+    math_mode = _is_math_source(source_label)
+
+    layer_used = "none"
+    bookmark_rejected = False
     catalog_pages = set(_detect_catalog_pages(reader))
 
-    # Layer 1: 书签提取（最可靠）
     chapters = _extract_from_bookmarks(reader)
+    if chapters and _should_reject_bookmarks(chapters, total_pages, source_label):
+        bookmark_rejected = True
+        log.info("Bookmark extraction looks unreliable for this file, fallback to catalog/text scan")
+        chapters = []
+    elif chapters:
+        layer_used = "bookmarks"
     log.debug(f"Layer 1 (bookmarks): found {len(chapters)} chapters")
 
-    # Layer 2: 目录页解析
     if not chapters:
-        chapters = _extract_from_catalog_with_pages(reader, catalog_pages)
+        chapters = _extract_from_catalog_with_pages(
+            reader,
+            catalog_pages,
+            min_content_page=min_content_page,
+            math_mode=math_mode,
+        )
+        if chapters:
+            layer_used = "catalog"
+        if chapters and _should_reject_math_catalog(chapters, total_pages, source_label):
+            log.info("Math catalog extraction looks unreliable, fallback to text scan")
+            chapters = []
         log.debug(f"Layer 2 (catalog): found {len(chapters)} chapters")
 
-    # Layer 3: 正文标题扫描（跳过目录页）
     if not chapters:
-        chapters = _extract_from_text_scan(reader, skip_pages=catalog_pages)
+        chapters = _extract_from_text_scan(
+            reader,
+            skip_pages=catalog_pages,
+            min_content_page=min_content_page,
+        )
+        if chapters:
+            layer_used = "text_scan"
         log.debug(f"Layer 3 (text scan): found {len(chapters)} chapters")
 
     if not chapters:
         return []
 
-    # 智能层级过滤：单元 > 章 > 课
-    # 生物（单元+章）→保留单元；历史/道法（单元+课）→保留单元
-    chapters = _filter_mixed_levels(chapters)
-
-    # 后处理：去重 + 排序 + 计算 end_page
+    chapters = _filter_mixed_levels(chapters, policy=level_policy)
     chapters = _dedupe_chapters(chapters)
     chapters = _compute_end_pages(chapters, total_pages)
 
     log.info(
-        f"Extracted {len(chapters)} chapters from PDF "
-        f"({total_pages} pages) via 3-layer pipeline"
+        f"Extracted {len(chapters)} chapters from PDF ({total_pages} pages) via 3-layer pipeline"
+    )
+    log.info(
+        "Chapter extraction details: "
+        f"layer={layer_used}, policy={level_policy}, min_content_page={min_content_page}, "
+        f"catalog_pages={len(catalog_pages)}, bookmark_rejected={bookmark_rejected}"
     )
     return chapters
 
 
-# 向后兼容别名
-def extract_primary_chapters(pdf_path: str) -> List[Dict]:
-    """Backward-compatible wrapper."""
-    return extract_chapters_from_pdf(pdf_path)
+def extract_primary_chapters(pdf_path: str, source_name: Optional[str] = None) -> List[Dict]:
+    return extract_chapters_from_pdf(pdf_path, source_name=source_name)
 
-
-# ============================================================
-# Layer 1: 书签/大纲提取
-# ============================================================
 
 def _extract_from_bookmarks(reader) -> List[Dict]:
-    """从 PDF 书签 (outline/bookmarks) 中提取一级章节。"""
     try:
         outline = reader.outline
     except Exception:
@@ -128,25 +130,18 @@ def _extract_from_bookmarks(reader) -> List[Dict]:
         return []
 
     chapters = []
-
     for item in outline:
-        # 跳过嵌套列表（子级书签），只取一级
         if isinstance(item, list):
             continue
-
         try:
             title = str(item.title).strip()
             page_num = reader.get_destination_page_number(item)
-
             if not title or page_num is None:
                 continue
 
-            # 只保留匹配章节正则的书签
+            title = _sanitize_top_level_title(title)
             if CHAPTER_RE.match(title):
-                chapters.append({
-                    "title": _normalize_title(title),
-                    "start_page": page_num,  # 0-indexed
-                })
+                chapters.append({"title": _normalize_title(title), "start_page": page_num})
         except Exception as e:
             log.debug(f"Skipping bookmark: {e}")
             continue
@@ -154,12 +149,7 @@ def _extract_from_bookmarks(reader) -> List[Dict]:
     return chapters
 
 
-# ============================================================
-# Layer 2: 目录页解析
-# ============================================================
-
-def _detect_catalog_pages(reader, max_scan: int = 15) -> List[int]:
-    """检测哪些页面是目录页。"""
+def _detect_catalog_pages(reader, max_scan: int = 10) -> List[int]:
     pages = []
     scan_limit = min(max_scan, len(reader.pages))
 
@@ -170,27 +160,22 @@ def _detect_catalog_pages(reader, max_scan: int = 15) -> List[int]:
             continue
 
         score = 0
-
-        # 目录关键词
         if "目录" in text or "目 录" in text or "CONTENTS" in text.upper():
             score += 2
 
-        # 连续点号（目录的 dot leader 特征）
-        dot_count = (
-            text.count("...")
-            + text.count("……")
-            + text.count("．．")
-            + text.count("···")
-        )
+        dot_count = text.count("...") + text.count("……") + text.count("．．") + text.count("···")
         if dot_count >= 3:
             score += 2
         elif dot_count >= 1:
             score += 1
 
-        # 包含多个章节条目
-        chapter_matches = len(CHAPTER_RE.findall(text))
-        if chapter_matches >= 2:
+        if len(CHAPTER_RE.findall(text)) >= 2:
             score += 1
+
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
+        trailing_page_lines = sum(1 for line in lines if re.search(r"\d+\s*$", line))
+        if trailing_page_lines >= 5:
+            score += 2
 
         if score >= 2:
             pages.append(i)
@@ -198,13 +183,16 @@ def _detect_catalog_pages(reader, max_scan: int = 15) -> List[int]:
     return pages
 
 
-def _extract_from_catalog_with_pages(reader, catalog_pages: set) -> List[Dict]:
-    """解析目录页提取章节列表（接收已检测的目录页集合）。"""
+def _extract_from_catalog_with_pages(
+    reader,
+    catalog_pages: Set[int],
+    min_content_page: int = 0,
+    math_mode: bool = False,
+) -> List[Dict]:
     if not catalog_pages:
         return []
 
     chapters = []
-
     for page_idx in sorted(catalog_pages):
         try:
             text = reader.pages[page_idx].extract_text() or ""
@@ -215,68 +203,80 @@ def _extract_from_catalog_with_pages(reader, catalog_pages: set) -> List[Dict]:
             line = line.strip()
             if not line:
                 continue
-
-            result = _parse_catalog_line(line)
+            result = _parse_catalog_line(line, math_mode=math_mode)
             if result:
                 chapters.append(result)
 
     if not chapters:
         return []
 
-    # 检测页码偏移：目录印刷页码 vs PDF 实际页码
-    offset = _detect_page_offset(reader, chapters, skip_pages=catalog_pages)
+    offset = _detect_page_offset(
+        reader,
+        chapters,
+        skip_pages=catalog_pages,
+        min_content_page=min_content_page,
+    )
 
-    # 应用偏移，转换为 0-indexed
     for ch in chapters:
         ch["start_page"] = ch["start_page"] - 1 + offset
+        ch["start_page"] = max(ch["start_page"], min_content_page)
         ch["start_page"] = max(0, min(ch["start_page"], len(reader.pages) - 1))
 
     return chapters
 
 
-def _parse_catalog_line(line: str) -> Optional[Dict]:
-    """
-    解析单行目录条目。
-    e.g. "第一章 力 .......... 3" → {"title": "第一章 力", "start_page": 3}
-    """
-    m = CATALOG_LINE_RE.search(line)
-    if not m:
+def _parse_catalog_line(line: str, math_mode: bool = False) -> Optional[Dict]:
+    if math_mode and _is_noisy_math_catalog_line(line):
         return None
 
-    title = m.group(1).strip()
-    page = int(m.group(2))
+    title = ""
+    page = None
 
+    m = CATALOG_LINE_RE.search(line)
+    if m:
+        title = m.group(1).strip()
+        page = int(m.group(2))
+    else:
+        m = CATALOG_TRAILING_PAGE_RE.search(line)
+        if m:
+            title = m.group(1).strip()
+            page = int(m.group(2))
+        else:
+            m = CATALOG_FLEXIBLE_PAGE_RE.search(line)
+            if not m:
+                return None
+            title = m.group(1).strip()
+            page = _parse_catalog_page_number(m.group(2))
+            if page is None:
+                return None
+
+    title = _sanitize_top_level_title(title)
     if not CHAPTER_RE.match(title):
         return None
 
-    return {
-        "title": _normalize_title(title),
-        "start_page": page,  # 1-indexed 印刷页码，后续调整
-    }
+    return {"title": _normalize_title(title), "start_page": page}
 
 
-def _detect_page_offset(reader, catalog_entries: List[Dict], skip_pages: set = None) -> int:
-    """
-    检测印刷页码与 PDF 页码之间的偏移。
-    取第一个章节条目，在 PDF 中搜索其标题出现的实际页面。
-    skip_pages: 需要跳过的页面集合（如目录页），避免在目录页上误匹配。
-    """
+def _detect_page_offset(
+    reader,
+    catalog_entries: List[Dict],
+    skip_pages: Optional[Set[int]] = None,
+    min_content_page: int = 0,
+) -> int:
     if not catalog_entries:
         return 0
-
     if skip_pages is None:
         skip_pages = set()
 
     first = catalog_entries[0]
     search_key = re.sub(r"\s+", "", first["title"])
-    printed_page = first["start_page"]  # 1-indexed
+    printed_page = first["start_page"]
 
-    # 在预期位置附近搜索（偏移 -5 ~ +25）
     for delta in range(0, 25):
         for sign in [0, 1, -1]:
             candidate = (printed_page - 1) + (sign * delta)
-            if candidate in skip_pages:
-                continue  # 跳过目录页，避免误匹配
+            if candidate in skip_pages or candidate < min_content_page:
+                continue
             if 0 <= candidate < len(reader.pages):
                 try:
                     text = reader.pages[candidate].extract_text() or ""
@@ -293,26 +293,20 @@ def _detect_page_offset(reader, catalog_entries: List[Dict], skip_pages: set = N
     return 0
 
 
-# ============================================================
-# Layer 3: 正文标题扫描
-# ============================================================
-
-def _extract_from_text_scan(reader, max_pages: int = 200, skip_pages: set = None) -> List[Dict]:
-    """
-    逐页扫描正文，用正则匹配章节标题行。
-    要求：行匹配章节正则 + 行长度 ≤ MAX_TITLE_LENGTH。
-    skip_pages: 跳过目录页，避免在目录页上误匹配章节标题。
-    """
+def _extract_from_text_scan(
+    reader,
+    max_pages: int = 200,
+    skip_pages: Optional[Set[int]] = None,
+    min_content_page: int = 0,
+) -> List[Dict]:
     if skip_pages is None:
         skip_pages = set()
 
     chapters = []
     scan_limit = min(max_pages, len(reader.pages))
-
     for i in range(scan_limit):
-        if i in skip_pages:
-            continue  # 跳过目录页
-
+        if i < min_content_page or i in skip_pages:
+            continue
         try:
             text = reader.pages[i].extract_text() or ""
         except Exception:
@@ -320,56 +314,148 @@ def _extract_from_text_scan(reader, max_pages: int = 200, skip_pages: set = None
 
         for line in text.split("\n"):
             line = line.strip()
-
             if not line or len(line) > MAX_TITLE_LENGTH:
                 continue
-
             if CHAPTER_RE.match(line):
-                chapters.append({
-                    "title": _normalize_title(line),
-                    "start_page": i,  # 0-indexed
-                })
+                chapters.append({"title": _normalize_title(line), "start_page": i})
 
     return chapters
 
 
-# ============================================================
-# 后处理工具
-# ============================================================
+def _filter_mixed_levels(chapters: List[Dict], policy: str = "auto") -> List[Dict]:
+    if policy == POLICY_CHAPTER_ONLY:
+        filtered = [ch for ch in chapters if not _RE_UNIT.match(ch["title"]) and not _RE_KE.match(ch["title"])]
+        return filtered if filtered else chapters
 
-def _filter_mixed_levels(chapters: List[Dict]) -> List[Dict]:
-    """
-    智能层级过滤：当多个层级共存时，保留最高层级。
+    if policy == POLICY_UNIT_ONLY:
+        filtered = [ch for ch in chapters if not _RE_ZHANG.match(ch["title"]) and not _RE_KE.match(ch["title"])]
+        return filtered if filtered else chapters
 
-    层级优先级：单元 > 章 > 课
-
-    场景：
-    - 生物：单元+章 → 保留单元
-    - 历史/道法：单元+课 → 保留单元
-    - 语文：只有单元 → 全保留
-    - 数学/物理/化学/地理：只有章 → 全保留
-    """
-    has_unit  = any(_RE_UNIT.match(ch["title"]) for ch in chapters)
+    has_unit = any(_RE_UNIT.match(ch["title"]) for ch in chapters)
     has_zhang = any(_RE_ZHANG.match(ch["title"]) for ch in chapters)
-    has_ke    = any(_RE_KE.match(ch["title"]) for ch in chapters)
+    has_ke = any(_RE_KE.match(ch["title"]) for ch in chapters)
 
     if has_unit and (has_zhang or has_ke):
-        # 单元与章/课共存 → 只保留单元（和绪论等非章/课条目）
-        filtered = [
-            ch for ch in chapters
-            if not _RE_ZHANG.match(ch["title"]) and not _RE_KE.match(ch["title"])
-        ]
-        log.info(
-            f"Mixed levels detected: {len(chapters)} → {len(filtered)} "
-            f"(kept 单元, removed 章/课)"
-        )
-        return filtered
+        filtered = [ch for ch in chapters if not _RE_ZHANG.match(ch["title"]) and not _RE_KE.match(ch["title"])]
+        return filtered if filtered else chapters
 
     return chapters
+
+
+def _determine_level_policy(source_name: str) -> str:
+    name = (source_name or "").lower()
+    if any(k in name for k in ["数学", "math", "物理", "physics", "地理", "geography"]):
+        return POLICY_CHAPTER_ONLY
+    if any(
+        k in name
+        for k in ["化学", "chemistry", "生物", "biology", "历史", "history", "道德与法治", "道法", "morality", "ethics", "law"]
+    ):
+        return POLICY_UNIT_ONLY
+    return POLICY_AUTO
+
+
+def _determine_min_content_page(source_name: str) -> int:
+    name = (source_name or "").lower()
+    if "数学" in name or "math" in name:
+        return 7
+    return 0
+
+
+def _is_math_source(source_name: str) -> bool:
+    name = (source_name or "").lower()
+    return "数学" in name or "math" in name
+
+
+def _is_noisy_math_catalog_line(line: str) -> bool:
+    text = line.translate(FULLWIDTH_DIGIT_TRANS)
+    text = re.sub(r"[\u3000]+", " ", text)
+
+    if re.search(r"\b\d+\s*[\.．]\s*\d+\b", text):
+        return True
+
+    noisy_keywords = ["阅读与思考", "图说数学史", "数学活动", "小结", "综合与实践"]
+    return any(k in text for k in noisy_keywords)
+
+
+def _should_reject_math_catalog(chapters: List[Dict], total_pages: int, source_name: str) -> bool:
+    if not _is_math_source(source_name):
+        return False
+    if len(chapters) < 4:
+        return False
+
+    starts = [int(ch.get("start_page", 0)) for ch in chapters if "start_page" in ch]
+    if len(starts) < 4:
+        return False
+
+    spread = max(starts) - min(starts)
+    if total_pages >= 120 and spread <= 25:
+        return True
+
+    numbered = []
+    for ch in chapters:
+        num = _extract_chapter_number(ch.get("title", ""))
+        if num is not None:
+            numbered.append((num, int(ch.get("start_page", 0))))
+
+    if len(numbered) >= 4:
+        numbered.sort(key=lambda x: x[0])
+        for i in range(1, len(numbered)):
+            if numbered[i][1] <= numbered[i - 1][1]:
+                return True
+
+    return False
+
+
+def _extract_chapter_number(title: str) -> Optional[int]:
+    m = re.match(r"^第\s*([一二三四五六七八九十百零〇\d]+)\s*章", (title or "").strip())
+    if not m:
+        return None
+    raw = m.group(1)
+    normalized = raw.translate(FULLWIDTH_DIGIT_TRANS)
+    if normalized.isdigit():
+        return int(normalized)
+    return _chinese_number_to_int(normalized)
+
+
+def _chinese_number_to_int(text: str) -> Optional[int]:
+    digits = {
+        "零": 0,
+        "〇": 0,
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    if not text:
+        return None
+    if text == "十":
+        return 10
+    if "十" in text:
+        left, right = text.split("十", 1)
+        if left == "":
+            tens = 1
+        elif left in digits:
+            tens = digits[left]
+        else:
+            return None
+        if right == "":
+            ones = 0
+        elif right in digits:
+            ones = digits[right]
+        else:
+            return None
+        return tens * 10 + ones
+    if text in digits:
+        return digits[text]
+    return None
 
 
 def _normalize_title(title: str) -> str:
-    """归一化章节标题（去除点号、多余空白）。"""
     title = title.replace("…", "")
     title = title.replace("...", "")
     title = title.replace("．", "")
@@ -378,41 +464,75 @@ def _normalize_title(title: str) -> str:
     return title.strip()
 
 
-def _dedupe_chapters(chapters: List[Dict]) -> List[Dict]:
-    """去重：同标题保留最小页码的条目。"""
-    seen = {}
+def _sanitize_top_level_title(title: str) -> str:
+    title = title.strip()
+    m = re.match(
+        r"^((?:第\s*[一二三四五六七八九十百零〇\d]+\s*(?:章|单\s*元|课)|绪\s*论)\s*[^0-9０-９]*)",
+        title,
+    )
+    if m:
+        cleaned = m.group(1).strip()
+        if cleaned:
+            return cleaned
+    return title
 
+
+def _should_reject_bookmarks(chapters: List[Dict], total_pages: int, source_name: str) -> bool:
+    if not _is_math_source(source_name):
+        return False
+    if len(chapters) < 4:
+        return False
+
+    starts = [int(ch.get("start_page", 0)) for ch in chapters if "start_page" in ch]
+    if len(starts) < 4:
+        return False
+
+    spread = max(starts) - min(starts)
+    unique_ratio = len(set(starts)) / max(len(starts), 1)
+
+    log.debug(
+        "Bookmark quality check: "
+        f"source={source_name}, chapter_count={len(chapters)}, "
+        f"max_start={max(starts)}, spread={spread}, unique_ratio={unique_ratio:.2f}"
+    )
+
+    if max(starts) < 30 and spread <= 20:
+        return True
+    if unique_ratio < 0.7 and total_pages >= 80:
+        return True
+    return False
+
+
+def _parse_catalog_page_number(page_text: str) -> Optional[int]:
+    normalized = page_text.translate(FULLWIDTH_DIGIT_TRANS)
+    normalized = re.sub(r"[\s\u3000]+", "", normalized)
+    if not normalized or not normalized.isdigit():
+        return None
+    return int(normalized)
+
+
+def _dedupe_chapters(chapters: List[Dict]) -> List[Dict]:
+    seen = {}
     for ch in chapters:
         key = _normalize_title(ch["title"])
         if key not in seen:
             seen[key] = ch
-        else:
-            if ch["start_page"] < seen[key]["start_page"]:
-                seen[key] = ch
-
+        elif ch["start_page"] < seen[key]["start_page"]:
+            seen[key] = ch
     return sorted(seen.values(), key=lambda x: x["start_page"])
 
 
 def _compute_end_pages(chapters: List[Dict], total_pages: int) -> List[Dict]:
-    """计算 end_page：下一章的 start_page - 1。"""
     for i in range(len(chapters)):
         if i < len(chapters) - 1:
             end = chapters[i + 1]["start_page"] - 1
         else:
             end = total_pages - 1
-
-        # end_page 至少 == start_page
         chapters[i]["end_page"] = max(end, chapters[i]["start_page"])
-
     return chapters
 
 
-# ============================================================
-# 工具函数（保持向后兼容）
-# ============================================================
-
 def get_pdf_total_pages(pdf_path: str) -> int:
-    """获取 PDF 总页数。"""
     from pypdf import PdfReader
     try:
         reader = PdfReader(pdf_path)
@@ -423,11 +543,7 @@ def get_pdf_total_pages(pdf_path: str) -> int:
 
 
 def extract_pdf_page_range_text(pdf_path: str, start_page: int, end_page: int) -> str:
-    """
-    提取 PDF 指定页码范围的文本（0-indexed, inclusive）。
-    """
     from pypdf import PdfReader
-
     try:
         reader = PdfReader(pdf_path)
     except Exception as e:
@@ -437,7 +553,6 @@ def extract_pdf_page_range_text(pdf_path: str, start_page: int, end_page: int) -
     total_pages = len(reader.pages)
     start_page = max(0, start_page)
     end_page = min(end_page, total_pages - 1)
-
     if start_page > end_page:
         return ""
 
@@ -454,28 +569,14 @@ def extract_pdf_page_range_text(pdf_path: str, start_page: int, end_page: int) -
 
 
 def extract_text_sections(content: str) -> List[Dict]:
-    """
-    将纯文本按空行/段落分段（用于 txt/docx 文件）。
-
-    规则：
-    - 按连续空行分割
-    - 过滤空段落
-    - 合并过短段落（< 50 字合并到上一段）
-    - 自动命名 "段落 1"、"段落 2"...
-    """
     if not content or not content.strip():
         return []
 
-    # 按两个或更多连续换行分割
     raw_paragraphs = re.split(r"\n\s*\n", content)
-
-    # 过滤空段落
     paragraphs = [p.strip() for p in raw_paragraphs if p.strip()]
-
     if not paragraphs:
         return []
 
-    # 合并过短段落（< 50 字合并到上一段）
     merged = []
     for p in paragraphs:
         if merged and len(p) < 50:
@@ -483,14 +584,9 @@ def extract_text_sections(content: str) -> List[Dict]:
         else:
             merged.append(p)
 
-    # 构建结果
     sections = []
     for i, text in enumerate(merged):
-        sections.append({
-            "title": f"段落 {i + 1}",
-            "content": text,
-            "order_index": i,
-        })
+        sections.append({"title": f"段落 {i + 1}", "content": text, "order_index": i})
 
     log.info(f"Extracted {len(sections)} text sections")
     return sections

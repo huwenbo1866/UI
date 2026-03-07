@@ -24,7 +24,7 @@ from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 
 
 from open_webui.models.users import UserModel
-from open_webui.models.files import Files
+from open_webui.models.files import Files, FileChapters
 from open_webui.models.knowledge import Knowledges
 
 from open_webui.models.chats import Chats
@@ -1047,12 +1047,26 @@ async def get_sources_from_items(
 
                     file_object = Files.get_file_by_id(item.get("id"))
                     if file_object:
+                        chapter_start = chapter.get("start_page")
+                        chapter_end = chapter.get("end_page")
+
+                        # Validate chapter range against stored chapter records
+                        valid_ranges = {
+                            (ch.start_page, ch.end_page)
+                            for ch in FileChapters.get_chapters_by_file_id(item.get("id"))
+                        }
+                        if valid_ranges and (chapter_start, chapter_end) not in valid_ranges:
+                            raise ValueError(
+                                f"Invalid chapter range for file {item.get('id')}: "
+                                f"({chapter_start}, {chapter_end})"
+                            )
+
                         from open_webui.storage.provider import Storage
                         file_path = Storage.get_file(file_object.path)
                         chapter_text = extract_pdf_page_range_text(
                             file_path,
-                            chapter.get("start_page", 0),
-                            chapter.get("end_page", 0),
+                            chapter_start if chapter_start is not None else 0,
+                            chapter_end if chapter_end is not None else 0,
                         )
                         chapter_title = chapter.get("title", "")
                         query_result = {

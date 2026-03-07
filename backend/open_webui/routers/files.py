@@ -1184,7 +1184,7 @@ async def extract_file_chapters(
         if content_type == "application/pdf" or file_lower.endswith(".pdf"):
             from open_webui.utils.chapters import extract_primary_chapters, get_pdf_total_pages
 
-            chapters = extract_primary_chapters(file_path)
+            chapters = extract_primary_chapters(file_path, source_name=file_name)
             total_pages = get_pdf_total_pages(file_path)
 
             FileChapters.insert_chapters(

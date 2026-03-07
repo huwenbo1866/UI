@@ -1802,7 +1802,7 @@ def process_file(
                         from open_webui.utils.chapters import extract_primary_chapters, get_pdf_total_pages
                         actual_path = Storage.get_file(file.path) if file.path else None
                         if actual_path:
-                            chapters = extract_primary_chapters(actual_path)
+                            chapters = extract_primary_chapters(actual_path, source_name=file.filename)
                             if chapters:
                                 FileChapters.insert_chapters(file.id, chapters, db=db)
                                 log.info(f"Extracted {len(chapters)} chapters for file {file.id}")
