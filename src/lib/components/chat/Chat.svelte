@@ -46,6 +46,12 @@
 	} from '$lib/stores';
 
 	import {
+		startXiaoLingSpeaking,
+		stopXiaoLingSpeaking,
+		wakeXiaoLing
+	} from '$lib/stores/xiaoling';
+
+	import {
 		convertMessagesToHistory,
 		copyToClipboard,
 		getMessageContentParts,
@@ -587,8 +593,12 @@
 		window.addEventListener('message', onMessageHandler);
 		$socket?.on('events', chatEventHandler);
 
-		audioQueue.set(new AudioQueue(document.getElementById('audioElement')));
+		await tick(); // 确保 <audio> 已经在 DOM 里
+		const audioEl = document.getElementById('audioElement') as HTMLAudioElement | null;
 
+		// 兜底：拿不到元素也不要让初始化失败
+		audioQueue.set(new AudioQueue(audioEl ?? undefined));
+		
 		pageSubscribe = page.subscribe(async (p) => {
 			if (p.url.pathname === '/') {
 				await tick();
@@ -789,16 +799,32 @@
 
 			console.log('File uploaded successfully:', uploadedFile);
 
-			// Update file item with upload results
-			fileItem.status = 'uploaded';
+			// Update file item with backend processing state.
+			const backendStatus = String(uploadedFile?.data?.status ?? 'pending').toLowerCase();
+			fileItem.status = backendStatus === 'completed' ? 'uploaded' : backendStatus;
+			fileItem.process_status = backendStatus;
+			fileItem.stage =
+				uploadedFile?.data?.stage ?? (backendStatus === 'completed' ? 'completed' : 'queued');
+			fileItem.progress_pct =
+				uploadedFile?.data?.progress_pct ?? (backendStatus === 'completed' ? 100 : 0);
+			fileItem.message =
+				uploadedFile?.data?.message ??
+				(backendStatus === 'completed' ? '处理完成' : '等待进入处理队列');
+			fileItem.current_chunk = uploadedFile?.data?.current_chunk ?? 0;
+			fileItem.total_chunks = uploadedFile?.data?.total_chunks ?? 0;
+			fileItem.error = uploadedFile?.data?.error ?? '';
 			fileItem.file = uploadedFile;
 			fileItem.id = uploadedFile.id;
 			fileItem.size = file.size;
 			fileItem.collection_name = uploadedFile?.meta?.collection_name;
 			fileItem.url = `${uploadedFile.id}`;
 
-			files = files;
-			toast.success($i18n.t('File uploaded successfully'));
+			files = [...files];
+			if (backendStatus === 'completed') {
+				toast.success($i18n.t('File uploaded successfully'));
+			} else {
+				toast.info($i18n.t('File uploaded, processing in background.'));
+			}
 		} catch (e) {
 			console.error('Error uploading file:', e);
 			files = files.filter((f) => f.itemId !== tempItemId);
@@ -1582,6 +1608,8 @@
 				})
 			);
 
+			stopXiaoLingSpeaking();
+
 			history.messages[message.id] = message;
 
 			await tick();
@@ -1938,6 +1966,9 @@
 		);
 
 		scrollToBottom();
+		wakeXiaoLing();
+		startXiaoLingSpeaking();
+		
 		eventTarget.dispatchEvent(
 			new CustomEvent('chat:start', {
 				detail: {
@@ -2172,6 +2203,8 @@
 		}
 
 		history.messages[responseMessage.id] = responseMessage;
+
+		stopXiaoLingSpeaking();
 	};
 
 	const stopResponse = async () => {
@@ -2205,6 +2238,8 @@
 			generationController?.abort();
 			generationController = null;
 		}
+
+		stopXiaoLingSpeaking();
 	};
 
 	const submitMessage = async (parentId, prompt) => {

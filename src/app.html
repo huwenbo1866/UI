@@ -11,13 +11,6 @@
 			crossorigin="use-credentials"
 		/>
 		<link
-			rel="icon"
-			type="image/svg+xml"
-			href="/static/favicon.svg"
-			crossorigin="use-credentials"
-		/>
-		<link rel="shortcut icon" href="/static/favicon.ico" crossorigin="use-credentials" />
-		<link
 			rel="apple-touch-icon"
 			sizes="180x180"
 			href="/static/apple-touch-icon.png"
@@ -141,7 +134,7 @@
 			>
 				<img
 					id="logo-her"
-					style="width: auto; height: 13rem"
+					style="width: auto; height: 24rem"
 					src="/static/splash.png"
 					class="animate-pulse-fast"
 				/>
@@ -214,7 +207,9 @@
 
 		html.her #logo-her {
 			display: block;
-			filter: invert(1);
+			filter: none !important;
+			mix-blend-mode: normal;
+			opacity: 1;
 		}
 
 		html.her #progress-background {

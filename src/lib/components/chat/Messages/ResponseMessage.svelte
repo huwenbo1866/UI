@@ -252,6 +252,11 @@
 				}
 			}, 100);
 		} else {
+			if (!$audioQueue) {
+			  toast.error('Audio queue not initialized');
+			  speaking = false;
+			  return;
+			}
 			$audioQueue.setId(`${message.id}`);
 			$audioQueue.setPlaybackRate($settings.audio?.tts?.playbackRate ?? 1);
 			$audioQueue.onStopped = () => {

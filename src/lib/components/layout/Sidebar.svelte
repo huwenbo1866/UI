@@ -58,6 +58,7 @@
 	import ChannelModal from './Sidebar/ChannelModal.svelte';
 	import ChannelItem from './Sidebar/ChannelItem.svelte';
 	import PencilSquare from '../icons/PencilSquare.svelte';
+	import PageEdit from '../icons/PageEdit.svelte';
 	
 	
 	import FolderModal from './Sidebar/Folders/FolderModal.svelte';
@@ -703,8 +704,8 @@
 					>
 						<div class=" self-center flex items-center justify-center size-9">
 							<img
-								src="{WEBUI_BASE_URL}/static/favicon.png"
-								class="sidebar-new-chat-icon size-6 rounded-full group-hover:hidden"
+								src="/static/favicon.png"
+								class="sidebar-new-chat-icon size-9 rounded-full group-hover:hidden"
 								alt=""
 							/>
 
@@ -867,8 +868,8 @@
 				>
 					<img
 						crossorigin="anonymous"
-						src="{WEBUI_BASE_URL}/static/favicon.png"
-						class="sidebar-new-chat-icon size-6 rounded-full"
+						src="/static/favicon.png"
+						class="sidebar-new-chat-icon size-9 rounded-full"
 						alt=""
 					/>
 				</a>
@@ -968,6 +969,27 @@
 					      </div>
 					    </a>
 					  </div>
+					{/if}
+
+					{#if $user?.role === 'admin' || $user?.role === 'user'}
+						<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
+							<a
+								id="sidebar-homework-button"
+								class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+								href="/homework"
+								on:click={itemClickHandler}
+								draggable="false"
+								aria-label="生成作业"
+							>
+								<div class="self-center">
+									<PageEdit className="size-4.5" />
+								</div>
+
+								<div class="flex self-center translate-y-[0.5px]">
+									<div class="self-center text-sm font-primary">生成作业</div>
+								</div>
+							</a>
+						</div>
 					{/if}
 					
 					{#if $user?.role === 'admin' || $user?.permissions?.workspace?.skills}

@@ -10,6 +10,9 @@
 	import { getChatList } from '$lib/apis/chats';
 	import { updateFolderById } from '$lib/apis/folders';
 
+	import XiaoLingAvatar from '$lib/components/chat/XiaoLingAvatar.svelte';
+	import { xiaolingState } from '$lib/stores/xiaoling';
+
 	import {
 		config,
 		user,
@@ -68,6 +71,16 @@
 	}
 
 	$: models = selectedModels.map((id) => $_models.find((m) => m.id === id));
+
+	let homepageXiaoLingState: 'idle' | 'sleep1' | 'sleep2' | 'sleep3' = 'idle';
+
+	$: {
+		if ($xiaolingState === 'sleep1' || $xiaolingState === 'sleep2' || $xiaolingState === 'sleep3') {
+			homepageXiaoLingState = $xiaolingState;
+		} else {
+			homepageXiaoLingState = 'idle';
+		}
+	}
 </script>
 
 <div class="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-10 py-10">
@@ -131,15 +144,13 @@
 			<FolderPlaceholder folder={$selectedFolder} />
 		</div>
 	{:else}
+		<div class="mb-4 flex justify-center">
+			<XiaoLingAvatar state={homepageXiaoLingState} size={220} />
+		</div>
+		
 		<!-- A1：首页“卡片工作台” -->
 		<section class="a1-card p-5 sm:p-6 lg:p-7">
 			<div class="flex flex-col items-center text-center">
-				<div class="text-3xl sm:text-4xl font-primary text-gray-800 dark:text-gray-100">
-					小玲
-				</div>
-
-				
-
 				{#if models[selectedModelIdx]?.info?.meta?.description ?? null}
 					<div class="mt-2">
 						<Tooltip
@@ -163,7 +174,8 @@
 				{/if}
 			</div>
 
-			<!-- 输入框：用软卡片包一层，立刻像 A1 -->
+
+			<!-- 输入框：用软卡片包一层-->
 			<div class="mt-5">
 				
 					<MessageInput

@@ -100,6 +100,13 @@
 	const isProcessingStatus = (status: string) =>
 		['uploading', 'pending', 'processing'].includes(status);
 
+	const getNormalizedProcessStatus = (file: any) =>
+		String(file?.status ?? file?.process_status ?? '')
+			.trim()
+			.toLowerCase();
+
+	const isFilePendingProcessing = (file: any) => isProcessingStatus(getNormalizedProcessStatus(file));
+
 	const updateLocalFileItem = (itemId: string, patch: Record<string, any>) => {
 		const idx = files.findIndex((f) => f.itemId === itemId || f.id === itemId);
 		if (idx === -1) return;
@@ -205,6 +212,46 @@
 
 	export let prompt = '';
 	export let files = [];
+
+	let hasPendingProcessingFiles = false;
+	let submitDisabled = true;
+	$: hasPendingProcessingFiles = files.some((file) => isFilePendingProcessing(file));
+	$: submitDisabled = (prompt === '' && files.length === 0) || hasPendingProcessingFiles;
+	$: {
+		for (const file of files) {
+			const trackingId = file?.itemId ?? file?.id;
+			const fileId = file?.id;
+			const status = getNormalizedProcessStatus(file);
+
+			if (!trackingId) {
+				continue;
+			}
+
+			if (fileId && isProcessingStatus(status) && !fileProcessPollers.has(trackingId)) {
+				startFileProcessPolling(trackingId, fileId);
+			}
+
+			if (
+				fileProcessPollers.has(trackingId) &&
+				['uploaded', 'completed', 'failed'].includes(status)
+			) {
+				stopFileProcessPolling(trackingId);
+			}
+		}
+	}
+
+	const submitCurrentPrompt = () => {
+		if (hasPendingProcessingFiles) {
+			toast.info($i18n.t('File is still being processed. Please wait before sending.'));
+			return;
+		}
+
+		if (prompt === '' && files.length === 0) {
+			return;
+		}
+
+		dispatch('submit', prompt);
+	};
 
 	export let selectedToolIds = [];
 	export let selectedFilterIds = [];
@@ -729,46 +776,35 @@
 						url: `${uploadedFile.id}`
 					};
 				
-					const shouldTrackProgress =
-						process &&
-						isProgressMediaFile({
-							...fileItem,
-							...basePatch,
-							content_type: basePatch.content_type || file?.type || file?.content_type,
-							filename: fileItem.name
-						});
+					const backendStatus = String(
+						process ? uploadedFile?.data?.status ?? 'pending' : 'completed'
+					).toLowerCase();
+					const terminal = ['completed', 'failed'].includes(backendStatus);
+					const stage = process
+						? uploadedFile?.data?.stage ?? (terminal ? backendStatus : 'queued')
+						: undefined;
 				
-					if (shouldTrackProgress) {
-						const backendStatus = uploadedFile?.data?.status ?? 'pending';
-						const stage = uploadedFile?.data?.stage ?? 'queued';
+					updateLocalFileItem(tempItemId, {
+						...basePatch,
+						status: backendStatus === 'completed' ? 'uploaded' : backendStatus,
+						process_status: process ? backendStatus : undefined,
+						stage,
+						progress_pct: process
+							? uploadedFile?.data?.progress_pct ?? (backendStatus === 'completed' ? 100 : 0)
+							: undefined,
+						message: process
+							? uploadedFile?.data?.message ??
+								getStageLabel(stage, '等待进入处理队列')
+							: '',
+						current_chunk: process ? uploadedFile?.data?.current_chunk ?? 0 : 0,
+						total_chunks: process ? uploadedFile?.data?.total_chunks ?? 0 : 0,
+						error: uploadedFile?.data?.error ?? ''
+					});
 				
-						updateLocalFileItem(tempItemId, {
-							...basePatch,
-							status: backendStatus === 'completed' ? 'uploaded' : backendStatus,
-							process_status: backendStatus,
-							stage,
-							progress_pct: uploadedFile?.data?.progress_pct ?? 0,
-							message: uploadedFile?.data?.message ?? getStageLabel(stage, '等待进入处理队列'),
-							current_chunk: uploadedFile?.data?.current_chunk ?? 0,
-							total_chunks: uploadedFile?.data?.total_chunks ?? 0,
-							error: uploadedFile?.data?.error ?? ''
-						});
-				
-						if (uploadedFile.id && !['completed', 'failed'].includes(backendStatus)) {
-							startFileProcessPolling(tempItemId, uploadedFile.id);
-						}
+					if (process && uploadedFile.id && !terminal) {
+						startFileProcessPolling(tempItemId, uploadedFile.id);
 					} else {
-						updateLocalFileItem(tempItemId, {
-							...basePatch,
-							status: 'uploaded',
-							process_status: undefined,
-							stage: undefined,
-							progress_pct: undefined,
-							message: '',
-							current_chunk: 0,
-							total_chunks: 0,
-							error: ''
-						});
+						stopFileProcessPolling(tempItemId);
 					}
 				} else {
 					files = files.filter((item) => item?.itemId !== tempItemId);
@@ -1286,7 +1322,7 @@
 								document.getElementById('chat-input')?.focus();
 
 								if ($settings?.speechAutoSend ?? false) {
-									dispatch('submit', prompt);
+									submitCurrentPrompt();
 								}
 							}}
 						/>
@@ -1294,8 +1330,15 @@
 					<form
 						class="w-full flex flex-col gap-1.5 {recording ? 'hidden' : ''}"
 						on:submit|preventDefault={() => {
-							// check if selectedModels support image input
-							dispatch('submit', prompt);
+							if (submitDisabled) {
+								if (hasPendingProcessingFiles) {
+									toast.info(
+										$i18n.t('File is still being processed. Please wait before sending.')
+									);
+								}
+								return;
+							}
+							submitCurrentPrompt();
 						}}
 					>
 						<button
@@ -1612,9 +1655,17 @@
 
 																if (enterPressed) {
 																	e.preventDefault();
-																	if (prompt !== '' || files.length > 0) {
-																		dispatch('submit', prompt);
+																	if (submitDisabled) {
+																		if (hasPendingProcessingFiles) {
+																			toast.info(
+																				$i18n.t(
+																					'File is still being processed. Please wait before sending.'
+																				)
+																			);
+																		}
+																		return;
 																	}
+																	submitCurrentPrompt();
 																}
 															}
 														}
@@ -2079,14 +2130,18 @@
 											</div>
 										{:else}
 											<div class=" flex items-center">
-												<Tooltip content={$i18n.t('Send message')}>
+												<Tooltip
+													content={hasPendingProcessingFiles
+														? $i18n.t('File is still being processed. Please wait before sending.')
+														: $i18n.t('Send message')}
+												>
 													<button
 														id="send-message-button"
-														class="{!(prompt === '' && files.length === 0)
+														class="{!submitDisabled
 															? 'bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 '
 															: 'text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled'} transition rounded-full p-1.5 self-center"
 														type="submit"
-														disabled={prompt === '' && files.length === 0}
+														disabled={submitDisabled}
 													>
 														<svg
 															xmlns="http://www.w3.org/2000/svg"

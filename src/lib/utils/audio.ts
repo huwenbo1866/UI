@@ -1,14 +1,16 @@
 export class AudioQueue {
-	constructor(audioElement) {
-		this.audio = audioElement;
-		this.queue = [];
-		this.current = null;
-		this.id = null;
-
-		this._onEnded = () => this.next();
-		this.audio.addEventListener('ended', this._onEnded);
-
-		this.onStopped = null; // optional callback
+	constructor(audioElement?: HTMLAudioElement | null) {
+	  // ✅ 核心：永远保证有 audio，避免初始化阶段直接崩
+	  this.audio = audioElement ?? new Audio();
+		
+	  this.queue = [];
+	  this.current = null;
+	  this.id = null;
+		
+	  this._onEnded = () => this.next();
+	  this.audio.addEventListener('ended', this._onEnded);
+		
+	  this.onStopped = null;
 	}
 
 	setId(newId) {

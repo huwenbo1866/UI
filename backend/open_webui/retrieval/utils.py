@@ -385,6 +385,140 @@ def merge_and_sort_query_results(query_results: list[dict], k: int) -> dict:
     }
 
 
+def _has_query_documents(query_result: Optional[dict]) -> bool:
+    if not isinstance(query_result, dict):
+        return False
+
+    documents = query_result.get("documents")
+    if not isinstance(documents, list) or len(documents) == 0:
+        return False
+    if not isinstance(documents[0], list) or len(documents[0]) == 0:
+        return False
+
+    return any(isinstance(doc, str) and doc.strip() for doc in documents[0])
+
+
+def _split_text_chunks_for_fallback(text: str, chunk_size: int, overlap: int) -> list[str]:
+    content = (text or "").strip()
+    if not content:
+        return []
+    if chunk_size <= 0:
+        return [content]
+
+    chunks = []
+    start = 0
+    size = len(content)
+    step = max(1, chunk_size - max(0, overlap))
+
+    while start < size:
+        end = min(size, start + chunk_size)
+        chunk = content[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= size:
+            break
+        start += step
+
+    return chunks
+
+
+def _sample_evenly_for_fallback(items: list[str], max_count: int) -> list[str]:
+    if max_count <= 0 or not items:
+        return []
+    if len(items) <= max_count:
+        return items
+    if max_count == 1:
+        return [items[0]]
+
+    indexes = sorted(
+        {
+            int(round(i * (len(items) - 1) / (max_count - 1)))
+            for i in range(max_count)
+        }
+    )
+    return [items[idx] for idx in indexes]
+
+
+def _build_balanced_fallback_text(content: str, max_chars: int, segments: int) -> str:
+    source = (content or "").strip()
+    if not source:
+        return ""
+    if max_chars <= 0 or len(source) <= max_chars:
+        return source
+
+    sampled_chunks = _sample_evenly_for_fallback(
+        _split_text_chunks_for_fallback(
+            source,
+            chunk_size=max(1200, max_chars // max(1, segments)),
+            overlap=0,
+        ),
+        max(1, segments),
+    )
+    if not sampled_chunks:
+        return source[:max_chars]
+
+    sections = []
+    total = 0
+    for idx, chunk in enumerate(sampled_chunks):
+        section = f"[片段{idx + 1}]\n{chunk}\n"
+        if sections and total + len(section) > max_chars:
+            break
+        sections.append(section)
+        total += len(section)
+
+    result = "\n".join(sections).strip()
+    return result[:max_chars] if result else source[:max_chars]
+
+
+def _build_file_raw_fallback_result(item: dict) -> Optional[dict]:
+    fallback_max_chars = int(os.getenv("RAG_FILE_FALLBACK_MAX_CHARS", "18000"))
+    fallback_segments = int(os.getenv("RAG_FILE_FALLBACK_SEGMENTS", "6"))
+
+    file_id = item.get("id")
+    file_name = item.get("name")
+
+    content = ""
+    metadata = {}
+
+    file_obj = item.get("file") or {}
+    file_data = file_obj.get("data") or {}
+    inline_content = file_data.get("content")
+    if isinstance(inline_content, str) and inline_content.strip():
+        content = inline_content
+        metadata = file_data.get("metadata") or {}
+    elif file_id:
+        db_file = Files.get_file_by_id(file_id)
+        if db_file:
+            file_name = file_name or db_file.filename
+            content = ((db_file.data or {}).get("content") or "").strip()
+            metadata = (db_file.data or {}).get("metadata") or {}
+
+    if not content:
+        return None
+
+    fallback_text = _build_balanced_fallback_text(
+        content,
+        fallback_max_chars,
+        fallback_segments,
+    )
+    if not fallback_text:
+        return None
+
+    fallback_metadata = {
+        "file_id": file_id,
+        "name": file_name or "uploaded_file",
+        "source": file_name or "uploaded_file",
+        "fallback_mode": "raw_file_content",
+        **(metadata if isinstance(metadata, dict) else {}),
+    }
+
+    return {
+        "distances": [[0.0]],
+        "documents": [[fallback_text]],
+        "metadatas": [[fallback_metadata]],
+    }
+
+
 def get_all_items_from_collections(collection_names: list[str]) -> dict:
     results = []
 
@@ -481,7 +615,8 @@ async def query_collection_with_hybrid_search(
                 collection_name=collection_name
             )
         except Exception as e:
-            log.exception(f"Failed to fetch collection {collection_name}: {e}")
+            error = True
+            log.warning(f"Failed to fetch collection {collection_name}: {e}")
             collection_results[collection_name] = None
 
     log.info(
@@ -527,7 +662,7 @@ async def query_collection_with_hybrid_search(
         elif result is not None:
             results.append(result)
 
-    if error and not results:
+    if not results and (error or not tasks):
         raise Exception(
             "Hybrid search failed for all collections. Using Non-hybrid search as fallback."
         )
@@ -1221,7 +1356,10 @@ async def get_sources_from_items(
                             )
 
                     # fallback to non-hybrid search
-                    if not hybrid_search and query_result is None:
+                    # 1) hybrid search disabled
+                    # 2) hybrid search failed
+                    # 3) hybrid search returned empty docs
+                    if query_result is None or not _has_query_documents(query_result):
                         query_result = await query_collection(
                             collection_names=collection_names,
                             queries=queries,
@@ -1232,6 +1370,15 @@ async def get_sources_from_items(
                 log.exception(e)
 
             extracted_collections.extend(collection_names)
+
+        if item.get("type") == "file" and not _has_query_documents(query_result):
+            raw_fallback_result = _build_file_raw_fallback_result(item)
+            if raw_fallback_result is not None:
+                log.info(
+                    "Using raw file fallback while vector retrieval is unavailable: %s",
+                    item.get("id"),
+                )
+                query_result = raw_fallback_result
 
         if query_result:
             if "data" in item:
