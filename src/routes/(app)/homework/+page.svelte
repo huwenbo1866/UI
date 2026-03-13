@@ -3,7 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 
-	import { uploadFile, getFileById } from '$lib/apis/files';
+	import { getFileChapters, getFileChapterContent } from '$lib/apis/files';
+	import { getKnowledgeBases, searchKnowledgeFilesById } from '$lib/apis/knowledge';
 	import {
 		generateHomework,
 		getHomeworkById,
@@ -11,6 +12,26 @@
 		submitHomework
 	} from '$lib/apis/homework';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+
+	type KnowledgeBaseItem = {
+		id: string;
+		name?: string;
+		description?: string;
+	};
+
+	type KnowledgeFileItem = {
+		id: string;
+		meta?: {
+			name?: string;
+			content_type?: string;
+		};
+	};
+
+	type FileChapter = {
+		title: string;
+		start_page: number;
+		end_page: number;
+	};
 
 	type HomeworkSummary = {
 		id: string;
@@ -72,12 +93,13 @@
 		}[];
 	};
 
-	const SUPPORTED_EXTENSIONS = ['pdf', 'md', 'markdown', 'txt'];
-
 	let loadingHistory = false;
 	let generating = false;
 	let submitting = false;
-	let uploadingSource = false;
+	let loadingKnowledgeBases = false;
+	let loadingKnowledgeFiles = false;
+	let loadingChapters = false;
+	let loadingChapterContent = false;
 
 	let homeworks: HomeworkSummary[] = [];
 	let selectedHomeworkId: string | null = null;
@@ -93,8 +115,17 @@
 	let includeJudge = true;
 	let includeShort = true;
 
-	let selectedFile: File | null = null;
+	let knowledgeBases: KnowledgeBaseItem[] = [];
+	let knowledgeFiles: KnowledgeFileItem[] = [];
+	let selectedChapters: FileChapter[] = [];
+
+	let selectedKnowledgeId = '';
+	let selectedKnowledgeFileId = '';
+	let selectedChapterKey = '';
+
 	let sourceFileId = '';
+	let sourceChapterName = '';
+	let sourceContent = '';
 	let sourceFileName = '';
 	let sourceFilePreview = '';
 	let sourceReady = false;
@@ -106,8 +137,6 @@
 		if (!ts) return '-';
 		return new Date(ts * 1000).toLocaleString();
 	};
-
-	const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 	const resetAnswerState = (clearSubmitResult = true) => {
 		answers = {};
@@ -153,63 +182,119 @@
 		}
 	};
 
-	const validateSelectedFile = (file: File) => {
-		const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-		if (!SUPPORTED_EXTENSIONS.includes(ext)) {
-			throw new Error('仅支持 PDF / Markdown / TXT 文件');
-		}
+	const resetSourceSelection = () => {
+		sourceFileId = '';
+		sourceChapterName = '';
+		sourceContent = '';
+		sourceFileName = '';
+		sourceFilePreview = '';
+		sourceReady = false;
+		selectedChapterKey = '';
 	};
 
-	const onSourceFileChange = async (event: Event) => {
-		const target = event.target as HTMLInputElement;
-		if (!target.files || target.files.length === 0) return;
-
-		const file = target.files[0];
+	const loadKnowledgeBaseOptions = async () => {
+		loadingKnowledgeBases = true;
 		try {
-			validateSelectedFile(file);
-			selectedFile = file;
-			sourceFileName = file.name;
-			sourceFileId = '';
-			sourceFilePreview = '';
-			sourceReady = false;
+			const res = await getKnowledgeBases(localStorage.token, 1);
+			knowledgeBases = res?.items ?? [];
 		} catch (error) {
 			toast.error(`${error}`);
-			target.value = '';
-			selectedFile = null;
-		}
-	};
-
-	const waitForProcessedFileContent = async (fileId: string) => {
-		const maxAttempts = 120;
-		for (let attempt = 0; attempt < maxAttempts; attempt++) {
-			const file = await getFileById(localStorage.token, fileId);
-			const content = file?.data?.content ?? '';
-			if (typeof content === 'string' && content.trim().length > 0) {
-				return {
-					name: file?.meta?.name ?? file?.filename ?? sourceFileName,
-					content
-				};
-			}
-			await sleep(1000);
-		}
-		throw new Error('文件解析超时，请稍后重试');
-	};
-
-	const uploadAndProcessSourceFile = async () => {
-		if (!selectedFile) {
-			throw new Error('请先选择教材文件');
-		}
-		uploadingSource = true;
-		try {
-			const uploadRes = await uploadFile(localStorage.token, selectedFile, null, true);
-			sourceFileId = uploadRes.id;
-
-			const processed = await waitForProcessedFileContent(uploadRes.id);
-			sourceFileName = processed.name;
-			sourceFilePreview = processed.content.slice(0, 600);
-			sourceReady = true;
+			knowledgeBases = [];
 		} finally {
-			uploadingSource = false;
+			loadingKnowledgeBases = false;
+		}
+	};
+
+	const onKnowledgeBaseChange = async (event: Event) => {
+		const target = event.target as HTMLSelectElement;
+		selectedKnowledgeId = target.value;
+		selectedKnowledgeFileId = '';
+		knowledgeFiles = [];
+		selectedChapters = [];
+		resetSourceSelection();
+
+		if (!selectedKnowledgeId) {
+			return;
+		}
+
+		loadingKnowledgeFiles = true;
+		try {
+			const res = await searchKnowledgeFilesById(localStorage.token, selectedKnowledgeId, null, null, null, null, 1);
+			knowledgeFiles = res?.items ?? [];
+		} catch (error) {
+			toast.error(`${error}`);
+			knowledgeFiles = [];
+		} finally {
+			loadingKnowledgeFiles = false;
+		}
+	};
+
+	const onKnowledgeFileChange = async (event: Event) => {
+		const target = event.target as HTMLSelectElement;
+		selectedKnowledgeFileId = target.value;
+		selectedChapters = [];
+		resetSourceSelection();
+
+		if (!selectedKnowledgeFileId) {
+			return;
+		}
+
+		loadingChapters = true;
+		try {
+			selectedChapters = await getFileChapters(localStorage.token, selectedKnowledgeFileId);
+			if (selectedChapters.length === 0) {
+				toast.info('该课本暂无可用章节，请在知识库先完成章节抽取');
+			}
+		} catch (error) {
+			toast.error(`${error}`);
+			selectedChapters = [];
+		} finally {
+			loadingChapters = false;
+		}
+	};
+
+	const onChapterChange = async (event: Event) => {
+		const target = event.target as HTMLSelectElement;
+		const chapterIndex = Number(target.value);
+		selectedChapterKey = target.value;
+		resetSourceSelection();
+		selectedChapterKey = target.value;
+
+		if (Number.isNaN(chapterIndex) || chapterIndex < 0) {
+			return;
+		}
+
+		const chapter = selectedChapters[chapterIndex];
+		if (!chapter || !selectedKnowledgeFileId) {
+			return;
+		}
+
+		loadingChapterContent = true;
+		try {
+			const res = await getFileChapterContent(
+				localStorage.token,
+				selectedKnowledgeFileId,
+				chapter.start_page,
+				chapter.end_page
+			);
+
+			sourceContent = String(res?.content ?? '').trim();
+			if (!sourceContent) {
+				throw new Error('章节内容为空，请更换章节后重试');
+			}
+
+			sourceFileId = selectedKnowledgeFileId;
+			sourceChapterName = chapter.title;
+			sourceFileName =
+				knowledgeFiles.find((file) => file.id === selectedKnowledgeFileId)?.meta?.name ?? '未命名课本';
+			sourceFilePreview = sourceContent.slice(0, 600);
+			sourceReady = true;
+		} catch (error) {
+			toast.error(`${error}`);
+			resetSourceSelection();
+			selectedChapterKey = target.value;
+		} finally {
+			loadingChapterContent = false;
 		}
 	};
 
@@ -224,11 +309,7 @@
 	const generateHomeworkHandler = async () => {
 		try {
 			if (!sourceReady) {
-				await uploadAndProcessSourceFile();
-			}
-
-			if (!sourceFileId) {
-				throw new Error('教材文件未准备完成');
+				throw new Error('请先选择知识库中的课本章节');
 			}
 
 			const questionTypes = getSelectedQuestionTypes();
@@ -239,7 +320,7 @@
 			generating = true;
 			const payload = {
 				title: formTitle?.trim() || undefined,
-				source_file_id: sourceFileId,
+				source_content: sourceContent,
 				description: formDescription?.trim() || '',
 				difficulty_config: {
 					easy: Number(difficultyEasy) || 0,
@@ -288,6 +369,7 @@
 
 	onMount(async () => {
 		await loadHistory();
+		await loadKnowledgeBaseOptions();
 	});
 </script>
 
@@ -362,27 +444,63 @@
 
 			<div class="space-y-3 overflow-y-auto pr-1">
 				<div>
-					<label
-						for="homework-source-file"
-						class="mb-1 block text-xs text-gray-500 dark:text-gray-400"
-						>上传教材片段（PDF/MD/TXT）</label
-					>
-					<input
-						id="homework-source-file"
-						type="file"
-						accept=".pdf,.md,.markdown,.txt"
-						class="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-						on:change={onSourceFileChange}
-					/>
+					<div class="mb-1 block text-xs text-gray-500 dark:text-gray-400">题目来源</div>
+					<div class="grid gap-2">
+						<select
+							class="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+							on:change={onKnowledgeBaseChange}
+							bind:value={selectedKnowledgeId}
+							disabled={loadingKnowledgeBases}
+						>
+							<option value="">{loadingKnowledgeBases ? '知识库加载中...' : '选择知识库'}</option>
+							{#each knowledgeBases as kb}
+								<option value={kb.id}>{kb.name || kb.id}</option>
+							{/each}
+						</select>
+
+						<select
+							class="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+							on:change={onKnowledgeFileChange}
+							bind:value={selectedKnowledgeFileId}
+							disabled={!selectedKnowledgeId || loadingKnowledgeFiles}
+						>
+							<option value="">{loadingKnowledgeFiles ? '课本加载中...' : '选择课本文件'}</option>
+							{#each knowledgeFiles as file}
+								<option value={file.id}>{file?.meta?.name || file.id}</option>
+							{/each}
+						</select>
+
+						<select
+							class="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+							on:change={onChapterChange}
+							bind:value={selectedChapterKey}
+							disabled={!selectedKnowledgeFileId || loadingChapters || loadingChapterContent}
+						>
+							<option value="">
+								{#if loadingChapters}
+									章节加载中...
+								{:else if loadingChapterContent}
+									章节内容加载中...
+								{:else}
+									选择章节
+								{/if}
+							</option>
+							{#each selectedChapters as chapter, chapterIdx}
+								<option value={String(chapterIdx)}>
+									{chapter.title}（p.{chapter.start_page + 1} - p.{(chapter.end_page ?? chapter.start_page) + 1}）
+								</option>
+							{/each}
+						</select>
+					</div>
+
 					{#if sourceFileName}
 						<div class="mt-2 rounded-lg bg-gray-50 px-2 py-1.5 text-xs dark:bg-gray-800">
-							<div class="line-clamp-1">{sourceFileName}</div>
+							<div class="line-clamp-1">课本：{sourceFileName}</div>
+							{#if sourceChapterName}
+								<div class="mt-1 line-clamp-1">章节：{sourceChapterName}</div>
+							{/if}
 							{#if sourceReady}
-								<div class="mt-1 text-green-600 dark:text-green-400">
-									文件已解析，可用于生成作业
-								</div>
-							{:else}
-								<div class="mt-1 text-amber-600 dark:text-amber-400">待解析（生成时自动处理）</div>
+								<div class="mt-1 text-green-600 dark:text-green-400">章节内容已就绪，可用于生成作业</div>
 							{/if}
 						</div>
 					{/if}
@@ -472,12 +590,12 @@
 					<button
 						class="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
 						on:click={generateHomeworkHandler}
-						disabled={generating || uploadingSource}
+						disabled={generating || loadingChapterContent}
 					>
-						{#if generating || uploadingSource}
+						{#if generating || loadingChapterContent}
 							<Spinner className="mr-2 size-4" />
 						{/if}
-						{generating ? '生成中...' : uploadingSource ? '处理中...' : '生成作业'}
+						{generating ? '生成中...' : loadingChapterContent ? '读取章节中...' : '生成作业'}
 					</button>
 				</div>
 

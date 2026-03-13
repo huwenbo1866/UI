@@ -75,6 +75,10 @@
 	import XMark from '../icons/XMark.svelte';
 	import GlobeAlt from '../icons/GlobeAlt.svelte';
 	import Photo from '../icons/Photo.svelte';
+	import Camera from '../icons/Camera.svelte';
+	import DocumentChartBar from '../icons/DocumentChartBar.svelte';
+	import PencilSquare from '../icons/PencilSquare.svelte';
+	import Note from '../icons/Note.svelte';
 	import Wrench from '../icons/Wrench.svelte';
 	import Sparkles from '../icons/Sparkles.svelte';
 
@@ -589,9 +593,14 @@
 	let commandsElement;
 
 	let inputFiles;
+	let mindmapInputElement;
+	let classMinutesInputElement;
 
 	let showInputModal = false;
 	let showPhotoQuestionCamera = false;
+	let pendingQuickTask: 'mindmap' | 'class-minutes' | null = null;
+	let pendingQuickTaskMinFiles = 0;
+	let quickTaskSubmitting = false;
 	
 
 	let dragged = false;
@@ -964,6 +973,56 @@
 		showPhotoQuestionCamera = true;
 	};
 
+	const setPromptText = async (text: string) => {
+		prompt = text;
+		chatInputElement?.setText(text);
+		await tick();
+		document.getElementById('chat-input')?.focus();
+	};
+
+	const prepareQuickTask = async (
+		task: 'mindmap' | 'class-minutes',
+		selectedFiles: FileList | File[] | null,
+		promptText: string
+	) => {
+		if (!selectedFiles || selectedFiles.length === 0) return;
+
+		if (fileUploadCapableModels.length !== selectedModels.length) {
+			toast.error($i18n.t('Model(s) do not support file upload'));
+			return;
+		}
+
+		const pickedFiles = Array.from(selectedFiles as FileList | File[]);
+		pendingQuickTask = task;
+		pendingQuickTaskMinFiles = files.length + pickedFiles.length;
+		quickTaskSubmitting = false;
+
+		await setPromptText(promptText);
+		await inputFilesHandler(pickedFiles);
+	};
+
+	$: {
+		if (
+			pendingQuickTask &&
+			!quickTaskSubmitting &&
+			!hasPendingProcessingFiles &&
+			files.length >= pendingQuickTaskMinFiles
+		) {
+			quickTaskSubmitting = true;
+			const taskName = pendingQuickTask === 'mindmap' ? '思维导图' : '课堂纪要';
+			pendingQuickTask = null;
+			pendingQuickTaskMinFiles = 0;
+
+			if ((prompt ?? '').trim() === '') {
+				toast.error(`无法提交${taskName}任务：提示词为空`);
+				quickTaskSubmitting = false;
+			} else {
+				submitCurrentPrompt();
+				quickTaskSubmitting = false;
+			}
+		}
+	}
+
 	
 
 	const createNote = async () => {
@@ -1302,6 +1361,40 @@
 						}}
 					/>
 
+					<input
+						bind:this={mindmapInputElement}
+						type="file"
+						hidden
+						accept=".pdf,.md,.markdown,.txt,.doc,.docx"
+						on:change={async (event) => {
+							const target = event.target as HTMLInputElement;
+							const selected = target.files;
+							await prepareQuickTask(
+								'mindmap',
+								selected,
+								'请读取我上传的文件内容并生成思维导图。默认使用 markmap 格式输出，请只输出一个完整的 ```markmap 代码块。'
+							);
+							target.value = '';
+						}}
+					/>
+
+					<input
+						bind:this={classMinutesInputElement}
+						type="file"
+						hidden
+						accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,video/*,.mp4,.mov"
+						on:change={async (event) => {
+							const target = event.target as HTMLInputElement;
+							const selected = target.files;
+							await prepareQuickTask(
+								'class-minutes',
+								selected,
+								'请基于我上传的课堂录音内容生成课堂纪要。输出包含：课程主题、重点知识、关键例题、课堂互动、课后建议。'
+							);
+							target.value = '';
+						}}
+					/>
+
 					<div class={recording ? '' : 'hidden'}>
 						<VoiceRecording
 							bind:recording
@@ -1363,6 +1456,62 @@
 								{/each}
 							</div>
 						{/if}
+
+						<div class="mb-1 rounded-2xl border border-white/70 dark:border-gray-800/70 bg-gradient-to-r from-amber-50/90 via-sky-50/80 to-emerald-50/90 dark:from-amber-900/20 dark:via-sky-900/20 dark:to-emerald-900/20 px-2 py-2 shadow-sm">
+							<div class="flex flex-wrap items-center gap-2">
+							<button
+								type="button"
+								class="group relative inline-flex items-center gap-1.5 rounded-full border border-amber-300/80 dark:border-amber-700/60 bg-amber-100/90 dark:bg-amber-900/35 px-3 py-1.5 text-xs font-medium text-amber-900 dark:text-amber-100 hover:brightness-95 transition"
+								on:click={photoQuestionHandler}
+							>
+								<span class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-amber-400/80 dark:bg-amber-300/70"></span>
+								<span class="inline-flex size-5 items-center justify-center rounded-full bg-white/70 dark:bg-gray-900/40">
+									<Camera className="size-3.5" strokeWidth="1.9" />
+								</span>
+								拍照搜题
+							</button>
+
+							<button
+								type="button"
+								class="group relative inline-flex items-center gap-1.5 rounded-full border border-pink-300/80 dark:border-pink-700/60 bg-pink-100/90 dark:bg-pink-900/35 px-3 py-1.5 text-xs font-medium text-pink-900 dark:text-pink-100 hover:brightness-95 transition"
+								on:click={() => {
+									mindmapInputElement?.click();
+								}}
+							>
+								<span class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-pink-400/80 dark:bg-pink-300/70"></span>
+								<span class="inline-flex size-5 items-center justify-center rounded-full bg-white/70 dark:bg-gray-900/40">
+									<DocumentChartBar className="size-3.5" />
+								</span>
+								生成思维导图
+							</button>
+
+							<button
+								type="button"
+								class="group relative inline-flex items-center gap-1.5 rounded-full border border-orange-300/80 dark:border-orange-700/60 bg-orange-100/90 dark:bg-orange-900/35 px-3 py-1.5 text-xs font-medium text-orange-900 dark:text-orange-100 hover:brightness-95 transition"
+								on:click={() => goto('/homework')}
+							>
+								<span class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-orange-400/80 dark:bg-orange-300/70"></span>
+								<span class="inline-flex size-5 items-center justify-center rounded-full bg-white/70 dark:bg-gray-900/40">
+									<PencilSquare className="size-3.5" strokeWidth="1.9" />
+								</span>
+								作业生成与批改
+							</button>
+
+							<button
+								type="button"
+								class="group relative inline-flex items-center gap-1.5 rounded-full border border-cyan-300/80 dark:border-cyan-700/60 bg-cyan-100/90 dark:bg-cyan-900/35 px-3 py-1.5 text-xs font-medium text-cyan-900 dark:text-cyan-100 hover:brightness-95 transition"
+								on:click={() => {
+									classMinutesInputElement?.click();
+								}}
+							>
+								<span class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-cyan-400/80 dark:bg-cyan-300/70"></span>
+								<span class="inline-flex size-5 items-center justify-center rounded-full bg-white/70 dark:bg-gray-900/40">
+									<Note className="size-3.5" strokeWidth="1.9" />
+								</span>
+								课堂录音生成纪要
+							</button>
+							</div>
+						</div>
 
 						<div
 							id="message-input-container"
