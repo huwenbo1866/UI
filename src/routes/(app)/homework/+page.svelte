@@ -114,6 +114,7 @@
 	let includeChoice = true;
 	let includeJudge = true;
 	let includeShort = true;
+	let autoQuestionTypeSelection = true;
 
 	let knowledgeBases: KnowledgeBaseItem[] = [];
 	let knowledgeFiles: KnowledgeFileItem[] = [];
@@ -306,6 +307,22 @@
 		return types;
 	};
 
+	const getAdaptiveQuestionTypePrompt = () => {
+		const chapterHint = sourceChapterName ? `当前章节：${sourceChapterName}。` : '';
+
+		return [
+			'请先识别学科与知识类型，再自动确定最合理的题型组合。',
+			'要求：不要局限于选择题、判断题、简答题三类。',
+			'对于数学/物理等计算型学科，应优先包含计算题、应用题、综合题。',
+			'对于语文/英语等语言型学科，可包含阅读理解、写作/表达、语法或文本分析题。',
+			'对于化学/生物/地理/历史/政治等学科，按内容特点设计实验分析、材料分析、图表解读、论述等题型。',
+			'请保证题型分布与章节内容匹配，并明确每题的作答要求与评分关注点。',
+			chapterHint
+		]
+			.filter((line) => line && line.trim().length > 0)
+			.join('\n');
+	};
+
 	const generateHomeworkHandler = async () => {
 		try {
 			if (!sourceReady) {
@@ -313,21 +330,28 @@
 			}
 
 			const questionTypes = getSelectedQuestionTypes();
-			if (questionTypes.length === 0) {
-				throw new Error('请至少选择一种题型');
+			if (!autoQuestionTypeSelection && questionTypes.length === 0) {
+				throw new Error('请至少选择一种题型，或开启“根据内容自动选择题型”');
 			}
+
+			const composedDescription = [
+				formDescription?.trim() || '',
+				autoQuestionTypeSelection ? getAdaptiveQuestionTypePrompt() : ''
+			]
+				.filter((item) => item && item.trim().length > 0)
+				.join('\n\n');
 
 			generating = true;
 			const payload = {
 				title: formTitle?.trim() || undefined,
 				source_content: sourceContent,
-				description: formDescription?.trim() || '',
+				description: composedDescription,
 				difficulty_config: {
 					easy: Number(difficultyEasy) || 0,
 					medium: Number(difficultyMedium) || 0,
 					hard: Number(difficultyHard) || 0
 				},
-				question_types: questionTypes
+				question_types: autoQuestionTypeSelection ? undefined : questionTypes
 			};
 
 			const res = await generateHomework(localStorage.token, payload);
@@ -358,6 +382,25 @@
 				answers: payloadAnswers
 			});
 			submitResult = res;
+
+			const latestSubmission = {
+				id: res.submission_id,
+				score: res.score,
+				total_questions: res.total_questions,
+				correct_count: res.correct_count,
+				created_at: Math.floor(Date.now() / 1000)
+			};
+
+			if (currentHomework?.submissions) {
+				currentHomework = {
+					...currentHomework,
+					submissions: [
+						latestSubmission,
+						...currentHomework.submissions.filter((item) => item.id !== latestSubmission.id)
+					]
+				};
+			}
+
 			await loadHistory();
 			toast.success('批改完成');
 		} catch (error) {
@@ -365,6 +408,20 @@
 		} finally {
 			submitting = false;
 		}
+	};
+
+	const getLatestSubmission = () => {
+		if (!currentHomework?.submissions || currentHomework.submissions.length === 0) {
+			return null;
+		}
+
+		return [...currentHomework.submissions].sort((a, b) => b.created_at - a.created_at)[0];
+	};
+
+	const reopenForRetry = async (homeworkId: string) => {
+		await openHomework(homeworkId, true);
+		submitResult = null;
+		toast.success('已进入重新作答模式');
 	};
 
 	onMount(async () => {
@@ -416,21 +473,35 @@
 					</div>
 				{:else}
 					{#each homeworks as item}
-						<button
-							type="button"
-							class="w-full rounded-xl border px-3 py-2 text-left transition {selectedHomeworkId ===
+						<div
+							class="w-full rounded-xl border px-3 py-2 transition {selectedHomeworkId ===
 							item.id
 								? 'border-blue-400 bg-blue-50 dark:border-blue-500/80 dark:bg-blue-900/20'
 								: 'border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800/50'}"
-							on:click={() => openHomework(item.id)}
 						>
-							<div class="line-clamp-1 text-sm font-medium">{item.title}</div>
-							<div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-								<div>题数：{item.question_count}</div>
-								<div class="line-clamp-1">来源：{item.source_file || '-'}</div>
-								<div>{formatTime(item.created_at)}</div>
+							<button
+								type="button"
+								class="w-full text-left"
+								on:click={() => openHomework(item.id)}
+							>
+								<div class="line-clamp-1 text-sm font-medium">{item.title}</div>
+								<div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+									<div>题数：{item.question_count}</div>
+									<div class="line-clamp-1">来源：{item.source_file || '-'}</div>
+									<div>{formatTime(item.created_at)}</div>
+								</div>
+							</button>
+
+							<div class="mt-2 flex justify-end">
+								<button
+									type="button"
+									class="rounded-lg border border-blue-200 bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 transition hover:bg-blue-200 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
+									on:click={() => reopenForRetry(item.id)}
+								>
+									重新作答
+								</button>
 							</div>
-						</button>
+						</div>
 					{/each}
 				{/if}
 			</div>
@@ -570,17 +641,26 @@
 
 				<div>
 					<div class="mb-1 text-xs text-gray-500 dark:text-gray-400">题型要求</div>
+					<label class="mb-2 flex items-center gap-1.5 text-sm">
+						<input type="checkbox" bind:checked={autoQuestionTypeSelection} />
+						<span>根据内容自动选择题型（推荐）</span>
+					</label>
+					{#if autoQuestionTypeSelection}
+						<div class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-900/20 dark:text-amber-300">
+							将根据学科内容自动选择题型，例如数学可包含计算题/应用题，避免仅三种固定题型。
+						</div>
+					{/if}
 					<div class="flex flex-wrap gap-3 text-sm">
-						<label class="flex items-center gap-1.5">
-							<input type="checkbox" bind:checked={includeChoice} />
+						<label class="flex items-center gap-1.5 {autoQuestionTypeSelection ? 'opacity-50' : ''}">
+							<input type="checkbox" bind:checked={includeChoice} disabled={autoQuestionTypeSelection} />
 							<span>选择题</span>
 						</label>
-						<label class="flex items-center gap-1.5">
-							<input type="checkbox" bind:checked={includeJudge} />
+						<label class="flex items-center gap-1.5 {autoQuestionTypeSelection ? 'opacity-50' : ''}">
+							<input type="checkbox" bind:checked={includeJudge} disabled={autoQuestionTypeSelection} />
 							<span>判断题</span>
 						</label>
-						<label class="flex items-center gap-1.5">
-							<input type="checkbox" bind:checked={includeShort} />
+						<label class="flex items-center gap-1.5 {autoQuestionTypeSelection ? 'opacity-50' : ''}">
+							<input type="checkbox" bind:checked={includeShort} disabled={autoQuestionTypeSelection} />
 							<span>简答题</span>
 						</label>
 					</div>
@@ -634,6 +714,17 @@
 					请先生成或打开一份历史作业
 				</div>
 			{:else}
+				{@const latestSubmission = getLatestSubmission()}
+
+				{#if latestSubmission}
+					<div class="mb-3 rounded-xl border border-indigo-200 bg-indigo-50/80 p-3 text-xs text-indigo-700 dark:border-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-200">
+						<div class="text-sm font-semibold">上一次批改记录</div>
+						<div class="mt-1">时间：{formatTime(latestSubmission.created_at)}</div>
+						<div class="mt-1">分数：{latestSubmission.score} / 100</div>
+						<div class="mt-1">正确题数：{latestSubmission.correct_count}/{latestSubmission.total_questions}</div>
+					</div>
+				{/if}
+
 				<div class="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
 					{#each currentHomework.questions as question, index}
 						<div class="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
