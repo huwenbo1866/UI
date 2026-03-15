@@ -10,7 +10,7 @@ from pydub import AudioSegment
 from pydub.silence import detect_nonsilent
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional, Callable
-
+from opencc import OpenCC
 from fnmatch import fnmatch
 import aiohttp
 import aiofiles
@@ -213,6 +213,37 @@ def resolve_stt_profile(metadata: Optional[dict] = None, profile: Optional[str] 
 
     # 默认保守：API /audio/transcriptions 走 interactive，文件处理显式传 artifact
     return 'interactive'
+
+
+
+_cc_t2s = OpenCC("t2s")
+
+
+def normalize_to_simplified_chinese(text: str) -> str:
+    if not text:
+        return text
+    return _cc_t2s.convert(text)
+
+
+def normalize_segments_to_simplified_chinese(segments: list[dict]) -> list[dict]:
+    normalized = []
+
+    for seg in segments or []:
+        item = dict(seg)
+        item["text"] = normalize_to_simplified_chinese((item.get("text") or "").strip())
+        normalized.append(item)
+
+    return normalized
+
+
+def maybe_save_transcript_json(file_dir: str, file_id: str, data: dict, enabled: bool = True):
+    if not enabled:
+        return
+
+    transcript_file = f"{file_dir}/{file_id}.json"
+    with open(transcript_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+
 
 
 ##########################################
@@ -647,7 +678,14 @@ async def speech(request: Request, user=Depends(get_verified_user)):
         return FileResponse(file_path)
 
 
-def transcription_handler(request, file_path, metadata, user=None):
+def transcription_handler(
+    request,
+    file_path,
+    metadata,
+    user=None,
+    stt_profile: str = "interactive",
+    save_transcript_file: bool = False,
+):
     filename = os.path.basename(file_path)
     file_dir = os.path.dirname(file_path)
     id = filename.split(".")[0]
@@ -666,13 +704,29 @@ def transcription_handler(request, file_path, metadata, user=None):
             )
 
         model = request.app.state.faster_whisper_model
-        segments_iter, info = model.transcribe(
-            file_path,
-            beam_size=5,
-            vad_filter=WHISPER_VAD_FILTER,
-            language=languages[0],
-            multilingual=WHISPER_MULTILINGUAL,
-        )
+        whisper_kwargs = {
+            "language": languages[0],
+            "multilingual": WHISPER_MULTILINGUAL,
+        }
+        
+        if stt_profile == "interactive":
+            whisper_kwargs.update(
+                {
+                    "beam_size": 1,
+                    "vad_filter": False,
+                    "condition_on_previous_text": False,
+                }
+            )
+        else:
+            whisper_kwargs.update(
+                {
+                    "beam_size": 5,
+                    "vad_filter": WHISPER_VAD_FILTER,
+                    "condition_on_previous_text": True,
+                }
+            )
+        
+        segments_iter, info = model.transcribe(file_path, **whisper_kwargs)
 
         log.info(
             "Detected language '%s' with probability %f"
@@ -683,7 +737,7 @@ def transcription_handler(request, file_path, metadata, user=None):
         transcript_parts = []
 
         for segment in segments_iter:
-            text = (segment.text or "").strip()
+            text = normalize_to_simplified_chinese((segment.text or "").strip())
             if not text:
                 continue
 
@@ -697,15 +751,12 @@ def transcription_handler(request, file_path, metadata, user=None):
             )
 
         data = {
-            "text": " ".join(transcript_parts).strip(),
+            "text": normalize_to_simplified_chinese(" ".join(transcript_parts).strip()),
             "detected_language": info.language,
             "segments": segment_items,
         }
 
-        # save the transcript to a json file
-        transcript_file = f"{file_dir}/{id}.json"
-        with open(transcript_file, "w") as f:
-            json.dump(data, f)
+        maybe_save_transcript_json(file_dir, id, data, enabled=save_transcript_file)
 
         log.debug(data)
         return data
@@ -740,15 +791,16 @@ def transcription_handler(request, file_path, metadata, user=None):
             r.raise_for_status()
             response_data = r.json()
             data = {
-                "text": (response_data.get("text") or "").strip(),
+                "text": normalize_to_simplified_chinese(
+                    (response_data.get("text") or "").strip()
+                ),
                 "detected_language": response_data.get("language"),
-                "segments": response_data.get("segments", []),
+                "segments": normalize_segments_to_simplified_chinese(
+                    response_data.get("segments", [])
+                ),
             }
 
-            # save the transcript to a json file
-            transcript_file = f"{file_dir}/{id}.json"
-            with open(transcript_file, "w") as f:
-                json.dump(data, f)
+            maybe_save_transcript_json(file_dir, id, data, enabled=save_transcript_file)
 
             return data
         except Exception as e:
@@ -816,15 +868,12 @@ def transcription_handler(request, file_path, metadata, user=None):
                     "Failed to parse Deepgram response - unexpected response format"
                 )
             data = {
-                "text": transcript.strip(),
+                "text": normalize_to_simplified_chinese(transcript.strip()),
                 "detected_language": metadata.get("language") if metadata else None,
                 "segments": [],
             }
 
-            # Save transcript
-            transcript_file = f"{file_dir}/{id}.json"
-            with open(transcript_file, "w") as f:
-                json.dump(data, f)
+            maybe_save_transcript_json(file_dir, id, data, enabled=save_transcript_file)
 
             return data
 
@@ -926,15 +975,12 @@ def transcription_handler(request, file_path, metadata, user=None):
                 raise ValueError("Empty transcript in response")
 
             data = {
-                "text": transcript.strip(),
+                "text": normalize_to_simplified_chinese(transcript.strip()),
                 "detected_language": metadata.get("language") if metadata else None,
                 "segments": [],
             }
 
-            # Save transcript to json file (consistent with other providers)
-            transcript_file = f"{file_dir}/{id}.json"
-            with open(transcript_file, "w") as f:
-                json.dump(data, f)
+            maybe_save_transcript_json(file_dir, id, data, enabled=save_transcript_file)
 
             log.debug(data)
             return data
@@ -1070,7 +1116,7 @@ def transcription_handler(request, file_path, metadata, user=None):
                     raise ValueError("Empty transcript in response")
 
                 data = {
-                    "text": transcript.strip(),
+                    "text": normalize_to_simplified_chinese(transcript.strip()),
                     "detected_language": metadata.get("language") if metadata else None,
                     "segments": [],
                 }
@@ -1112,15 +1158,13 @@ def transcription_handler(request, file_path, metadata, user=None):
                     raise ValueError("Empty transcript in response")
 
                 data = {
-                    "text": transcript.strip(),
+                    "text": normalize_to_simplified_chinese(transcript.strip()),
                     "detected_language": metadata.get("language") if metadata else None,
                     "segments": [],
                 }
 
             # Save transcript to json file (consistent with other providers)
-            transcript_file = f"{file_dir}/{id}.json"
-            with open(transcript_file, "w") as f:
-                json.dump(data, f)
+            maybe_save_transcript_json(file_dir, id, data, enabled=save_transcript_file)
 
             log.debug(data)
             return data
@@ -1178,7 +1222,14 @@ def transcribe(
             message="正在识别语音",
         )
 
-        result = transcription_handler(request, file_path, metadata, user)
+        result = transcription_handler(
+            request,
+            file_path,
+            metadata,
+            user,
+            stt_profile="interactive",
+            save_transcript_file=False,
+        )
 
         emit_progress(
             stage="transcribing",
@@ -1264,7 +1315,13 @@ def transcribe(
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_idx = {
                 executor.submit(
-                    transcription_handler, request, chunk["path"], metadata, user
+                    transcription_handler,
+                    request,
+                    chunk["path"],
+                    metadata,
+                    user,
+                    "artifact",
+                    True,
                 ): idx
                 for idx, chunk in enumerate(chunk_items)
             }
