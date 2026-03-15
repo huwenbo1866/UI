@@ -106,27 +106,29 @@
 		</svelte:element>
 	{:else if token.type === 'code'}
 		{#if token.raw.includes('```')}
-			<CodeBlock
-				id={`${id}-${tokenIdx}`}
-				collapsed={$settings?.collapseCodeBlocks ?? false}
-				{token}
-				lang={token?.lang ?? ''}
-				code={token?.text ?? ''}
-				{attributes}
-				{save}
-				{preview}
-				edit={editCodeBlock}
-				stickyButtonsClassName={topPadding ? 'top-10' : 'top-0'}
-				onSave={(value) => {
-					onSave({
-						raw: token.raw,
-						oldContent: token.text,
-						newContent: value
-					});
-				}}
-				{onUpdate}
-				{onPreview}
-			/>
+			{#key `${id}-${tokenIdx}-${token?.lang ?? ''}-${token?.raw ?? ''}-${done}`}
+				<CodeBlock
+					id={`${id}-${tokenIdx}`}
+					collapsed={$settings?.collapseCodeBlocks ?? false}
+					{token}
+					lang={token?.lang ?? ''}
+					code={token?.text ?? ''}
+					{attributes}
+					{save}
+					{preview}
+					edit={editCodeBlock}
+					stickyButtonsClassName={topPadding ? 'top-10' : 'top-0'}
+					onSave={(value) => {
+						onSave({
+							raw: token.raw,
+							oldContent: token.text,
+							newContent: value
+						});
+					}}
+					{onUpdate}
+					{onPreview}
+				/>
+			{/key}
 		{:else}
 			{token.text}
 		{/if}

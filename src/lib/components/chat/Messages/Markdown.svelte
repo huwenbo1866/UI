@@ -58,7 +58,7 @@
 	})();
 </script>
 
-{#key id}
+{#key `${id}-${done ? 'done' : 'stream'}`}
 	<MarkdownTokens
 		{tokens}
 		{id}

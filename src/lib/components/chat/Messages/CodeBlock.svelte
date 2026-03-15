@@ -42,10 +42,7 @@
 	let pyodideWorker = null;
 
 	let _code = '';
-	$: if (code) updateCode();
-	const updateCode = () => {
-		_code = code;
-	};
+	$: _code = code ?? '';
 
 	let _token = null;
 
@@ -723,18 +720,28 @@
 				{#if !collapsed}
 					{#if isMarkmap() && markmapMode === 'render'}
 						<div class="p-3">
-							<MarkmapRenderer bind:this={markmapRef} markdown={_code} />
+							{#key `${id}-markmap-${_code}-${token?.raw ?? ''}-${markmapMode}-${collapsed}`}
+								<MarkmapRenderer bind:this={markmapRef} markdown={_code} />
+							{/key}
 						</div>
 					{:else if isDiagram() && diagramMode === 'render'}
 						<div class="p-3">
-							{#if renderHTML}
-								<SvgPanZoom className="rounded-3xl max-h-fit overflow-hidden" svg={renderHTML} content={_token?.text} />
-							{:else}
-								{#if renderError}
-									<div class="flex gap-2.5 border px-4 py-3 border-red-600/10 bg-red-600/10 rounded-2xl mb-2">{renderError}</div>
+							{#key `${id}-diagram-${lang}-${_code}-${token?.raw ?? ''}-${diagramMode}-${collapsed}`}
+								{#if renderHTML}
+									<SvgPanZoom
+										className="rounded-3xl max-h-fit overflow-hidden"
+										svg={renderHTML}
+										content={_token?.text}
+									/>
+								{:else}
+									{#if renderError}
+										<div class="flex gap-2.5 border px-4 py-3 border-red-600/10 bg-red-600/10 rounded-2xl mb-2">
+											{renderError}
+										</div>
+									{/if}
+									<pre class="text-xs opacity-80">（切到“预览”后将自动渲染）</pre>
 								{/if}
-								<pre class="text-xs opacity-80">（切到“预览”后将自动渲染）</pre>
-							{/if}
+							{/key}
 						</div>
 					{:else}
 						{#if edit}

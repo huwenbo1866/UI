@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { browser } from '$app/environment';
 
 	export let markdown = '';
@@ -14,11 +14,22 @@
 	let loadJS: any;
 	let markmapModule: any;
 	let transformer: any;
+	let resizeObserver: ResizeObserver | null = null;
 
 	let _lastRenderedMd = '';
 	let _rendering = false;
 	let _pending = false;
 	let _destroyed = false;
+
+	async function settleAndFit() {
+		await tick();
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+
+		try {
+			mm?.fit?.();
+		} catch {}
+	}
 
 	async function ensureLibs() {
 		if (!browser) return;
@@ -86,9 +97,7 @@
 			}
 
 			// fit
-			try {
-				mm?.fit?.();
-			} catch {}
+			await settleAndFit();
 		} finally {
 			_rendering = false;
 			if (!_destroyed && _pending && markdown !== _lastRenderedMd) {
@@ -189,6 +198,15 @@ html,body{margin:0;height:100%;font-family:system-ui,-apple-system,Segoe UI,Robo
 	}
 
 	onMount(() => {
+		if (svgEl?.parentElement) {
+			resizeObserver = new ResizeObserver(() => {
+				try {
+					mm?.fit?.();
+				} catch {}
+			});
+			resizeObserver.observe(svgEl.parentElement);
+		}
+
 		render();
 	});
 
@@ -197,7 +215,12 @@ html,body{margin:0;height:100%;font-family:system-ui,-apple-system,Segoe UI,Robo
 	}
 
 	onDestroy(() => {
+		try {
+			resizeObserver?.disconnect();
+		} catch {}
+
 		_destroyed = true;
+
 		try {
 			mm?.destroy?.();
 		} catch {}
