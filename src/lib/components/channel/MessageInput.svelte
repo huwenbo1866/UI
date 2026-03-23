@@ -765,6 +765,10 @@
 							if (chatInputElement) {
 								chatInputElement.focus();
 							}
+
+							if ($settings?.speechAutoSend ?? true) {
+								await submitHandler();
+							}
 						}}
 					/>
 				{:else}

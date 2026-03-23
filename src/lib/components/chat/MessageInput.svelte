@@ -1414,7 +1414,7 @@
 								await tick();
 								document.getElementById('chat-input')?.focus();
 
-								if ($settings?.speechAutoSend ?? false) {
+								if ($settings?.speechAutoSend ?? true) {
 									submitCurrentPrompt();
 								}
 							}}
