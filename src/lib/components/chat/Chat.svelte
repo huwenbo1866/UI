@@ -166,8 +166,13 @@
 	let files = [];
 	let params = {};
 
+	type SubmitMeta = {
+		inputType?: 'text' | 'voice';
+		voiceTranscription?: string;
+	};
+
 	// Message queue for storing messages while generating
-	let messageQueue: { id: string; prompt: string; files: any[] }[] = [];
+	let messageQueue: { id: string; prompt: string; files: any[]; submitMeta?: SubmitMeta }[] = [];
 
 	$: if (chatIdProp) {
 		navigateHandler();
@@ -1273,12 +1278,16 @@
 		if (messageQueue.length > 0) {
 			const combinedPrompt = messageQueue.map((m) => m.prompt).join('\n\n');
 			const combinedFiles = messageQueue.flatMap((m) => m.files);
+			const hasVoiceMessage = messageQueue.some((m) => m.submitMeta?.inputType === 'voice');
 			messageQueue = [];
 
 			// Set the files and submit
 			files = combinedFiles;
 			await tick();
-			await submitPrompt(combinedPrompt);
+			await submitPrompt(combinedPrompt, {
+				inputType: hasVoiceMessage ? 'voice' : 'text',
+				voiceTranscription: hasVoiceMessage ? combinedPrompt : undefined
+			});
 		}
 	};
 
@@ -1475,6 +1484,8 @@
 
 	const chatCompletionEventHandler = async (data, message, chatId) => {
 		const { id, done, choices, content, output, sources, selected_model_id, error, usage } = data;
+		const parentUserMessage = message?.parentId ? history.messages[message.parentId] : null;
+		const isVoiceParentMessage = parentUserMessage?.inputType === 'voice';
 
 		// Store raw OR-aligned output items from backend
 		if (output) {
@@ -1572,6 +1583,10 @@
 			message.usage = usage;
 		}
 
+		if (isVoiceParentMessage && message.content) {
+			message.content = sanitizeVoiceDisclosure(message.content);
+		}
+
 		history.messages[message.id] = message;
 
 		if (done) {
@@ -1637,7 +1652,10 @@
 	// Chat functions
 	//////////////////////////
 
-	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
+	const submitPrompt = async (
+		userPrompt,
+		{ _raw = false, inputType = 'text', voiceTranscription }: SubmitMeta & { _raw?: boolean } = {}
+	) => {
 		console.log('submitPrompt', userPrompt, $chatId);
 
 		const _selectedModels = selectedModels.map((modelId) =>
@@ -1689,7 +1707,11 @@
 					{
 						id: uuidv4(),
 						prompt: userPrompt,
-						files: _files
+						files: _files,
+						submitMeta: {
+							inputType,
+							voiceTranscription
+						}
 					}
 				];
 				// Clear input
@@ -1738,12 +1760,18 @@
 
 		// Create user message
 		let userMessageId = uuidv4();
+		const isVoiceInput = inputType === 'voice';
+		const normalizedVoiceTranscription = (voiceTranscription ?? userPrompt ?? '').trim();
 		let userMessage = {
 			id: userMessageId,
 			parentId: messages.length !== 0 ? messages.at(-1).id : null,
 			childrenIds: [],
 			role: 'user',
-			content: userPrompt,
+			content: isVoiceInput ? '' : userPrompt,
+			inputType: isVoiceInput ? 'voice' : 'text',
+			...(isVoiceInput && normalizedVoiceTranscription
+				? { voiceTranscription: normalizedVoiceTranscription }
+				: {}),
 			files: _files.length > 0 ? _files : undefined,
 			timestamp: Math.floor(Date.now() / 1000), // Unix epoch
 			models: selectedModels
@@ -1937,6 +1965,30 @@
 		return features;
 	};
 
+	const VOICE_TRANSCRIPTION_SYSTEM_PROMPT =
+		'当用户消息来自语音输入时，请先在内部将文本纠正为最可能的真实意图，再直接回答用户问题。默认直接给出答案；仅在关键信息确实不足时，再简短追问。禁止提及语音、转录、识别、纠错、推断过程，禁止暴露任何实现细节。';
+
+	const sanitizeVoiceDisclosure = (content: string = '') => {
+		return content
+			.replace(/^[\s]*(根据您提供的|基于您提供的)[^\n。！？]*(语音|转录|识别)[^\n。！？]*[，,:：]?/gm, '')
+			.replace(/^[\s]*(以下是|下面是)?[^\n。！？]*(基于|依据)[^\n。！？]*(语音|转录|识别)[^\n。！？]*[，,:：]?/gm, '')
+			.replace(/\n{3,}/g, '\n\n')
+			.trim();
+	};
+
+	const buildMessageContentForModel = (message: any) => {
+		const baseContent = message?.merged?.content ?? message?.content ?? '';
+
+		if (message?.role === 'user' && message?.inputType === 'voice') {
+			const transcription = (message?.voiceTranscription ?? '').trim();
+			if (transcription) {
+				return transcription;
+			}
+		}
+
+		return baseContent;
+	};
+
 	const sendMessageSocket = async (model, _messages, _history, responseMessageId, _chatId) => {
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
@@ -1992,6 +2044,10 @@
 			params?.stream_response ??
 			true;
 
+		const hasVoiceInput = _messages.some(
+			(message) => message?.role === 'user' && message?.inputType === 'voice'
+		);
+
 		let messages = [
 			params?.system || $settings.system
 				? {
@@ -1999,9 +2055,15 @@
 						content: `${params?.system ?? $settings?.system ?? ''}`
 					}
 				: undefined,
+			hasVoiceInput
+				? {
+						role: 'system',
+						content: VOICE_TRANSCRIPTION_SYSTEM_PROMPT
+					}
+				: undefined,
 			..._messages.map((message) => ({
 				...message,
-				content: processDetails(message.content),
+				content: processDetails(buildMessageContentForModel(message)),
 			// Include output for temp chats (backend will use it and strip before LLM)
 			...(message.output ? { output: message.output } : {})
 			}))
@@ -2012,6 +2074,7 @@
 				const imageFiles = (message?.files ?? []).filter(
 					(file) => file.type === 'image' || (file?.content_type ?? '').startsWith('image/')
 				);
+				const messageContent = message?.merged?.content ?? message.content;
 
 				return {
 					role: message.role,
@@ -2020,7 +2083,7 @@
 								content: [
 									{
 										type: 'text',
-										text: message?.merged?.content ?? message.content
+										text: messageContent
 									},
 									...imageFiles.map((file) => ({
 										type: 'image_url',
@@ -2031,7 +2094,7 @@
 								]
 							}
 						: {
-								content: message?.merged?.content ?? message.content
+								content: messageContent
 							})
 				};
 			})
@@ -2689,7 +2752,7 @@
 												// Set files and submit
 												files = item.files;
 												await tick();
-												await submitPrompt(item.prompt);
+												await submitPrompt(item.prompt, item.submitMeta ?? {});
 											}
 										}}
 										onQueueEdit={(id) => {
@@ -2712,10 +2775,18 @@
 										}}
 										on:submit={async (e) => {
 											clearDraft();
-											if (e.detail || files.length > 0) {
+											const submitDetail =
+												typeof e.detail === 'string'
+													? { prompt: e.detail, inputType: 'text' }
+													: (e.detail ?? { prompt: '' });
+
+											if (submitDetail.prompt || files.length > 0) {
 												await tick();
-	
-												submitPrompt(e.detail.replaceAll('\n\n', '\n'));
+
+												submitPrompt((submitDetail.prompt ?? '').replaceAll('\n\n', '\n'), {
+													inputType: submitDetail.inputType ?? 'text',
+													voiceTranscription: submitDetail.voiceTranscription
+												});
 											}
 										}}
 									/>
@@ -2756,9 +2827,17 @@
 									}}
 									on:submit={async (e) => {
 										clearDraft();
-										if (e.detail || files.length > 0) {
+										const submitDetail =
+											typeof e.detail === 'string'
+												? { prompt: e.detail, inputType: 'text' }
+												: (e.detail ?? { prompt: '' });
+
+										if (submitDetail.prompt || files.length > 0) {
 											await tick();
-											submitPrompt(e.detail.replaceAll('\n\n', '\n'));
+											submitPrompt((submitDetail.prompt ?? '').replaceAll('\n\n', '\n'), {
+												inputType: submitDetail.inputType ?? 'text',
+												voiceTranscription: submitDetail.voiceTranscription
+											});
 										}
 									}}
 								/>

@@ -58,6 +58,9 @@
 		}
 	}
 
+	let isVoiceMessage = false;
+	$: isVoiceMessage = message?.inputType === 'voice';
+
 	const copyToClipboard = async (text) => {
 		const res = await _copyToClipboard(text);
 		if (res) {
@@ -344,7 +347,7 @@
 						</div>
 					</div>
 				</div>
-			{:else if message.content !== ''}
+			{:else if isVoiceMessage || message.content !== ''}
 				<div class="w-full">
 					<div class="flex {($settings?.chatBubble ?? true) ? 'justify-end pb-1' : 'w-full'}">
 						<div
@@ -354,7 +357,18 @@
 									}`
 								: ' w-full'}"
 						>
-							{#if message.content}
+							{#if isVoiceMessage}
+								<div class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+									<span class="inline-flex items-center justify-center size-6 rounded-full bg-gray-200 dark:bg-gray-700">
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="size-4">
+											<path d="M4 8.5a1 1 0 0 1 1-1h1.6l2.7-2.2A1 1 0 0 1 11 6v8a1 1 0 0 1-1.7.7L6.6 12.5H5a1 1 0 0 1-1-1v-3z" />
+											<path d="M14.2 6.2a.75.75 0 0 1 1.06 0 5.5 5.5 0 0 1 0 7.78.75.75 0 1 1-1.06-1.06 4 4 0 0 0 0-5.66.75.75 0 0 1 0-1.06z" />
+											<path d="M12.8 7.8a.75.75 0 0 1 1.06 0 3.25 3.25 0 0 1 0 4.6.75.75 0 1 1-1.06-1.06 1.75 1.75 0 0 0 0-2.48.75.75 0 0 1 0-1.06z" />
+										</svg>
+									</span>
+									<span>{$i18n.t('Voice Input')}</span>
+								</div>
+							{:else if message.content}
 								<Markdown
 									id={`${chatId}-${message.id}`}
 									content={message.content}
@@ -467,7 +481,7 @@
 							</div>
 						{/if}
 					{/if}
-					{#if !readOnly}
+					{#if !readOnly && !isVoiceMessage}
 						<Tooltip content={$i18n.t('Edit')} placement="bottom">
 							<button
 								class="{($settings?.highContrastMode ?? false)

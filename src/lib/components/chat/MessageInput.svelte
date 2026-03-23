@@ -244,17 +244,29 @@
 		}
 	}
 
-	const submitCurrentPrompt = () => {
+	const submitCurrentPrompt = (
+		submitData: {
+			prompt?: string;
+			inputType?: 'text' | 'voice';
+			voiceTranscription?: string;
+		} = {}
+	) => {
 		if (hasPendingProcessingFiles) {
 			toast.info($i18n.t('File is still being processed. Please wait before sending.'));
 			return;
 		}
 
-		if (prompt === '' && files.length === 0) {
+		const nextPrompt = submitData.prompt ?? prompt;
+
+		if (nextPrompt === '' && files.length === 0) {
 			return;
 		}
 
-		dispatch('submit', prompt);
+		dispatch('submit', {
+			prompt: nextPrompt,
+			inputType: submitData.inputType ?? 'text',
+			...(submitData.voiceTranscription ? { voiceTranscription: submitData.voiceTranscription } : {})
+		});
 	};
 
 	export let selectedToolIds = [];
@@ -1405,18 +1417,25 @@
 								document.getElementById('chat-input')?.focus();
 							}}
 							onConfirm={async (data) => {
-								const { text, filename } = data;
+								const { text } = data;
 
 								recording = false;
 
-								await tick();
-								await insertTextAtCursor(`${text}`);
+								const transcription = (text ?? '').trim();
+								if (!transcription) {
+									await tick();
+									document.getElementById('chat-input')?.focus();
+									return;
+								}
+
+								submitCurrentPrompt({
+									prompt: transcription,
+									inputType: 'voice',
+									voiceTranscription: transcription
+								});
+
 								await tick();
 								document.getElementById('chat-input')?.focus();
-
-								if ($settings?.speechAutoSend ?? true) {
-									submitCurrentPrompt();
-								}
 							}}
 						/>
 					</div>
