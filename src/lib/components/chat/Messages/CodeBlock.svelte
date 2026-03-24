@@ -60,10 +60,9 @@
 	let saved = false;
 
 	// ===== Markmap mode + export menu =====
-	let markmapMode: 'code' | 'render' = 'render';
 	let showExportMenu = false;
 	let markmapRef: any = null;
-    
+
 	// ===== Diagram mode (Graphviz/PlantUML) align with Markmap UX =====
 	let diagramMode: 'code' | 'render' = 'render';
 
@@ -86,8 +85,14 @@
 		const a = document.createElement('a');
 		a.href = url;
 		a.download = filename;
+		a.style.display = 'none';
+		document.body.appendChild(a);
 		a.click();
-		URL.revokeObjectURL(url);
+
+		setTimeout(() => {
+			URL.revokeObjectURL(url);
+			a.remove();
+		}, 1000);
 	}
 
 	function downloadText(filename: string, text: string, mime = 'text/plain;charset=utf-8') {
@@ -116,6 +121,121 @@
 		s = s.replace(/<br\s*\/?>/gi, '\n');
 		s = s.replace(/&nbsp;/gi, ' ');
 		return stripFences(s);
+	}
+
+	function stripMermaidInitDirective(src: string) {
+		return (src ?? '').replace(/^\s*%%\{init:[\s\S]*?\}%%\s*/i, '');
+	}
+
+	function buildMermaidExportSource(src: string) {
+		const body = stripMermaidInitDirective(sanitizeMermaid(stripFences(src)));
+		return `%%{init: { "startOnLoad": false, "htmlLabels": false }}%%\n${body}`;
+	}
+
+	function parseViewBox(svg: SVGSVGElement) {
+		const vb = (svg.getAttribute('viewBox') || '').trim();
+		const parts = vb.split(/\s+/).map((v) => parseFloat(v));
+		if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+			return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
+		}
+
+		const width = parseFloat(svg.getAttribute('width') || '') || 1200;
+		const height = parseFloat(svg.getAttribute('height') || '') || 800;
+		return { x: 0, y: 0, width, height };
+	}
+
+	function getSvgContentBounds(svg: SVGSVGElement) {
+		try {
+			const box = (svg as unknown as SVGGraphicsElement).getBBox();
+			if (Number.isFinite(box.x) && Number.isFinite(box.y) && box.width > 0 && box.height > 0) {
+				return box;
+			}
+		} catch {}
+
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+
+		const nodes = Array.from(svg.querySelectorAll('*')).filter((node) => typeof (node as any).getBBox === 'function');
+		for (const node of nodes) {
+			try {
+				const box = (node as SVGGraphicsElement).getBBox();
+				if (!Number.isFinite(box.x) || !Number.isFinite(box.y) || box.width <= 0 || box.height <= 0) continue;
+				minX = Math.min(minX, box.x);
+				minY = Math.min(minY, box.y);
+				maxX = Math.max(maxX, box.x + box.width);
+				maxY = Math.max(maxY, box.y + box.height);
+			} catch {}
+		}
+
+		if (Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY)) {
+			return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+		}
+
+		return parseViewBox(svg);
+	}
+
+	function buildExportSvgFromElement(svgEl: SVGSVGElement, options?: { padding?: number; background?: string }) {
+		const padding = options?.padding ?? 24;
+		const background = options?.background ?? '#ffffff';
+		const clone = svgEl.cloneNode(true) as SVGSVGElement;
+
+		if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+		if (!clone.getAttribute('xmlns:xlink')) clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+		const box = getSvgContentBounds(svgEl);
+		const x = Math.floor(box.x - padding);
+		const y = Math.floor(box.y - padding);
+		const width = Math.max(1, Math.ceil(box.width + padding * 2));
+		const height = Math.max(1, Math.ceil(box.height + padding * 2));
+
+		clone.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
+		clone.setAttribute('width', String(width));
+		clone.setAttribute('height', String(height));
+		clone.style.maxWidth = 'none';
+		clone.style.height = 'auto';
+
+		const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+		bg.setAttribute('x', String(x));
+		bg.setAttribute('y', String(y));
+		bg.setAttribute('width', String(width));
+		bg.setAttribute('height', String(height));
+		bg.setAttribute('fill', background);
+		clone.insertBefore(bg, clone.firstChild);
+
+		return new XMLSerializer().serializeToString(clone);
+	}
+
+	async function renderMermaidSvgForExport(src: string): Promise<string> {
+		if (!mermaid) mermaid = await initMermaid();
+
+		const host = document.createElement('div');
+		host.style.position = 'fixed';
+		host.style.left = '-100000px';
+		host.style.top = '0';
+		host.style.opacity = '0';
+		host.style.pointerEvents = 'none';
+		host.style.display = 'inline-block';
+		host.style.whiteSpace = 'nowrap';
+		host.style.background = '#ffffff';
+		document.body.appendChild(host);
+
+		try {
+			const exportSource = buildMermaidExportSource(src);
+			const renderId = `mermaid-export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+			const rendered = await mermaid.render(renderId, exportSource);
+			host.innerHTML = rendered?.svg ?? rendered;
+			await tick();
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+
+			const svgEl = host.querySelector('svg') as SVGSVGElement | null;
+			if (!svgEl) throw new Error('Failed to render Mermaid SVG for export');
+
+			return buildExportSvgFromElement(svgEl, { padding: 24, background: '#ffffff' });
+		} finally {
+			host.remove();
+		}
 	}
 
 	// SVG -> PNG（导出用）
@@ -340,16 +460,16 @@
 	let _gv: any = null;
 
 	async function renderGraphviz(dotText: string): Promise<string> {
-	  if (!_gv) {
-	    const mod: any = await import('@hpcc-js/wasm/graphviz');
-	    const Graphviz = mod.Graphviz;
-	    if (!Graphviz?.load) {
-	      throw new Error('Graphviz WASM not available (check @hpcc-js/wasm install/import)');
-	    }
-	    _gv = await Graphviz.load();
-	  }
-	  const src = sanitizeDiagram(dotText);
-	  return await _gv.layout(src, 'svg', 'dot');
+		if (!_gv) {
+			const mod: any = await import('@hpcc-js/wasm/graphviz');
+			const Graphviz = mod.Graphviz;
+			if (!Graphviz?.load) {
+				throw new Error('Graphviz WASM not available (check @hpcc-js/wasm install/import)');
+			}
+			_gv = await Graphviz.load();
+		}
+		const src = sanitizeDiagram(dotText);
+		return await _gv.layout(src, 'svg', 'dot');
 	}
 
 	// ===== PlantUML renderer (text -> fetch svg) =====
@@ -491,20 +611,52 @@
 	});
 
 	async function exportMermaidOrVegaSvg() {
-		if (!renderHTML) return;
-		downloadText(`${lang}.svg`, renderHTML, 'image/svg+xml;charset=utf-8');
+		try {
+			if (!renderHTML) return;
+			downloadText(`${lang}.svg`, renderHTML, 'image/svg+xml;charset=utf-8');
+		} catch (error) {
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			toast.error(`SVG export failed: ${errorMsg}`);
+		}
 	}
 
 	async function exportMermaidOrVegaPng() {
-		if (!renderHTML) return;
-		const png = await svgTextToPngBlob(renderHTML, 2);
-		downloadBlob(`${lang}.png`, png);
+		try {
+			if (lang === 'mermaid') {
+				const svgText = await renderMermaidSvgForExport(_code);
+				const png = await svgTextToPngBlob(svgText, 2);
+				downloadBlob('mermaid.png', png);
+				return;
+			}
+
+			if (!renderHTML) return;
+			const png = await svgTextToPngBlob(renderHTML, 2);
+			downloadBlob(`${lang}.png`, png);
+		} catch (error) {
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			toast.error(`PNG export failed: ${errorMsg}`);
+		}
 	}
 
-	async function exportDiagramSvg() {
-		if (!renderHTML) return;
-		const name = isGraphviz() ? 'graphviz' : 'plantuml';
-		downloadText(`${name}.svg`, renderHTML, 'image/svg+xml;charset=utf-8');
+	async function exportMarkmapPng() {
+		try {
+			if (collapsed) {
+				collapsed = false;
+				await tick();
+			}
+
+			await markmapRef?.ensureRendered?.();
+			const png = await markmapRef?.exportPng?.(2);
+
+			if (!png) {
+				throw new Error('Markmap PNG export returned empty data');
+			}
+
+			downloadBlob('markmap.png', png);
+		} catch (error) {
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			toast.error(`Markmap PNG export failed: ${errorMsg}`);
+		}
 	}
 
 	async function exportDiagramPng() {
@@ -527,22 +679,46 @@
 			{#if renderHTML}
 				<div class="sticky {stickyButtonsClassName} left-0 right-0 py-2 pr-3 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white">
 					<div class="flex items-center gap-1" data-export-menu={id}>
-						<button
-							class="flex gap-1 items-center border-none transition rounded-md px-2 py-0.5 bg-white dark:bg-black"
-							on:click|stopPropagation={() => (showExportMenu = !showExportMenu)}
-						>
-							导出
-						</button>
+						{#if lang === 'mermaid'}
+							<button
+								class="flex gap-1 items-center border-none transition rounded-md px-2 py-0.5 bg-white dark:bg-black"
+								on:click|stopPropagation={async () => {
+									await exportMermaidOrVegaPng();
+									closeExportMenu();
+								}}
+							>
+								导出
+							</button>
+						{:else}
+							<button
+								class="flex gap-1 items-center border-none transition rounded-md px-2 py-0.5 bg-white dark:bg-black"
+								on:click|stopPropagation={() => (showExportMenu = !showExportMenu)}
+							>
+								导出
+							</button>
 
-						{#if showExportMenu}
-							<div class="absolute right-3 mt-9 w-28 rounded-xl border border-gray-200/60 dark:border-gray-800/60 bg-white dark:bg-black shadow-lg p-1">
-								<button class="w-full text-left px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900" on:click={() => { exportMermaidOrVegaSvg(); closeExportMenu(); }}>
-									SVG
-								</button>
-								<button class="w-full text-left px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900" on:click={() => { exportMermaidOrVegaPng(); closeExportMenu(); }}>
-									PNG
-								</button>
-							</div>
+							{#if showExportMenu}
+								<div class="absolute right-3 mt-9 w-28 rounded-xl border border-gray-200/60 dark:border-gray-800/60 bg-white dark:bg-black shadow-lg p-1">
+									<button
+										class="w-full text-left px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900"
+										on:click={() => {
+											exportMermaidOrVegaSvg();
+											closeExportMenu();
+										}}
+									>
+										SVG
+									</button>
+									<button
+										class="w-full text-left px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900"
+										on:click={() => {
+											exportMermaidOrVegaPng();
+											closeExportMenu();
+										}}
+									>
+										PNG
+									</button>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				</div>
@@ -566,77 +742,19 @@
 					{#if isMarkmap() || isDiagram()}
 						<button
 							class="flex gap-1 items-center border-none transition rounded-md px-2 py-0.5 bg-white dark:bg-black"
-							on:click|stopPropagation={() => (showExportMenu = !showExportMenu)}
+							on:click|stopPropagation={async () => {
+								if (isMarkmap()) {
+									await exportMarkmapPng();
+								} else {
+									if (diagramMode !== 'render') diagramMode = 'render';
+									await tick();
+									await exportDiagramPng();
+								}
+								closeExportMenu();
+							}}
 						>
 							导出
 						</button>
-
-						{#if showExportMenu}
-							<div class="absolute right-3 mt-9 w-36 rounded-xl border border-gray-200/60 dark:border-gray-800/60 bg-white dark:bg-black shadow-lg p-1">
-								{#if isMarkmap()}
-									<button
-										class="w-full text-left px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900"
-										on:click={async () => {
-											if (markmapMode !== 'render') markmapMode = 'render';
-											await tick();
-											const svg = markmapRef?.exportSvg?.();
-											if (svg) downloadText('markmap.svg', svg, 'image/svg+xml;charset=utf-8');
-											closeExportMenu();
-										}}
-									>
-										导出 SVG
-									</button>
-
-									<button
-										class="w-full text-left px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900"
-										on:click={async () => {
-											if (markmapMode !== 'render') markmapMode = 'render';
-											await tick();
-											const png = await markmapRef?.exportPng?.(2);
-											if (png) downloadBlob('markmap.png', png);
-											closeExportMenu();
-										}}
-									>
-										导出 PNG
-									</button>
-
-									<button
-										class="w-full text-left px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900"
-										on:click={() => {
-											const html = markmapRef?.exportHtml?.() ?? '';
-											if (html) downloadText('markmap.html', html, 'text/html;charset=utf-8');
-											closeExportMenu();
-										}}
-									>
-										导出 HTML
-									</button>
-								{:else}
-									<button
-										class="w-full text-left px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900"
-										on:click={async () => {
-											if (diagramMode !== 'render') diagramMode = 'render';
-											await tick();
-											await exportDiagramSvg();
-											closeExportMenu();
-										}}
-									>
-										导出 SVG
-									</button>
-
-									<button
-										class="w-full text-left px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900"
-										on:click={async () => {
-											if (diagramMode !== 'render') diagramMode = 'render';
-											await tick();
-											await exportDiagramPng();
-											closeExportMenu();
-										}}
-									>
-										导出 PNG
-									</button>
-								{/if}
-							</div>
-						{/if}
 					{/if}
 
 					<button
@@ -669,31 +787,15 @@
 						{/if}
 					{/if}
 
-					{#if save}
-						<button class="save-code-button bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black" on:click={saveCode}>
-							{saved ? $i18n.t('Saved') : $i18n.t('Save')}
-						</button>
-					{/if}
+					{#if !(isMarkmap() || isDiagram())}
+						{#if save}
+							<button class="save-code-button bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black" on:click={saveCode}>
+								{saved ? $i18n.t('Saved') : $i18n.t('Save')}
+							</button>
+						{/if}
 
-					<button class="copy-code-button bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black" on:click={copyCode}>
-						{copied ? $i18n.t('Copied') : $i18n.t('Copy')}
-					</button>
-
-					{#if isMarkmap()}
-						<button
-							class="bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black"
-							on:click={() => (markmapMode = markmapMode === 'code' ? 'render' : 'code')}
-						>
-							{markmapMode === 'code' ? '预览' : '代码'}
-						</button>
-					{/if}
-
-					{#if isDiagram()}
-						<button
-							class="bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black"
-							on:click={() => (diagramMode = diagramMode === 'code' ? 'render' : 'code')}
-						>
-							{diagramMode === 'code' ? '预览' : '代码'}
+						<button class="copy-code-button bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black" on:click={copyCode}>
+							{copied ? $i18n.t('Copied') : $i18n.t('Copy')}
 						</button>
 					{/if}
 
@@ -718,11 +820,9 @@
 				<div class="pt-8 bg-white dark:bg-black"></div>
 
 				{#if !collapsed}
-					{#if isMarkmap() && markmapMode === 'render'}
+					{#if isMarkmap()}
 						<div class="p-3">
-							{#key `${id}-markmap-${_code}-${token?.raw ?? ''}-${markmapMode}-${collapsed}`}
-								<MarkmapRenderer bind:this={markmapRef} markdown={_code} />
-							{/key}
+							<MarkmapRenderer bind:this={markmapRef} markdown={_code} visible={!collapsed} />
 						</div>
 					{:else if isDiagram() && diagramMode === 'render'}
 						<div class="p-3">
@@ -821,5 +921,3 @@
 		{/if}
 	</div>
 </div>
-
-
