@@ -1175,32 +1175,85 @@ except Exception as e:
 if default_prompt_suggestions == []:
     default_prompt_suggestions = [
         {
-            "title": ["Help me study", "vocabulary for a college entrance exam"],
-            "content": "Help me study vocabulary: write a sentence for me to fill in the blank, and I'll try to pick the correct option.",
+            "title": ["讲一个科学小知识", "要有趣，也要听得懂"],
+            "content": "请给我讲一个适合中小学生的科学小知识，要求有趣、准确、容易理解，最后再帮我总结一句最重要的结论。"
         },
         {
-            "title": ["Give me ideas", "for what to do with my kids' art"],
-            "content": "What are 5 creative things I could do with my kids' art? I don't want to throw them away, but it's also so much clutter.",
+            "title": ["来一道数学思维题", "先让我自己想一想"],
+            "content": "请给我出一道适合中小学生的数学思维题，不要太难。先不要直接告诉我答案，先给我一点提示，等我思考后再讲解。"
         },
         {
-            "title": ["Tell me a fun fact", "about the Roman Empire"],
-            "content": "Tell me a random fun fact about the Roman Empire",
+            "title": ["教我一个英语单词", "顺便告诉我怎么记"],
+            "content": "请教我一个适合中小学生学习的英语单词，告诉我它的意思、读音、例句，还要教我一个容易记住它的小方法。"
         },
         {
-            "title": ["Show me a code snippet", "of a website's sticky header"],
-            "content": "Show me a code snippet of a website's sticky header in CSS and JavaScript.",
+            "title": ["解释一个生活现象", "告诉我背后的原理"],
+            "content": "请选一个生活中常见的现象，用简单易懂的方式告诉我为什么会这样，并讲讲背后的科学原理。"
         },
         {
-            "title": [
-                "Explain options trading",
-                "if I'm familiar with buying and selling stocks",
-            ],
-            "content": "Explain options trading in simple terms if I'm familiar with buying and selling stocks.",
+            "title": ["出几道小练习", "从简单开始就好"],
+            "content": "请随机选一个常见学习主题，给我出3道从简单到稍难的小练习题，并附上简短提示，先不要直接展开完整答案。"
         },
         {
-            "title": ["Overcome procrastination", "give me tips"],
-            "content": "Could you start by asking me about instances when I procrastinate the most and then give me some suggestions to overcome it?",
+            "title": ["问我一个为什么", "像聊天一样学知识"],
+            "content": "请随机挑一个适合中小学生思考的“为什么”问题，比如自然现象、生活常识或科学原理，然后用简单有趣的方式讲给我听。"
         },
+        {
+            "title": ["讲一个动物冷知识", "要真的长知识"],
+            "content": "请给我讲一个适合中小学生的动物冷知识，内容要准确、有趣、好理解，并顺便告诉我背后的科学原因。"
+        },
+        {
+            "title": ["讲一个太空知识", "像带我去宇宙看看"],
+            "content": "请给我讲一个关于宇宙、行星、恒星或太空探索的小知识，要求适合中小学生理解，语言有趣一点。"
+        },
+        {
+            "title": ["今天认识一个成语", "还要教我怎么用"],
+            "content": "请教我一个适合中小学生学习的成语，告诉我它的意思、出处或典故、使用场景，并造一个简单例句。"
+        },
+        {
+            "title": ["学一句英语表达", "像日常对话那样"],
+            "content": "请教我一句适合中小学生学习的英语日常表达，告诉我中文意思、使用场景，并给我一个简单对话例子。"
+        },
+        {
+            "title": ["讲一个历史小故事", "要真实也要有意思"],
+            "content": "请讲一个适合中小学生听的历史小故事，内容要真实、简洁、有趣，并告诉我从中可以学到什么。"
+        },
+        {
+            "title": ["出一个脑筋急转弯", "再慢慢告诉我答案"],
+            "content": "请给我出一个适合中小学生的脑筋急转弯，先不要立刻说答案，先让我猜一猜，再解释思路。"
+        },
+        {
+            "title": ["教我一个记忆方法", "让我背东西更轻松"],
+            "content": "请教我一个适合中小学生使用的记忆小方法，可以用来背单词、公式、古诗或知识点，要求简单好用。"
+        },
+        {
+            "title": ["来一组口算挑战", "从简单到稍难"],
+            "content": "请给我出5道适合中小学生的口算题，难度从简单到稍难排列，先不要直接给答案。"
+        },
+        {
+            "title": ["教我一首古诗", "顺便讲讲意思"],
+            "content": "请选一首适合中小学生学习的古诗，告诉我原文、主要意思、关键词解释，以及怎么更容易记住它。"
+        },
+        {
+            "title": ["讲一个地理小知识", "让我认识世界"],
+            "content": "请给我讲一个适合中小学生的地理小知识，比如山川、气候、国家或地球现象，要求简单有趣。"
+        },
+        {
+            "title": ["讲一个人体小秘密", "要科学，不要吓人"],
+            "content": "请给我讲一个关于人体的科学小知识，比如眼睛、心脏、大脑或骨骼，要求准确、温和、容易理解。"
+        },
+        {
+            "title": ["教我分辨近义词", "别再总是用错"],
+            "content": "请挑一组适合中小学生学习的近义词，告诉我它们的区别、适用场景，并给出简单例句帮助我理解。"
+        },
+        {
+            "title": ["来一道应用题", "先给提示再讲解"],
+            "content": "请给我出一道适合中小学生的数学应用题，先给我一点提示，不要直接说答案，等我思考后再讲解。"
+        },
+        {
+            "title": ["给我一个科学实验", "要安全、简单、好玩"],
+            "content": "请设计一个适合中小学生在家观察的简单科学小实验，材料要常见、安全，并告诉我实验现象和原理。"
+        }
     ]
 
 DEFAULT_PROMPT_SUGGESTIONS = PersistentConfig(
