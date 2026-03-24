@@ -2271,12 +2271,26 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # Process messages with OR-aligned output items for clean LLM messages
     form_data["messages"] = process_messages_with_output(form_data.get("messages", []))
 
+    global_system = os.environ.get("GLOBAL_CHAT_SYSTEM_PROMPT", "").strip()
     system_message = get_system_message(form_data.get("messages", []))
-    if system_message:  # Chat Controls/User Settings
+
+    # 让 .env 里的全局 system 和 UI 里的 system prompt 走同一条链
+    if global_system:
+        if system_message and system_message.get("content"):
+            merged_system = f"{global_system}\n\n{system_message.get('content')}"
+        else:
+            merged_system = global_system
+
+        form_data["messages"] = add_or_update_system_message(
+            merged_system, form_data.get("messages", [])
+        )
+        system_message = get_system_message(form_data.get("messages", []))
+
+    if system_message:  # Chat Controls/User Settings / Global System Prompt
         try:
             form_data = apply_system_prompt_to_body(
                 system_message.get("content"), form_data, metadata, user, replace=True
-            )  # Required to handle system prompt variables
+            )
         except:
             pass
 
