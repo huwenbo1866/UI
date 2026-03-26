@@ -991,6 +991,27 @@
 							</a>
 						</div>
 					{/if}
+
+					{#if $user?.role === 'admin' || $user?.role === 'user'}
+						<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
+							<a
+								id="sidebar-knowledge-defense-button"
+								class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+								href="/knowledge-defense"
+								on:click={itemClickHandler}
+								draggable="false"
+								aria-label="知识闯关"
+							>
+								<div class="self-center">
+									<PageEdit className="size-4.5" />
+								</div>
+					
+								<div class="flex self-center translate-y-[0.5px]">
+									<div class="self-center text-sm font-primary">知识闯关</div>
+								</div>
+							</a>
+						</div>
+					{/if}
 					
 					{#if $user?.role === 'admin' || $user?.permissions?.workspace?.skills}
 					  <div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
