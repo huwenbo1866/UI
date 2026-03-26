@@ -1,16 +1,14 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-import { goto } from '$app/navigation';
-import { user } from '$lib/stores';
-import {
-  wrongQuestions,
-  wrongQuestionsLoading,
-  refreshWrongQuestions,
-  recordWrongQuestionEntry
-} from '$lib/stores/knowledge-defense';
-import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
+  import { goto } from '$app/navigation';
   import type { Difficulty, FinishStats, Monster, Projectile, Question, QuestionPack } from './types';
   import { samplePack } from './samplePack';
+  import {
+    wrongQuestions,
+    refreshWrongQuestions,
+    recordWrongQuestionEntry
+  } from '$lib/stores/knowledge-defense';
+  import type { WrongQuestionRecord } from '$lib/apis/knowledge-defense';
 
   export let pack: QuestionPack = samplePack;
   export let autoStart = false;
@@ -22,22 +20,20 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     hard: '/knowledge-defense/monster-hard.png'
   };
 
-  export let sourceType: WrongQuestionSourceType = 'pack';
-  export let sourceId: string | null = null;
-  export let fileId: string | null = null;
-  export let chapter: string | null = null;
-
+  export type AttackMode = 'straight' | 'scatter';
+  export let attackMode: AttackMode = 'straight';
 
   const dispatch = createEventDispatcher<{ finish: FinishStats }>();
 
   const PLAYER_MAX_HP = 300;
-  const BASE_SPEED: Record<Difficulty, number> = { easy: 24, medium: 31, hard: 38 };
+  const BASE_SPEED: Record<Difficulty, number> = { easy: 12, medium: 15.5, hard: 19 };
   const TOTAL_MONSTERS = 20;
   const ANSWER_MOVE_RATIO: Record<Difficulty, number> = { easy: 2 / 3, medium: 3 / 4, hard: 4 / 5 };
   const MONSTER_HP: Record<Difficulty, number> = { easy: 100, medium: 100, hard: 200 };
   const MONSTER_RADIUS: Record<Difficulty, number> = { easy: 26, medium: 30, hard: 34 };
-  const BURST_DAMAGE = [30, 30, 40];
-  const BURST_OFFSETS = [-0.24, 0, 0.24];
+  const STRAIGHT_DAMAGE = [30, 30, 40, 50];
+  const SCATTER_DAMAGE = Array.from({ length: 8 }, () => 20);
+  const SCATTER_SPREAD = (20 * Math.PI) / 180;
 
   let wrapEl: HTMLDivElement;
   let canvasEl: HTMLCanvasElement;
@@ -53,16 +49,15 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
   let victory = false;
   let showStartScreen = true;
   let showPrepModal = false;
+  let showSettingsModal = false;
 
   let playerHp = PLAYER_MAX_HP;
   const playerRadius = 36;
   const player = { x: width / 2, y: height / 2 };
-  let burstPhase = 0;
 
   let kills = 0;
   let correct = 0;
   let wrong = 0;
-  let wrongNotebookLoadKey = '';
 
   let activeMonsters: Monster[] = [];
   let pendingMonsters: Monster[] = [];
@@ -73,7 +68,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
   let modalQuestion: Question | null = null;
   let selectedMonsterLabel = '';
 
-  let toast = '点击怪物答题，答对后会发射 3 枚“。”散射弹。';
+  let toast = '';
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let flashUntil = 0;
   let damagePopups: { id: string; x: number; y: number; text: string; color: string; life: number }[] = [];
@@ -85,6 +80,67 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     medium: null,
     hard: null
   };
+
+  let wrongNotebook: WrongQuestionRecord[] = [];
+  let selectedAttackMode: AttackMode = attackMode;
+
+  $: wrongNotebook = $wrongQuestions;
+  $: attackMode = selectedAttackMode;
+  $: if (!modalOpen) {
+    toast =
+      selectedAttackMode === 'straight'
+        ? '点击怪物答题，答对后会发射 4 枚直线子弹。'
+        : '点击怪物答题，答对后会发射 8 枚 ±20° 散射子弹。';
+  }
+
+  function getQuestionType(question: string) {
+    const prompt = question.replace(/\s+/g, '');
+    if (/因为.*所以|因果|为什么|原因|结果/.test(prompt)) return '因果关系';
+    if (/首都|朝代|历史|时间|哪一年|人物/.test(prompt)) return '历史人文';
+    if (/语法|时态|单词|英语|词性|句型/.test(prompt)) return '英语语言';
+    if (/实验|水循环|蒸发|凝结|生物|化学|物理|科学/.test(prompt)) return '科学概念';
+    if (/计算|几何|方程|分数|面积|周长|数学/.test(prompt)) return '数学推理';
+    return '综合理解';
+  }
+
+  function buildWrongAnalysis(items: WrongQuestionRecord[]) {
+    const total = items.length;
+    const repeated = items.filter((item) => item.wrong_count >= 2).length;
+    const typeMap = new Map<string, number>();
+    const frequent = [...items]
+      .sort((a, b) => b.wrong_count - a.wrong_count || b.last_wrong_at - a.last_wrong_at)
+      .slice(0, 4);
+
+    for (const item of items) {
+      const type = getQuestionType(item.question);
+      typeMap.set(type, (typeMap.get(type) ?? 0) + 1);
+    }
+
+    const typeEntries = [...typeMap.entries()].sort((a, b) => b[1] - a[1]);
+    const topType = typeEntries[0]?.[0] ?? '综合理解';
+    const advice: string[] = [];
+
+    if (total === 0) {
+      advice.push('当前还没有错题，可以先开始一局，再回来查看你的易错点。');
+    } else {
+      advice.push(`建议优先复习「${topType}」相关题目，先把高频失分点补稳。`);
+      if (repeated > 0) advice.push(`有 ${repeated} 道题已经反复出错，建议先遮住答案自测一遍。`);
+      if (typeEntries.length >= 2) advice.push(`除了「${topType}」，也要兼顾「${typeEntries[1][0]}」类题目。`);
+      advice.push('开局前先看题干、自己回忆答案，再对照解析，会比直接看答案更有效。');
+    }
+
+    return { total, repeated, typeEntries, frequent, advice };
+  }
+
+  $: wrongAnalysis = buildWrongAnalysis(wrongNotebook);
+
+  async function loadWrongNotebook() {
+    try {
+      await refreshWrongQuestions({ source_type: 'pack', source_id: pack.id, limit: 200 });
+    } catch (error) {
+      console.error('加载错题本失败', error);
+    }
+  }
 
   function preloadImages() {
     playerImage = new Image();
@@ -104,7 +160,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     const rect = wrapEl.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     width = rect.width;
-    height = Math.max(640, rect.height);
+    height = Math.max(720, rect.height);
     canvasEl.width = rect.width * dpr;
     canvasEl.height = height * dpr;
     canvasEl.style.height = `${height}px`;
@@ -140,12 +196,17 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     return groups;
   }
 
-  function showToast(message: string) {
+  function setToast(message: string, fallback = false) {
     toast = message;
     if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => {
-      toast = '点击怪物答题，答对后会发射 3 枚“。”散射弹。';
-    }, 2600);
+    if (!fallback) {
+      toastTimer = setTimeout(() => {
+        toast =
+          selectedAttackMode === 'straight'
+            ? '点击怪物答题，答对后会发射 4 枚直线子弹。'
+            : '点击怪物答题，答对后会发射 8 枚 ±20° 散射子弹。';
+      }, 2400);
+    }
   }
 
   function resetInternalState({ keepStartScreen = false } = {}) {
@@ -167,17 +228,16 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     kills = 0;
     correct = 0;
     wrong = 0;
-    burstPhase = 0;
     flashUntil = 0;
     lastTs = 0;
     showStartScreen = keepStartScreen;
     showPrepModal = false;
+    showSettingsModal = false;
   }
 
   function returnToStartScreen() {
     resetInternalState({ keepStartScreen: true });
-    refreshWrongQuestions({ source_type: sourceType, source_id: sourceId ?? pack.id }).catch(() => {});
-    showToast('已返回启动页，可在备战区查看错题。');
+    setToast('已返回启动页，可在备战区查看错题。');
   }
 
   function openPrepZone() {
@@ -188,20 +248,28 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     showPrepModal = false;
   }
 
-  function formatWrongTime(value: number) {
-    if (!value) return '—';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '—';
-    return date.toLocaleString('zh-CN', { hour12: false });
+  function openSettings() {
+    showSettingsModal = true;
   }
 
-  async function goHome() {
-    await goto('/');
+  function closeSettings() {
+    showSettingsModal = false;
   }
 
-  async function handleGlobalExit() {
+  function applyAttackMode(mode: AttackMode) {
+    selectedAttackMode = mode;
+    setToast(
+      mode === 'straight' ? '已切换为直线发射：4 发 30/30/40/50。' : '已切换为散射发射：8 发，每发 20 伤害。'
+    );
+  }
+
+  function goHome() {
+    goto('/');
+  }
+
+  function handleGlobalExit() {
     if (showStartScreen) {
-      await goHome();
+      goHome();
       return;
     }
     if (gameOver || paused) {
@@ -211,7 +279,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     if (modalOpen) closeQuestion();
     paused = true;
     running = false;
-    showToast('已暂停');
+    setToast('已暂停');
   }
 
   function createMonster(difficulty: Difficulty, seed: number): Monster {
@@ -240,7 +308,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
       radius: MONSTER_RADIUS[difficulty],
       hp: MONSTER_HP[difficulty],
       maxHp: MONSTER_HP[difficulty],
-      speed: BASE_SPEED[difficulty] + seed * 1.5,
+      speed: BASE_SPEED[difficulty] + seed * 0.75,
       sprite: monsterSprites[difficulty],
       usedQuestionIds: []
     };
@@ -274,7 +342,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     paused = false;
     showStartScreen = false;
     showPrepModal = false;
-    showToast('战斗开始！点击怪物答题，答对后会发射 3 枚“。”散射弹。');
+    setToast(selectedAttackMode === 'straight' ? '战斗开始！当前是直线发射。' : '战斗开始！当前是散射发射。');
     spawnUntilCap();
   }
 
@@ -282,7 +350,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     if (gameOver || showStartScreen || modalOpen) return;
     paused = !paused;
     running = !paused;
-    showToast(paused ? '已暂停' : '继续战斗');
+    setToast(paused ? '已暂停' : '继续战斗');
   }
 
   function getMonsterLabel(monster: Monster) {
@@ -331,7 +399,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     playerHp = clamp(playerHp - amount, 0, PLAYER_MAX_HP);
     flashUntil = performance.now() + 260;
     spawnDamagePopup(player.x, player.y - 18, `-${amount}`, '#ff6b6b');
-    showToast(reason);
+    setToast(reason);
     if (playerHp <= 0) finishGame(false);
   }
 
@@ -342,17 +410,15 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     playerHp = nextHp;
     if (delta > 0) {
       spawnDamagePopup(player.x, player.y - 42, `+${delta}`, '#7ee787');
-      showToast(`净化成功，玩家恢复 ${delta} HP`);
+      setToast(`净化成功，玩家恢复 ${delta} HP`);
     }
   }
 
   async function recordWrongQuestion(question: Question, selectedAnswer: string) {
     try {
       await recordWrongQuestionEntry({
-        source_type: sourceType,
-        source_id: sourceId ?? pack.id,
-        file_id: fileId,
-        chapter,
+        source_type: 'pack',
+        source_id: pack.id,
         question_id: question.id,
         question: question.prompt,
         options: question.options,
@@ -361,8 +427,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
         last_user_answer: selectedAnswer
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '错题保存失败';
-      showToast(message);
+      console.error('保存错题失败', error);
     }
   }
 
@@ -380,7 +445,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
       wrong,
       remainingHp: playerHp
     });
-    showToast(win ? '闯关成功！' : '守卫失败，生命归零。');
+    setToast(win ? '闯关成功！' : '守卫失败，生命归零。');
   }
 
   function removeMonster(monsterId: string) {
@@ -396,29 +461,40 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     if (pendingMonsters.length === 0 && activeMonsters.length === 0) finishGame(true);
   }
 
+  function queueProjectile(angle: number, damage: number, delay: number) {
+    const timer = setTimeout(() => {
+      const speed = 420;
+      projectiles = [
+        ...projectiles,
+        {
+          id: uid('dot'),
+          x: player.x,
+          y: player.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 10,
+          damage,
+          lifeMs: 1600,
+          hitMonsterIds: []
+        }
+      ];
+    }, delay);
+    pendingShotTimers.push(timer);
+  }
+
   function fireBurst(monster: Monster) {
-    const baseAngle = Math.atan2(monster.y - player.y, monster.x - player.x) + burstPhase;
-    burstPhase += 0.12;
-    BURST_DAMAGE.forEach((damage, index) => {
-      const timer = setTimeout(() => {
-        const angle = baseAngle + BURST_OFFSETS[index];
-        const speed = 390;
-        projectiles = [
-          ...projectiles,
-          {
-            id: uid('dot'),
-            x: player.x,
-            y: player.y,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
-            radius: 10,
-            damage,
-            lifeMs: 1600,
-            hitMonsterIds: []
-          }
-        ];
-      }, index * 120);
-      pendingShotTimers.push(timer);
+    const baseAngle = Math.atan2(monster.y - player.y, monster.x - player.x);
+
+    if (selectedAttackMode === 'straight') {
+      STRAIGHT_DAMAGE.forEach((damage, index) => {
+        queueProjectile(baseAngle, damage, index * 90);
+      });
+      return;
+    }
+
+    SCATTER_DAMAGE.forEach((damage, index) => {
+      const randomOffset = (Math.random() * 2 - 1) * SCATTER_SPREAD;
+      queueProjectile(baseAngle + randomOffset, damage, index * 45);
     });
   }
 
@@ -431,7 +507,11 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     }
     if (answer === modalQuestion.answer) {
       correct += 1;
-      showToast('回答正确！已发射 3 枚“。”散射弹。');
+      setToast(
+        selectedAttackMode === 'straight'
+          ? '回答正确！已发射 4 枚直线子弹。'
+          : '回答正确！已发射 8 枚散射子弹。'
+      );
       fireBurst(monster);
     } else {
       wrong += 1;
@@ -450,6 +530,7 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
       if (dot.lifeMs <= 0) continue;
       if (dot.x < -50 || dot.x > width + 50 || dot.y < -50 || dot.y > height + 50) continue;
 
+      let consumed = false;
       for (const monster of activeMonsters) {
         if (monster.isDead) continue;
         if (dot.hitMonsterIds.includes(monster.id)) continue;
@@ -458,14 +539,16 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
           monster.hp = clamp(monster.hp - dot.damage, 0, monster.maxHp);
           dot.hitMonsterIds = [...dot.hitMonsterIds, monster.id];
           spawnDamagePopup(monster.x, monster.y - 8, `-${dot.damage}`, '#ffd166');
+          consumed = true;
           if (monster.hp <= 0) {
             monster.isDead = true;
             removeMonster(monster.id);
           }
+          break;
         }
       }
 
-      next.push(dot);
+      if (!consumed) next.push(dot);
     }
     projectiles = next;
   }
@@ -504,13 +587,13 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     if (!ctx) return;
     ctx.clearRect(0, 0, width, height);
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, '#e6e0d5');
-    gradient.addColorStop(1, '#b6b0a6');
+    gradient.addColorStop(0, '#ece7df');
+    gradient.addColorStop(1, '#cbc3b6');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
 
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillStyle = 'rgba(78, 67, 58, 0.12)';
     for (let i = 0; i < 28; i += 1) {
       const x = (i * 173) % (width + 140) - 60;
       const y = ((i * 127) % (height + 140)) - 70;
@@ -671,27 +754,14 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     }
   }
 
-  $: {
-    const nextKey = `${sourceType}:${sourceId ?? pack.id}:${$user?.id ?? 'anonymous'}`;
-    if (typeof window !== 'undefined' && nextKey !== wrongNotebookLoadKey) {
-      wrongNotebookLoadKey = nextKey;
-      refreshWrongQuestions({ source_type: sourceType, source_id: sourceId ?? pack.id }).catch(() => {});
-    }
-  }
-
   onMount(() => {
     ctx = canvasEl.getContext('2d');
     preloadImages();
     resizeCanvas();
+    loadWrongNotebook();
     const onResize = () => resizeCanvas();
     window.addEventListener('resize', onResize);
     raf = requestAnimationFrame(loop);
-    const loadKey = `${sourceType}:${sourceId ?? pack.id}:${$user?.id ?? 'anonymous'}`;
-    wrongNotebookLoadKey = loadKey;
-    refreshWrongQuestions({ source_type: sourceType, source_id: sourceId ?? pack.id }).catch((error) => {
-      const message = error instanceof Error ? error.message : '错题本加载失败';
-      showToast(message);
-    });
     if (autoStart) startGame();
 
     return () => {
@@ -731,7 +801,8 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
         </div>
 
         <div class="start-actions">
-          <button class="start-btn primary" on:click={openPrepZone}>备战区{$wrongQuestions.length > 0 ? `（${$wrongQuestions.length}）` : ''}</button>
+          <button class="start-btn primary" on:click={openPrepZone}>备战区{wrongNotebook.length > 0 ? ` (${wrongNotebook.length})` : ''}</button>
+          <button class="start-btn secondary" on:click={openSettings}>设置</button>
           <button class="start-btn primary" on:click={startGame}>开始闯关</button>
         </div>
       </div>
@@ -739,39 +810,123 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
 
     {#if showPrepModal}
       <div class="prep-modal-mask">
-        <div class="prep-modal-card">
+        <div class="prep-modal-card light-theme">
           <div class="prep-header">
             <div>
               <h3>备战区 · 错题回看</h3>
-              <p>这里只保留答错过的题，含正确答案与解析，方便你开局前快速复习。</p>
+              <p>这里保留近期错题、正确答案与解析，并根据你的错题情况给出针对性建议。</p>
             </div>
-            <span class="prep-count">{$wrongQuestions.length} 题</span>
+            <span class="prep-count">{wrongNotebook.length} 题</span>
           </div>
 
-          {#if $wrongQuestionsLoading}
-            <div class="prep-empty">正在读取错题本…</div>
-          {:else if $wrongQuestions.length === 0}
-            <div class="prep-empty">当前还没有错题，先开始一局，答错的题会自动收纳到这里。</div>
-          {:else}
-            <div class="prep-list">
-              {#each $wrongQuestions as item}
-                <article class="prep-card">
-                  <div class="prep-card-top">
-                    <span class="prep-tag">错题</span>
-                    <span class="prep-times">错了 {item.wrong_count} 次</span>
-                  </div>
-                  <h4>{item.question}</h4>
-                  <div class="prep-line"><strong>你当时选了：</strong>{item.last_user_answer}</div>
-                  <div class="prep-line"><strong>正确答案：</strong>{item.correct_answer}</div>
-                  <div class="prep-line"><strong>解析：</strong>{item.explanation}</div>
-                  <div class="prep-line meta"><strong>最近答错：</strong>{formatWrongTime(item.last_wrong_at)}</div>
-                </article>
-              {/each}
+          <div class="prep-grid">
+            <div class="prep-left">
+              {#if wrongNotebook.length === 0}
+                <div class="prep-empty">当前还没有错题，先开始一局，答错的题会自动收纳到这里。</div>
+              {:else}
+                <div class="prep-list">
+                  {#each wrongNotebook as item}
+                    <article class="prep-card readable">
+                      <div class="prep-card-top">
+                        <span class="prep-tag">错题</span>
+                        <span class="prep-times">错了 {item.wrong_count} 次</span>
+                      </div>
+                      <h4>{item.question}</h4>
+                      <div class="prep-line"><strong>你当时选了：</strong>{item.last_user_answer}</div>
+                      <div class="prep-line"><strong>正确答案：</strong>{item.correct_answer}</div>
+                      <div class="prep-line"><strong>解析：</strong>{item.explanation}</div>
+                      <div class="prep-line"><strong>最近答错：</strong>{new Date(item.last_wrong_at).toLocaleString()}</div>
+                    </article>
+                  {/each}
+                </div>
+              {/if}
             </div>
-          {/if}
+
+            <aside class="analysis-panel">
+              <h4>错题分析</h4>
+              <div class="analysis-metrics">
+                <div class="metric-card"><span>错题总数</span><strong>{wrongAnalysis.total}</strong></div>
+                <div class="metric-card"><span>反复错题</span><strong>{wrongAnalysis.repeated}</strong></div>
+              </div>
+
+              <div class="analysis-section">
+                <h5>错题类型</h5>
+                {#if wrongAnalysis.typeEntries.length === 0}
+                  <p class="muted">暂无数据</p>
+                {:else}
+                  <ul class="analysis-list compact">
+                    {#each wrongAnalysis.typeEntries as [type, count]}
+                      <li><span>{type}</span><strong>{count}</strong></li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+
+              <div class="analysis-section">
+                <h5>经常性错题</h5>
+                {#if wrongAnalysis.frequent.length === 0}
+                  <p class="muted">暂无数据</p>
+                {:else}
+                  <ul class="analysis-list">
+                    {#each wrongAnalysis.frequent as item}
+                      <li>
+                        <span>{item.question}</span>
+                        <strong>{item.wrong_count} 次</strong>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+
+              <div class="analysis-section">
+                <h5>学习建议</h5>
+                <ul class="advice-list">
+                  {#each wrongAnalysis.advice as item}
+                    <li>{item}</li>
+                  {/each}
+                </ul>
+              </div>
+            </aside>
+          </div>
 
           <div class="result-actions">
             <button class="start-btn primary" on:click={closePrepZone}>关闭备战区</button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    {#if showSettingsModal}
+      <div class="prep-modal-mask">
+        <div class="settings-card light-theme">
+          <div class="prep-header">
+            <div>
+              <h3>设置</h3>
+              <p>选择子弹发射方式。设置会立即生效，也会影响下一局。</p>
+            </div>
+          </div>
+
+          <div class="settings-options">
+            <button
+              class:selected={selectedAttackMode === 'straight'}
+              class="setting-option"
+              on:click={() => applyAttackMode('straight')}
+            >
+              <h4>直线发射</h4>
+              <p>4 枚子弹，沿玩家与目标怪物连线发射，伤害为 30 / 30 / 40 / 50。</p>
+            </button>
+            <button
+              class:selected={selectedAttackMode === 'scatter'}
+              class="setting-option"
+              on:click={() => applyAttackMode('scatter')}
+            >
+              <h4>散射发射</h4>
+              <p>8 枚子弹，每枚伤害 20，发射夹角限定在目标连线 ±20° 内随机。</p>
+            </button>
+          </div>
+
+          <div class="result-actions">
+            <button class="start-btn primary" on:click={closeSettings}>完成设置</button>
           </div>
         </div>
       </div>
@@ -817,7 +972,11 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
             <button class="option" on:click={() => submitAnswer(option)}>{option}</button>
           {/each}
         </div>
-        <div class="explain-tip">答对后会自动发射 3 枚“。”散射弹；答错立刻扣除 20 HP，并把这道题加入备战区。</div>
+        <div class="explain-tip">
+          {selectedAttackMode === 'straight'
+            ? '答对后会发射 4 枚直线子弹；答错立刻扣除 20 HP，并把这道题加入备战区。'
+            : '答对后会发射 8 枚 ±20° 散射子弹；答错立刻扣除 20 HP，并把这道题加入备战区。'}
+        </div>
         <div class="modal-actions">
           <button class="start-btn ghost" on:click={closeQuestion}>先关闭题卡</button>
         </div>
@@ -828,38 +987,41 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
 
 <style>
   :global(body) {
-    background: #e9e5dd;
+    background: #ece7e1;
   }
 
   .kd-shell {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 12px;
-    color: #f2efe9;
+    height: 100%;
+    min-height: 100%;
+    color: #4f4034;
   }
 
   .kd-board {
     position: relative;
-    min-height: 680px;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
     border-radius: 28px;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 22px 46px rgba(39, 31, 26, 0.16);
-    background: #b9b2a7;
+    border: 1px solid rgba(145, 124, 103, 0.16);
+    box-shadow: 0 18px 42px rgba(39, 31, 26, 0.09);
+    background: #d8d2c8;
   }
 
   canvas {
     display: block;
     width: 100%;
-    min-height: 680px;
+    height: 100%;
+    min-height: 720px;
   }
 
   .global-exit-btn {
     position: absolute;
     top: 14px;
     left: 14px;
-    z-index: 6;
+    z-index: 8;
     width: 48px;
     height: 48px;
     display: grid;
@@ -872,339 +1034,484 @@ import type { WrongQuestionSourceType } from '$lib/apis/knowledge-defense';
     cursor: pointer;
   }
 
-  .global-exit-btn,
-  .start-btn,
-  .option {
-    cursor: pointer;
-  }
-
   .global-exit-btn svg {
     width: 24px;
     height: 24px;
     fill: none;
     stroke: currentColor;
-    stroke-width: 1.9;
+    stroke-width: 1.8;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
 
-  .start-btn {
-    min-width: 128px;
-    padding: 12px 18px;
-    border-radius: 12px;
-    border: 2px solid rgba(0, 0, 0, 0.4);
-    font-size: 16px;
-    font-weight: 700;
-    background: #c6c6c6;
-    color: #191919;
-    box-shadow: inset -2px -2px 0 rgba(0, 0, 0, 0.25), inset 2px 2px 0 rgba(255, 255, 255, 0.35);
-  }
-
-  .start-btn.primary {
-    background: #bdbdbd;
-  }
-
-  .start-btn.ghost {
-    background: #a8a8a8;
-  }
-
   .toast {
     position: absolute;
-    left: 20px;
+    left: 18px;
     bottom: 18px;
+    z-index: 6;
     padding: 10px 14px;
-    border-radius: 10px;
-    background: rgba(19, 19, 19, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    color: #f7f2ec;
+    border-radius: 14px;
+    background: rgba(57, 49, 41, 0.86);
+    color: #fff7eb;
     font-size: 14px;
-    max-width: min(460px, calc(100% - 40px));
-    z-index: 2;
-  }
-
-  .start-screen,
-  .pause-mask,
-  .result-mask,
-  .modal-backdrop {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    padding: 20px;
+    line-height: 1.5;
+    max-width: min(520px, calc(100% - 36px));
+    box-shadow: 0 10px 22px rgba(31, 22, 17, 0.14);
   }
 
   .start-screen {
-    background:
-      linear-gradient(rgba(20, 20, 20, 0.18), rgba(20, 20, 20, 0.18)),
-      radial-gradient(circle at center, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.28));
-    align-content: center;
-    gap: 20px;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 26px;
+    padding: 48px 24px;
   }
 
   .start-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
     text-align: center;
   }
 
   .start-logo {
-    font-size: clamp(56px, 8vw, 104px);
-    line-height: 0.95;
+    font-size: clamp(64px, 9vw, 96px);
     font-weight: 900;
-    color: #f1ece3;
-    text-shadow: 0 6px 0 rgba(0, 0, 0, 0.28), 0 14px 28px rgba(0, 0, 0, 0.25);
     letter-spacing: 2px;
+    color: #f4efe6;
+    text-shadow: 0 8px 0 rgba(92, 82, 73, 0.38), 0 18px 34px rgba(22, 17, 12, 0.15);
   }
 
   .start-subtitle {
-    margin-top: 8px;
-    font-size: clamp(18px, 2vw, 28px);
-    color: #f0db6b;
+    margin-top: -8px;
+    font-size: clamp(20px, 3vw, 32px);
+    color: #f0d04b;
     transform: rotate(-12deg);
-    text-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    text-shadow: 0 4px 10px rgba(75, 62, 17, 0.16);
   }
 
-  .prep-modal-mask {
+  .start-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 16px;
+  }
+
+  .start-btn,
+  .option,
+  .setting-option {
+    cursor: pointer;
+  }
+
+  .start-btn {
+    border-radius: 16px;
+    border: 2px solid rgba(88, 77, 67, 0.4);
+    background: #d6d6d6;
+    color: #171717;
+    padding: 16px 30px;
+    font-size: 18px;
+    font-weight: 700;
+    box-shadow: inset -2px -2px 0 rgba(0, 0, 0, 0.25), inset 2px 2px 0 rgba(255, 255, 255, 0.4);
+  }
+
+  .start-btn.primary {
+    background: #d8d8d8;
+  }
+
+  .start-btn.secondary {
+    background: #ece1cf;
+  }
+
+  .start-btn.ghost {
+    background: #f3ede5;
+  }
+
+  .prep-modal-mask,
+  .modal-backdrop,
+  .pause-mask,
+  .result-mask {
     position: absolute;
     inset: 0;
-    display: grid;
-    place-items: center;
+    z-index: 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     padding: 20px;
-    background: rgba(14, 14, 14, 0.42);
-    z-index: 7;
+    background: rgba(54, 44, 35, 0.26);
+    backdrop-filter: blur(2px);
   }
 
-  .prep-modal-card {
-    width: min(980px, calc(100% - 32px));
-    max-height: min(72vh, 760px);
-    overflow: auto;
-    background: rgba(23, 23, 23, 0.78);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 22px;
-    padding: 18px;
-    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
-    backdrop-filter: blur(6px);
+  .light-theme {
+    background: linear-gradient(180deg, #fffaf3 0%, #f8f0e6 100%);
+    color: #4d4034;
+    border: 1px solid #e3d5c7;
+    box-shadow: 0 24px 48px rgba(88, 67, 42, 0.14);
+  }
+
+  .prep-modal-card,
+  .settings-card {
+    width: min(1360px, 100%);
+    max-height: min(82vh, 980px);
+    border-radius: 28px;
+    padding: 24px;
+    overflow: hidden;
   }
 
   .prep-header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: 18px;
+    margin-bottom: 18px;
   }
 
   .prep-header h3 {
-    margin: 0 0 6px;
-    font-size: 22px;
-    color: #fff7ec;
+    margin: 0;
+    font-size: 28px;
+    color: #5a4638;
   }
 
   .prep-header p {
-    margin: 0;
-    color: #d8cec2;
-    font-size: 14px;
+    margin: 10px 0 0;
+    font-size: 18px;
+    line-height: 1.6;
+    color: #7b6757;
   }
 
   .prep-count {
-    white-space: nowrap;
-    padding: 6px 10px;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 16px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: #f1ede8;
-    font-size: 13px;
+    background: #fff;
+    color: #6b5849;
+    font-weight: 700;
+    border: 1px solid #ddcfbf;
   }
 
-  .prep-empty {
-    border-radius: 16px;
-    padding: 18px;
-    background: rgba(255, 255, 255, 0.05);
-    color: #efe4d7;
-    font-size: 15px;
-    line-height: 1.7;
+  .prep-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.95fr);
+    gap: 20px;
+    min-height: 0;
+    max-height: calc(82vh - 150px);
+  }
+
+  .prep-left {
+    min-height: 0;
   }
 
   .prep-list {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-    max-height: 280px;
+    gap: 16px;
+    max-height: calc(82vh - 180px);
     overflow: auto;
-    padding-right: 4px;
+    padding-right: 6px;
+  }
+
+  .prep-card.readable,
+  .analysis-panel {
+    background: #fffaf4;
+    border: 1px solid #e2d5c8;
+    border-radius: 20px;
+    box-shadow: 0 10px 18px rgba(98, 79, 59, 0.06);
   }
 
   .prep-card {
-    border-radius: 18px;
-    padding: 14px;
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #f7f2eb;
+    padding: 18px;
   }
 
   .prep-card-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
-
-  .prep-tag,
-  .prep-times {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 999px;
-    padding: 4px 8px;
-    font-size: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 12px;
+    margin-bottom: 14px;
   }
 
   .prep-tag {
-    background: rgba(245, 106, 106, 0.18);
-    color: #ffd1d1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #f8d7d1;
+    color: #9a5b54;
+    font-weight: 700;
+    font-size: 14px;
   }
 
   .prep-times {
-    background: rgba(255, 255, 255, 0.06);
-    color: #efe4d7;
+    color: #8e7a69;
+    font-weight: 700;
   }
 
   .prep-card h4 {
+    margin: 0 0 14px;
+    font-size: 30px;
+    line-height: 1.55;
+    color: #574637;
+  }
+
+  .prep-line {
+    margin-top: 8px;
+    font-size: 17px;
+    line-height: 1.7;
+    color: #655240;
+  }
+
+  .prep-line strong {
+    color: #4d3f34;
+    margin-right: 6px;
+  }
+
+  .analysis-panel {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    padding: 18px;
+  }
+
+  .analysis-panel h4 {
+    margin: 0 0 16px;
+    font-size: 24px;
+    color: #4d3f34;
+  }
+
+  .analysis-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .metric-card {
+    background: #fff;
+    border: 1px solid #eaded1;
+    border-radius: 16px;
+    padding: 14px;
+  }
+
+  .metric-card span {
+    display: block;
+    color: #8a7666;
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+
+  .metric-card strong {
+    font-size: 28px;
+    color: #534233;
+  }
+
+  .analysis-section {
+    margin-top: 18px;
+  }
+
+  .analysis-section h5 {
     margin: 0 0 10px;
+    font-size: 18px;
+    color: #5a4838;
+  }
+
+  .analysis-list,
+  .advice-list {
+    margin: 0;
+    padding-left: 18px;
+    color: #6a5849;
+  }
+
+  .analysis-list.compact {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .analysis-list.compact li,
+  .analysis-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px dashed #eaded1;
+    font-size: 15px;
+  }
+
+  .analysis-list li span {
+    flex: 1;
+    line-height: 1.45;
+  }
+
+  .analysis-list li strong {
+    flex: 0 0 auto;
+    color: #4e3e31;
+  }
+
+  .advice-list li {
+    margin-top: 8px;
+    line-height: 1.65;
+  }
+
+  .muted,
+  .prep-empty {
+    color: #867260;
     font-size: 16px;
     line-height: 1.6;
   }
 
-  .prep-line {
-    font-size: 14px;
-    line-height: 1.7;
-    color: #e9dfd2;
+  .prep-empty {
+    padding: 18px;
+    border-radius: 18px;
+    background: #fffaf4;
+    border: 1px solid #e2d5c8;
   }
 
-  .prep-line strong {
-    color: #fff6ec;
-  }
-
-  .start-actions {
-    display: flex;
+  .settings-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
-    flex-wrap: wrap;
-    justify-content: center;
+    margin-top: 8px;
   }
 
-  .pause-mask,
-  .result-mask,
-  .modal-backdrop {
-    background: rgba(14, 14, 14, 0.42);
+  .setting-option {
+    text-align: left;
+    padding: 18px;
+    border-radius: 18px;
+    background: #fffaf4;
+    border: 2px solid #e1d4c7;
+    color: #5a4738;
+  }
+
+  .setting-option.selected {
+    border-color: #d9b04d;
+    box-shadow: 0 0 0 3px rgba(217, 176, 77, 0.18);
+    background: #fff9ec;
+  }
+
+  .setting-option h4 {
+    margin: 0 0 8px;
+    font-size: 20px;
+  }
+
+  .setting-option p {
+    margin: 0;
+    color: #776252;
+    line-height: 1.6;
   }
 
   .pause-card,
   .result-card,
   .modal-card {
     width: min(760px, 100%);
-    background: rgba(31, 31, 31, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 20px;
-    padding: 22px;
-    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.28);
-    color: #f6f1ea;
+    border-radius: 24px;
+    background: #fffaf4;
+    border: 1px solid #e2d5c8;
+    box-shadow: 0 22px 48px rgba(52, 40, 30, 0.16);
+    padding: 24px;
+    color: #4f4034;
   }
 
-  .pause-card {
-    width: min(420px, 100%);
-    display: grid;
-    justify-items: center;
-    gap: 16px;
-  }
-
-  .pause-title {
-    font-size: 34px;
-    font-weight: 900;
-  }
-
+  .pause-title,
   .result-card h2,
   .modal-card h3 {
-    margin: 0 0 12px;
+    margin: 0 0 14px;
+    font-size: 34px;
+    color: #4f4034;
   }
 
-  .result-actions,
-  .modal-actions {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-    margin-top: 16px;
-    flex-wrap: wrap;
-  }
-
-  .result-actions.centered {
-    justify-content: center;
+  .result-card p,
+  .explain-tip {
+    font-size: 17px;
+    line-height: 1.7;
+    color: #6f5b4d;
   }
 
   .modal-meta {
     display: flex;
-    gap: 10px;
     flex-wrap: wrap;
-    margin-bottom: 12px;
+    gap: 10px;
+    margin-bottom: 14px;
   }
 
   .tag {
-    padding: 6px 10px;
+    padding: 7px 12px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: #f1ede8;
-    font-size: 13px;
+    background: #fff;
+    border: 1px solid #e3d6ca;
+    color: #665345;
+    font-size: 14px;
   }
 
   .options {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
-    margin-top: 16px;
+    margin-top: 18px;
   }
 
   .option {
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: rgba(255, 255, 255, 0.06);
     border-radius: 18px;
-    padding: 14px;
+    border: 1px solid #e0d3c5;
+    padding: 16px;
+    font-size: 17px;
     text-align: left;
-    font-size: 16px;
-    color: #f8f4ef;
+    background: #ffffff;
+    color: #4e3d31;
   }
 
   .option:hover {
-    border-color: #d4b89c;
-    background: rgba(255, 255, 255, 0.1);
+    border-color: #d9b04d;
+    background: #fffaf0;
   }
 
-  .explain-tip {
-    margin-top: 14px;
-    color: #dbd1c8;
-    font-size: 14px;
+  .modal-actions,
+  .result-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 18px;
   }
 
-  @media (max-width: 960px) {
+  .centered {
+    justify-content: center;
+  }
+
+  @media (max-width: 1180px) {
+    .prep-grid {
+      grid-template-columns: 1fr;
+      max-height: none;
+    }
+
+    .analysis-panel {
+      position: static;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .prep-list,
+    .settings-options,
     .options {
       grid-template-columns: 1fr;
     }
 
-    .global-exit-btn {
-      top: 12px;
-      left: 12px;
+    .start-actions {
+      flex-direction: column;
+      width: 100%;
+      max-width: 380px;
+    }
+
+    .start-btn {
+      width: 100%;
     }
 
     .start-logo {
-      letter-spacing: 0;
-    }
-
-    .prep-list {
-      grid-template-columns: 1fr;
-      max-height: 320px;
-    }
-
-    .prep-header {
-      flex-direction: column;
-      align-items: flex-start;
+      font-size: 64px;
     }
   }
 </style>
