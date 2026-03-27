@@ -27,7 +27,8 @@
 		getFileChapterContent,
 		getFileSections,
 		getFileSectionContent,
-		extractFileChapters
+		extractFileChapters,
+		updateFileChapterHomework
 	} from '$lib/apis/files';
 	import {
 		addFileToKnowledgeById,
@@ -61,6 +62,7 @@
 	import DropdownOptions from '$lib/components/common/DropdownOptions.svelte';
 	import Pagination from '$lib/components/common/Pagination.svelte';
 	import AttachWebpageModal from '$lib/components/chat/MessageInput/AttachWebpageModal.svelte';
+	import { loadFileChapterHomeworks } from './chapterHomework';
 
 	let largeScreen = true;
 
@@ -93,7 +95,7 @@
 	let selectedFileContent = '';
 
 	// Chapter/Section state
-	let drawerTab: 'preview' | 'content' = 'content';
+	let drawerTab: 'preview' | 'content' | 'homework' = 'content';
 	let fileChapters: any[] = [];
 	let fileSections: any[] = [];
 	let selectedChapterIndex = -1;
@@ -101,6 +103,11 @@
 	let chapterContent = '';
 	let chapterContentLoading = false;
 	let pdfCurrentPage = 1;
+	let fileChapterHomeworks: any[] = [];
+	let selectedChapterHomework: any = null;
+	let chapterHomeworkVisible = false;
+	let chapterHomeworkSaving = false;
+	let answerMarkdownTextarea: HTMLTextAreaElement | null = null;
 
 	// Helper: is the selected file a PDF?
 	$: isPdf = selectedFile?.meta?.content_type === 'application/pdf' ||
@@ -197,6 +204,9 @@
 			selectedChapterIndex = -1;
 			selectedSectionIndex = -1;
 			chapterContent = '';
+			fileChapterHomeworks = [];
+			selectedChapterHomework = null;
+			chapterHomeworkVisible = false;
 
 			const fileName = file?.meta?.name || file?.filename || '';
 			const contentType = file?.meta?.content_type || '';
@@ -221,6 +231,10 @@
 						console.error('Auto chapter extraction failed:', e);
 					}
 				}
+
+				const chapterHomeworkRes = await loadFileChapterHomeworks(localStorage.token, file.id);
+				fileChapterHomeworks = chapterHomeworkRes.items;
+				chapterHomeworkVisible = chapterHomeworkRes.visible;
 			} else {
 				// txt/docx: load sections, only content tab
 				drawerTab = 'content';
@@ -246,6 +260,17 @@
 		}
 	};
 
+	const findChapterHomework = (chapter: any) => {
+		if (!chapter || !Array.isArray(fileChapterHomeworks)) return null;
+		return (
+			fileChapterHomeworks.find(
+				(item) =>
+					item.chapter_start_page === chapter.start_page &&
+					item.chapter_end_page === chapter.end_page
+			) ?? null
+		);
+	};
+
 	const loadChapterContent = async (chapter: any) => {
 		if (!selectedFile) return;
 		chapterContentLoading = true;
@@ -263,6 +288,62 @@
 			toast.error($i18n.t('Failed to load chapter content.'));
 		}
 		chapterContentLoading = false;
+	};
+
+	const loadChapterHomework = async (chapter: any, index: number) => {
+		selectedChapterIndex = index;
+		selectedChapterHomework = findChapterHomework(chapter);
+		await tick();
+		resizeAnswerMarkdownTextarea();
+	};
+
+	const resizeAnswerMarkdownTextarea = () => {
+		if (!answerMarkdownTextarea) return;
+		answerMarkdownTextarea.style.height = 'auto';
+		answerMarkdownTextarea.style.height = `${Math.max(answerMarkdownTextarea.scrollHeight, 320)}px`;
+	};
+
+	const saveChapterHomeworkHandler = async () => {
+		if (!selectedFile || !selectedChapterHomework) return;
+		chapterHomeworkSaving = true;
+		try {
+			const updated = await updateFileChapterHomework(
+				localStorage.token,
+				selectedFile.id,
+				selectedChapterHomework.id,
+				{
+					questions: selectedChapterHomework.questions,
+					answer_markdown: selectedChapterHomework.answer_markdown
+				}
+			);
+
+			if (updated) {
+				selectedChapterHomework = updated;
+				fileChapterHomeworks = fileChapterHomeworks.map((item) =>
+					item.id === updated.id ? updated : item
+				);
+			}
+			toast.success($i18n.t('Saved'));
+		} catch (e) {
+			toast.error($i18n.t('Failed to save'));
+		}
+		chapterHomeworkSaving = false;
+	};
+
+	const optionLetters = ['A', 'B', 'C', 'D', 'E', 'F'];
+	const formatChoiceOption = (opt: any, index: number) => {
+		const letter = optionLetters[index] || String(index + 1);
+		const value = String(opt ?? '').trim();
+		if (!value) return `${letter}.`;
+		const normalized = value.replace(/^([A-F])[\.|、\)|:：]\s*/i, '');
+		return `${letter}. ${normalized}`;
+	};
+
+	const getChoiceOptions = (question: any) => {
+		if (Array.isArray(question?.options) && question.options.length > 0) {
+			return question.options;
+		}
+		return ['A', 'B', 'C', 'D'];
 	};
 
 	const loadSectionContent = async (section: any) => {
@@ -1199,6 +1280,15 @@
 											>
 												{$i18n.t('Content')}
 											</button>
+												{#if isPdf && chapterHomeworkVisible}
+													<button
+														class="text-xs px-2.5 py-1 rounded-lg transition-colors
+															{drawerTab === 'homework' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+														on:click={() => { drawerTab = 'homework'; }}
+													>
+														作业
+													</button>
+												{/if}
 										</div>
 
 										{#if knowledge?.write_access && drawerTab === 'content' && !isPdf}
@@ -1297,12 +1387,14 @@
 															<div class="px-1 py-1 text-xs text-gray-500 dark:text-gray-400 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 font-medium">
 																{fileChapters[selectedChapterIndex]?.title}
 															</div>
-															<textarea
-																class="w-full flex-1 text-sm outline-none resize-none px-3 py-2 bg-white dark:bg-gray-950"
-																value={chapterContent}
-																readonly
-																placeholder={$i18n.t('No content')}
-															/>
+															<div class="flex-1 overflow-y-auto">
+																<textarea
+																	class="w-full h-full text-sm outline-none resize-none px-3 py-2 bg-white dark:bg-gray-950"
+																	value={chapterContent}
+																	readonly
+																	placeholder={$i18n.t('No content')}
+																/>
+															</div>
 														{/if}
 													{:else if !isPdf && fileSections.length > 0}
 														<!-- txt/docx with sections: show section content -->
@@ -1352,7 +1444,70 @@
 													{/if}
 												</div>
 											</div>
-										{/if}
+												{:else if drawerTab === 'homework' && isPdf && chapterHomeworkVisible}
+													<div class="flex flex-1 overflow-hidden">
+														{#if fileChapters.length > 0}
+															<div class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+																<ChapterOutline
+																	items={fileChapters}
+																	selectedIndex={selectedChapterIndex}
+																	type="chapter"
+																	onClick={(chapter, index) => {
+																		loadChapterHomework(chapter, index);
+																	}}
+																/>
+															</div>
+														{/if}
+
+														<div class="flex-1 overflow-y-auto px-3 py-2 space-y-3">
+															{#if selectedChapterIndex < 0}
+																<div class="text-sm text-gray-400">{$i18n.t('Select a chapter to view homework')}</div>
+															{:else if !selectedChapterHomework}
+																<div class="text-sm text-gray-400">{$i18n.t('No homework generated for this chapter yet')}</div>
+															{:else}
+																<div class="text-sm font-medium">作业</div>
+																{#each selectedChapterHomework.questions ?? [] as question, qIndex}
+																	<div class="rounded-lg border dark:border-gray-700 p-3 bg-white dark:bg-gray-950">
+																		<div class="text-xs text-gray-500 mb-1">{`Q${qIndex + 1}`}</div>
+																		<div class="text-sm leading-6 whitespace-pre-wrap">{question.question}</div>
+																		{#if question.type === 'choice'}
+																			<div class="mt-2 space-y-1">
+																				{#each getChoiceOptions(question) as option, optionIndex}
+																					<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+																						<input type="radio" name={`choice-${selectedChapterHomework.id}-${qIndex}`} disabled class="accent-blue-600" />
+																						<span>{formatChoiceOption(option, optionIndex)}</span>
+																					</label>
+																				{/each}
+																			</div>
+																		{/if}
+																	</div>
+																{/each}
+
+																<div class="text-xs text-gray-500">{$i18n.t('参考答案(可编辑)')}</div>
+																<textarea
+																	class="w-full text-sm outline-none resize-none overflow-hidden px-2 py-1.5 border dark:border-gray-700 rounded-md bg-white dark:bg-gray-950 min-h-[320px]"
+																	bind:value={selectedChapterHomework.answer_markdown}
+																	bind:this={answerMarkdownTextarea}
+																	on:input={resizeAnswerMarkdownTextarea}
+																	on:focus={resizeAnswerMarkdownTextarea}
+																	readonly={!knowledge?.write_access}
+																/>
+
+																{#if knowledge?.write_access}
+																	<div class="flex justify-end">
+																		<button
+																			class="text-xs py-1.5 px-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+																			disabled={chapterHomeworkSaving}
+																			on:click={saveChapterHomeworkHandler}
+																		>
+																			{$i18n.t('Save Homework')}
+																		</button>
+																	</div>
+																{/if}
+															{/if}
+														</div>
+													</div>
+												{/if}
 									{/key}
 								</div>
 							</div>

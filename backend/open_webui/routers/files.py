@@ -42,6 +42,8 @@ from open_webui.models.files import (
     FileChapterModel,
     FileSections,
     FileSectionModel,
+    FileChapterHomeworks,
+    FileChapterHomeworkUpdateForm,
 )
 from open_webui.models.chats import Chats
 from open_webui.models.knowledge import Knowledges
@@ -1070,6 +1072,10 @@ class ContentForm(BaseModel):
     content: str
 
 
+class MetaForm(BaseModel):
+    meta: dict
+
+
 @router.post("/{id}/data/content/update")
 def update_file_data_content_by_id(
     request: Request,
@@ -1085,6 +1091,40 @@ def update_file_data_content_by_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
+
+
+@router.post("/{id}/meta/update")
+async def update_file_meta_by_id(
+    id: str,
+    form_data: MetaForm,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    file = Files.get_file_by_id(id, db=db)
+
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "write", user, db=db)
+    ):
+        updated = Files.update_file_metadata_by_id(id, form_data.meta, db=db)
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update file meta",
+            )
+        return {"meta": updated.meta}
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+    )
 
     if (
         file.user_id == user.id
@@ -1142,6 +1182,97 @@ async def get_file_chapters(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
+
+
+############################
+# Get File Chapter Homeworks (PDF)
+############################
+
+
+@router.get("/{id}/chapter-homeworks")
+async def get_file_chapter_homeworks(
+    id: str,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    if not _env_bool("KNOWLEDGE_CHAPTER_HOMEWORK_VISIBLE", True):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    file = Files.get_file_by_id(id, db=db)
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "read", user, db=db)
+    ):
+        items = FileChapterHomeworks.get_homeworks_by_file_id(id, db=db)
+        return {"items": [item.model_dump() for item in items]}
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=ERROR_MESSAGES.NOT_FOUND,
+    )
+
+
+############################
+# Update File Chapter Homework
+############################
+
+
+@router.post("/{id}/chapter-homeworks/{homework_id}")
+async def update_file_chapter_homework(
+    id: str,
+    homework_id: str,
+    form_data: FileChapterHomeworkUpdateForm,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    if not _env_bool("KNOWLEDGE_CHAPTER_HOMEWORK_VISIBLE", True):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    file = Files.get_file_by_id(id, db=db)
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if not (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "write", user, db=db)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+
+    current = FileChapterHomeworks.get_homework_by_id(homework_id, db=db)
+    if not current or current.file_id != id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chapter homework not found",
+        )
+
+    updated = FileChapterHomeworks.update_homework_by_id(homework_id, form_data, db=db)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update chapter homework",
+        )
+
+    return {"item": updated.model_dump()}
 
 
 ############################

@@ -5,7 +5,7 @@ from typing import Optional, List
 
 from sqlalchemy.orm import Session
 from open_webui.internal.db import Base, JSONField, get_db, get_db_context
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import BigInteger, Column, Integer, String, Text, JSON, ForeignKey
 
 log = logging.getLogger(__name__)
@@ -590,3 +590,147 @@ class FileSectionsTable:
 
 
 FileSections = FileSectionsTable()
+
+
+####################
+# FileChapterHomework DB Schema (PDF 章节作业)
+####################
+
+
+class FileChapterHomework(Base):
+    __tablename__ = "file_chapter_homework"
+
+    id = Column(String, primary_key=True)
+    file_id = Column(String, ForeignKey("file.id", ondelete="CASCADE"), nullable=False, index=True)
+    chapter_title = Column(Text, nullable=False)
+    chapter_start_page = Column(Integer, nullable=False)
+    chapter_end_page = Column(Integer, nullable=False)
+    subject = Column(String, nullable=True)
+    questions = Column(JSON, nullable=False)
+    answer_markdown = Column(Text, nullable=False)
+    created_at = Column(BigInteger)
+    updated_at = Column(BigInteger)
+
+
+class FileChapterHomeworkModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    file_id: str
+    chapter_title: str
+    chapter_start_page: int
+    chapter_end_page: int
+    subject: Optional[str] = None
+    questions: list[dict] = Field(default_factory=list)
+    answer_markdown: str
+    created_at: Optional[int] = None
+    updated_at: Optional[int] = None
+
+
+class FileChapterHomeworkCreateForm(BaseModel):
+    chapter_title: str
+    chapter_start_page: int
+    chapter_end_page: int
+    subject: Optional[str] = None
+    questions: list[dict] = Field(default_factory=list)
+    answer_markdown: str = ""
+
+
+class FileChapterHomeworkUpdateForm(BaseModel):
+    questions: Optional[list[dict]] = None
+    answer_markdown: Optional[str] = None
+
+
+class FileChapterHomeworksTable:
+    def replace_homeworks(
+        self,
+        file_id: str,
+        homeworks: List[FileChapterHomeworkCreateForm],
+        db: Optional[Session] = None,
+    ) -> List[FileChapterHomeworkModel]:
+        with get_db_context(db) as db:
+            try:
+                db.query(FileChapterHomework).filter_by(file_id=file_id).delete()
+                db.flush()
+
+                now = int(time.time())
+                rows = []
+                for item in homeworks:
+                    row = FileChapterHomework(
+                        id=str(uuid.uuid4()),
+                        file_id=file_id,
+                        chapter_title=item.chapter_title,
+                        chapter_start_page=item.chapter_start_page,
+                        chapter_end_page=item.chapter_end_page,
+                        subject=item.subject,
+                        questions=item.questions,
+                        answer_markdown=item.answer_markdown,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    db.add(row)
+                    rows.append(row)
+
+                db.commit()
+                return [FileChapterHomeworkModel.model_validate(row) for row in rows]
+            except Exception as e:
+                log.exception(f"Error replacing chapter homeworks for file {file_id}: {e}")
+                db.rollback()
+                return []
+
+    def get_homeworks_by_file_id(
+        self, file_id: str, db: Optional[Session] = None
+    ) -> List[FileChapterHomeworkModel]:
+        with get_db_context(db) as db:
+            try:
+                rows = (
+                    db.query(FileChapterHomework)
+                    .filter_by(file_id=file_id)
+                    .order_by(FileChapterHomework.chapter_start_page.asc())
+                    .all()
+                )
+                return [FileChapterHomeworkModel.model_validate(row) for row in rows]
+            except Exception as e:
+                log.exception(f"Error getting chapter homeworks for file {file_id}: {e}")
+                return []
+
+    def get_homework_by_id(
+        self, homework_id: str, db: Optional[Session] = None
+    ) -> Optional[FileChapterHomeworkModel]:
+        with get_db_context(db) as db:
+            try:
+                row = db.get(FileChapterHomework, homework_id)
+                if row:
+                    return FileChapterHomeworkModel.model_validate(row)
+                return None
+            except Exception:
+                return None
+
+    def update_homework_by_id(
+        self,
+        homework_id: str,
+        form_data: FileChapterHomeworkUpdateForm,
+        db: Optional[Session] = None,
+    ) -> Optional[FileChapterHomeworkModel]:
+        with get_db_context(db) as db:
+            try:
+                row = db.get(FileChapterHomework, homework_id)
+                if not row:
+                    return None
+
+                if form_data.questions is not None:
+                    row.questions = form_data.questions
+                if form_data.answer_markdown is not None:
+                    row.answer_markdown = form_data.answer_markdown
+                row.updated_at = int(time.time())
+
+                db.commit()
+                db.refresh(row)
+                return FileChapterHomeworkModel.model_validate(row)
+            except Exception as e:
+                log.exception(f"Error updating chapter homework {homework_id}: {e}")
+                db.rollback()
+                return None
+
+
+FileChapterHomeworks = FileChapterHomeworksTable()

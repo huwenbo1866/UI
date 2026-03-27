@@ -38,7 +38,12 @@ from langchain_core.documents import Document
 
 from open_webui.utils.file_progress import update_file_progress
 from open_webui.models.files import FileModel, FileUpdateForm, Files, FileChapters, FileSections
+from open_webui.models.files import FileChapterHomeworkCreateForm, FileChapterHomeworks
 from open_webui.models.knowledge import Knowledges
+from open_webui.services.homework_generation import (
+    build_answer_markdown,
+    generate_chapter_homework_questions,
+)
 from open_webui.storage.provider import Storage
 from open_webui.internal.db import get_session, get_db
 from sqlalchemy.orm import Session
@@ -121,6 +126,128 @@ from open_webui.env import (
 from open_webui.constants import ERROR_MESSAGES
 
 log = logging.getLogger(__name__)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _infer_subject_from_filename(filename: str) -> str:
+    name = (filename or "").lower()
+    if any(keyword in name for keyword in ["语文", "chinese", "yw", "古诗", "阅读"]):
+        return "chinese"
+    if any(keyword in name for keyword in ["英语", "english", "yy", "词汇", "grammar"]):
+        return "english"
+    if any(keyword in name for keyword in ["数学", "math", "sx", "代数", "几何"]):
+        return "math"
+    return "general"
+
+
+def _build_simple_questions(subject: str, chapter_title: str) -> list[dict]:
+    title = chapter_title.strip() or "本章节"
+    if subject == "chinese":
+        return [
+            {
+                "type": "fill_blank",
+                "question": f"请补全：本章主题是《_____》。",
+                "answer": title,
+                "analysis": "回到章节标题，先抓住核心主题。",
+            },
+            {
+                "type": "choice",
+                "question": "下列哪项最符合本章学习目标？",
+                "options": ["识记关键概念", "背诵全书内容", "只做计算练习", "忽略文本细节"],
+                "answer": "A",
+                "analysis": "语文学习应先识记核心概念并理解文本。",
+            },
+            {
+                "type": "short_answer",
+                "question": "用一句话概括本章重点。",
+                "answer": title,
+                "analysis": "参考章节标题进行概括，保持简洁。",
+            },
+        ]
+    if subject == "english":
+        return [
+            {
+                "type": "translate",
+                "question": f"请将章节标题翻译成中文或英文（按你的教材语言）：{title}",
+                "answer": title,
+                "analysis": "翻译优先保证关键词准确。",
+            },
+            {
+                "type": "fill_blank",
+                "question": "请填空：本章核心任务是掌握 _____。",
+                "answer": "关键词与句型",
+                "analysis": "英语章节通常围绕关键词和句型展开。",
+            },
+            {
+                "type": "choice",
+                "question": "学习本章时，最重要的是：",
+                "options": ["理解语境并正确使用表达", "只记单词不看例句", "跳过课文直接做题", "只看答案"],
+                "answer": "A",
+                "analysis": "语言学习强调语境和实际表达。",
+            },
+        ]
+    if subject == "math":
+        return [
+            {
+                "type": "fill_blank",
+                "question": "本章首先要记住的概念/公式是：_____。",
+                "answer": title,
+                "analysis": "从章节标题定位核心概念或公式。",
+            },
+            {
+                "type": "short_answer",
+                "question": "写出本章一条解题步骤（简要）。",
+                "answer": "审题-列式-计算-检验",
+                "analysis": "先建立标准化步骤，降低错误率。",
+            },
+            {
+                "type": "choice",
+                "question": "做本章题目时应优先：",
+                "options": ["先审题再计算", "直接套公式", "不检查结果", "忽略单位"],
+                "answer": "A",
+                "analysis": "先审题可以显著减少低级错误。",
+            },
+        ]
+    return [
+        {
+            "type": "fill_blank",
+            "question": "请填空：本章的核心主题是 _____。",
+            "answer": title,
+            "analysis": "通过标题快速定位知识主线。",
+        },
+        {
+            "type": "short_answer",
+            "question": "本章最关键的一个知识点是什么？",
+            "answer": title,
+            "analysis": "优先回答章节最核心的概念。",
+        },
+        {
+            "type": "choice",
+            "question": "学习本章后最应该具备的能力是：",
+            "options": ["能解释核心概念", "只记住页码", "跳过基础题", "不做复习"],
+            "answer": "A",
+            "analysis": "理解并能解释概念是学习目标。",
+        },
+    ]
+
+
+def _build_answer_markdown(questions: list[dict]) -> str:
+    lines = ["# 参考答案", ""]
+    for idx, item in enumerate(questions, start=1):
+        lines.append(f"## 第{idx}题")
+        lines.append(f"- 题目：{item.get('question', '')}")
+        lines.append(f"- 答案：{item.get('answer', '')}")
+        analysis = item.get("analysis", "")
+        if analysis:
+            lines.append(f"- 解析：{analysis}")
+        lines.append("")
+    return "\n".join(lines).strip()
 
 ##########################################
 #
@@ -1806,6 +1933,60 @@ def process_file(
                             if chapters:
                                 FileChapters.insert_chapters(file.id, chapters, db=db)
                                 log.info(f"Extracted {len(chapters)} chapters for file {file.id}")
+
+                                chapter_homework_enabled = _env_bool(
+                                    "KNOWLEDGE_CHAPTER_HOMEWORK_ENABLED", True
+                                ) and _env_bool("KNOWLEDGE_CHAPTER_HOMEWORK_VISIBLE", True)
+                                if chapter_homework_enabled:
+                                    from open_webui.utils.chapters import extract_pdf_page_range_text
+
+                                    subject = _infer_subject_from_filename(file.filename or "")
+                                    homework_items = []
+                                    for chapter in chapters:
+                                        chapter_start = int(chapter.get("start_page", 0))
+                                        chapter_end = int(chapter.get("end_page", 0))
+                                        chapter_text = extract_pdf_page_range_text(
+                                            actual_path, chapter_start, chapter_end
+                                        )
+
+                                        if not (chapter_text or "").strip():
+                                            continue
+
+                                        try:
+                                            chapter_questions = asyncio.run(
+                                                generate_chapter_homework_questions(
+                                                    request=request,
+                                                    user=user,
+                                                    chapter_title=chapter.get("title", ""),
+                                                    chapter_content=chapter_text,
+                                                    subject=subject,
+                                                    count=5,
+                                                )
+                                            )
+                                        except Exception as e:
+                                            log.warning(
+                                                f"Chapter homework generation failed for file {file.id} chapter {chapter.get('title', '')}: {e}"
+                                            )
+                                            continue
+
+                                        homework_items.append(
+                                            FileChapterHomeworkCreateForm(
+                                                chapter_title=chapter.get("title", ""),
+                                                chapter_start_page=chapter_start,
+                                                chapter_end_page=chapter_end,
+                                                subject=subject,
+                                                questions=chapter_questions,
+                                                answer_markdown=build_answer_markdown(chapter_questions),
+                                            )
+                                        )
+
+                                    if homework_items:
+                                        FileChapterHomeworks.replace_homeworks(
+                                            file.id, homework_items, db=db
+                                        )
+                                        log.info(
+                                            f"Generated {len(homework_items)} chapter homeworks for file {file.id}"
+                                        )
                             total_pages = get_pdf_total_pages(actual_path)
                             if total_pages > 0:
                                 Files.update_file_metadata_by_id(
