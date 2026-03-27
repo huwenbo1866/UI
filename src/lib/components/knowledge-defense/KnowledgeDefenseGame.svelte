@@ -6,7 +6,8 @@
   import {
     wrongQuestions,
     refreshWrongQuestions,
-    recordWrongQuestionEntry
+    recordWrongQuestionEntry,
+    markWrongQuestionCorrectEntry
   } from '$lib/stores/knowledge-defense';
   import type { WrongQuestionRecord } from '$lib/apis/knowledge-defense';
 
@@ -248,12 +249,20 @@
     showPrepModal = false;
   }
 
+  function handlePrepMaskClick(event: MouseEvent) {
+    if (event.target === event.currentTarget) closePrepZone();
+  }
+
   function openSettings() {
     showSettingsModal = true;
   }
 
   function closeSettings() {
     showSettingsModal = false;
+  }
+
+  function handleSettingsMaskClick(event: MouseEvent) {
+    if (event.target === event.currentTarget) closeSettings();
   }
 
   function applyAttackMode(mode: AttackMode) {
@@ -431,6 +440,23 @@
     }
   }
 
+  async function resolveWrongQuestionProgress(question: Question) {
+    const existing = wrongNotebook.find((item) => item.question_id === question.id);
+    if (!existing) return null;
+
+    try {
+      return await markWrongQuestionCorrectEntry({
+        source_type: 'pack',
+        source_id: pack.id,
+        question_id: question.id,
+        mastery_threshold: 2
+      });
+    } catch (error) {
+      console.error('更新错题掌握进度失败', error);
+      return null;
+    }
+  }
+
   function finishGame(win: boolean) {
     if (gameOver) return;
     running = false;
@@ -474,8 +500,6 @@
           vy: Math.sin(angle) * speed,
           radius: 10,
           damage,
-          lifeMs: 1600,
-          hitMonsterIds: []
         }
       ];
     }, delay);
@@ -507,11 +531,20 @@
     }
     if (answer === modalQuestion.answer) {
       correct += 1;
-      setToast(
-        selectedAttackMode === 'straight'
-          ? '回答正确！已发射 4 枚直线子弹。'
-          : '回答正确！已发射 8 枚散射子弹。'
-      );
+      const resolveResult = await resolveWrongQuestionProgress(modalQuestion);
+
+      if (resolveResult?.removed) {
+        setToast('回答正确！这道错题已连续答对 2 次，已从备战区移除。');
+      } else if (resolveResult && resolveResult.streak > 0) {
+        setToast(`回答正确！错题巩固进度 ${resolveResult.streak}/${resolveResult.target}。`);
+      } else {
+        setToast(
+          selectedAttackMode === 'straight'
+            ? '回答正确！已发射 4 枚直线子弹。'
+            : '回答正确！已发射 8 枚散射子弹。'
+        );
+      }
+
       fireBurst(monster);
     } else {
       wrong += 1;
@@ -521,37 +554,47 @@
     closeQuestion();
   }
 
-  function updateProjectiles(dt: number) {
-    const next: Projectile[] = [];
-    for (const dot of projectiles) {
-      dot.x += dot.vx * dt;
-      dot.y += dot.vy * dt;
-      dot.lifeMs -= dt * 1000;
-      if (dot.lifeMs <= 0) continue;
-      if (dot.x < -50 || dot.x > width + 50 || dot.y < -50 || dot.y > height + 50) continue;
+function updateProjectiles(dt: number) {
+  const next: Projectile[] = [];
 
-      let consumed = false;
-      for (const monster of activeMonsters) {
-        if (monster.isDead) continue;
-        if (dot.hitMonsterIds.includes(monster.id)) continue;
-        const dist = distance(dot.x, dot.y, monster.x, monster.y);
-        if (dist <= dot.radius + monster.radius) {
-          monster.hp = clamp(monster.hp - dot.damage, 0, monster.maxHp);
-          dot.hitMonsterIds = [...dot.hitMonsterIds, monster.id];
-          spawnDamagePopup(monster.x, monster.y - 8, `-${dot.damage}`, '#ffd166');
-          consumed = true;
-          if (monster.hp <= 0) {
-            monster.isDead = true;
-            removeMonster(monster.id);
-          }
-          break;
-        }
-      }
+  for (const dot of projectiles) {
+    dot.x += dot.vx * dt;
+    dot.y += dot.vy * dt;
 
-      if (!consumed) next.push(dot);
+    // 一旦超出界面，立刻消亡
+    if (dot.x < 0 || dot.x > width || dot.y < 0 || dot.y > height) {
+      continue;
     }
-    projectiles = next;
+
+    let hit = false;
+
+    for (const monster of activeMonsters) {
+      if (monster.isDead) continue;
+
+      const dist = distance(dot.x, dot.y, monster.x, monster.y);
+      if (dist <= dot.radius + monster.radius) {
+        monster.hp = clamp(monster.hp - dot.damage, 0, monster.maxHp);
+        spawnDamagePopup(monster.x, monster.y - 8, `-${dot.damage}`, '#ffd166');
+
+        // 命中后子弹立刻消亡
+        hit = true;
+
+        if (monster.hp <= 0) {
+          monster.isDead = true;
+          removeMonster(monster.id);
+        }
+
+        break;
+      }
+    }
+
+    if (!hit) {
+      next.push(dot);
+    }
   }
+
+  projectiles = next;
+}
 
   function updateDamagePopups(dt: number) {
     damagePopups = damagePopups
@@ -809,14 +852,17 @@
     {/if}
 
     {#if showPrepModal}
-      <div class="prep-modal-mask">
-        <div class="prep-modal-card light-theme">
+      <div class="prep-modal-mask" on:click={handlePrepMaskClick}>
+        <div class="prep-modal-card light-theme" on:click|stopPropagation>
           <div class="prep-header">
-            <div>
+            <div class="prep-header-copy">
               <h3>备战区 · 错题回看</h3>
               <p>这里保留近期错题、正确答案与解析，并根据你的错题情况给出针对性建议。</p>
             </div>
-            <span class="prep-count">{wrongNotebook.length} 题</span>
+            <div class="prep-header-actions">
+              <span class="prep-count">{wrongNotebook.length} 题</span>
+              <button class="prep-close-btn" on:click={closePrepZone} aria-label="关闭备战区" title="关闭备战区">×</button>
+            </div>
           </div>
 
           <div class="prep-grid">
@@ -835,6 +881,7 @@
                       <div class="prep-line"><strong>你当时选了：</strong>{item.last_user_answer}</div>
                       <div class="prep-line"><strong>正确答案：</strong>{item.correct_answer}</div>
                       <div class="prep-line"><strong>解析：</strong>{item.explanation}</div>
+                      <div class="prep-line"><strong>连续答对：</strong>{item.consecutive_correct_count}/2</div>
                       <div class="prep-line"><strong>最近答错：</strong>{new Date(item.last_wrong_at).toLocaleString()}</div>
                     </article>
                   {/each}
@@ -843,62 +890,64 @@
             </div>
 
             <aside class="analysis-panel">
-              <h4>错题分析</h4>
-              <div class="analysis-metrics">
-                <div class="metric-card"><span>错题总数</span><strong>{wrongAnalysis.total}</strong></div>
-                <div class="metric-card"><span>反复错题</span><strong>{wrongAnalysis.repeated}</strong></div>
+              <div class="analysis-head">
+                <h4>错题分析</h4>
+                <span class="analysis-hint">右侧内容可滚动</span>
               </div>
 
-              <div class="analysis-section">
-                <h5>错题类型</h5>
-                {#if wrongAnalysis.typeEntries.length === 0}
-                  <p class="muted">暂无数据</p>
-                {:else}
-                  <ul class="analysis-list compact">
-                    {#each wrongAnalysis.typeEntries as [type, count]}
-                      <li><span>{type}</span><strong>{count}</strong></li>
+              <div class="analysis-scroll">
+                <div class="analysis-metrics">
+                  <div class="metric-card"><span>错题总数</span><strong>{wrongAnalysis.total}</strong></div>
+                  <div class="metric-card"><span>反复错题</span><strong>{wrongAnalysis.repeated}</strong></div>
+                </div>
+
+                <div class="analysis-section">
+                  <h5>错题类型</h5>
+                  {#if wrongAnalysis.typeEntries.length === 0}
+                    <p class="muted">暂无数据</p>
+                  {:else}
+                    <ul class="analysis-list compact">
+                      {#each wrongAnalysis.typeEntries as [type, count]}
+                        <li><span>{type}</span><strong>{count}</strong></li>
+                      {/each}
+                    </ul>
+                  {/if}
+                </div>
+
+                <div class="analysis-section">
+                  <h5>经常性错题</h5>
+                  {#if wrongAnalysis.frequent.length === 0}
+                    <p class="muted">暂无数据</p>
+                  {:else}
+                    <ul class="analysis-list">
+                      {#each wrongAnalysis.frequent as item}
+                        <li>
+                          <span>{item.question}</span>
+                          <strong>{item.wrong_count} 次</strong>
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
+                </div>
+
+                <div class="analysis-section">
+                  <h5>学习建议</h5>
+                  <ul class="advice-list">
+                    {#each wrongAnalysis.advice as item}
+                      <li>{item}</li>
                     {/each}
                   </ul>
-                {/if}
-              </div>
-
-              <div class="analysis-section">
-                <h5>经常性错题</h5>
-                {#if wrongAnalysis.frequent.length === 0}
-                  <p class="muted">暂无数据</p>
-                {:else}
-                  <ul class="analysis-list">
-                    {#each wrongAnalysis.frequent as item}
-                      <li>
-                        <span>{item.question}</span>
-                        <strong>{item.wrong_count} 次</strong>
-                      </li>
-                    {/each}
-                  </ul>
-                {/if}
-              </div>
-
-              <div class="analysis-section">
-                <h5>学习建议</h5>
-                <ul class="advice-list">
-                  {#each wrongAnalysis.advice as item}
-                    <li>{item}</li>
-                  {/each}
-                </ul>
+                </div>
               </div>
             </aside>
-          </div>
-
-          <div class="result-actions">
-            <button class="start-btn primary" on:click={closePrepZone}>关闭备战区</button>
           </div>
         </div>
       </div>
     {/if}
 
     {#if showSettingsModal}
-      <div class="prep-modal-mask">
-        <div class="settings-card light-theme">
+      <div class="prep-modal-mask" on:click={handleSettingsMaskClick}>
+        <div class="settings-card light-theme" on:click|stopPropagation>
           <div class="prep-header">
             <div>
               <h3>设置</h3>
@@ -1155,32 +1204,49 @@
 
   .prep-modal-card,
   .settings-card {
-    width: min(1360px, 100%);
-    max-height: min(82vh, 980px);
-    border-radius: 28px;
-    padding: 24px;
+    width: min(1240px, 100%);
+    max-height: min(88vh, 960px);
+    border-radius: 24px;
+    padding: 18px;
     overflow: hidden;
+  }
+
+  .prep-modal-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
   .prep-header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 18px;
-    margin-bottom: 18px;
+    gap: 14px;
+    margin-bottom: 4px;
+  }
+
+  .prep-header-copy {
+    min-width: 0;
   }
 
   .prep-header h3 {
     margin: 0;
-    font-size: 28px;
+    font-size: 22px;
     color: #5a4638;
   }
 
   .prep-header p {
-    margin: 10px 0 0;
-    font-size: 18px;
-    line-height: 1.6;
+    margin: 6px 0 0;
+    font-size: 14px;
+    line-height: 1.55;
     color: #7b6757;
+  }
+
+  .prep-header-actions {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
 
   .prep-count {
@@ -1188,31 +1254,52 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 10px 16px;
+    padding: 8px 14px;
     border-radius: 999px;
     background: #fff;
     color: #6b5849;
     font-weight: 700;
+    font-size: 14px;
     border: 1px solid #ddcfbf;
+  }
+
+  .prep-close-btn {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #d9cab9;
+    border-radius: 12px;
+    background: #fffdf9;
+    color: #6a5545;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(88, 67, 42, 0.08);
+  }
+
+  .prep-close-btn:hover {
+    background: #fff4e6;
   }
 
   .prep-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.95fr);
-    gap: 20px;
+    grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.9fr);
+    gap: 16px;
     min-height: 0;
-    max-height: calc(82vh - 150px);
+    flex: 1;
+    overflow: hidden;
   }
 
   .prep-left {
     min-height: 0;
+    display: flex;
   }
 
   .prep-list {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-    max-height: calc(82vh - 180px);
+    gap: 12px;
+    width: 100%;
+    min-height: 0;
     overflow: auto;
     padding-right: 6px;
   }
@@ -1226,45 +1313,46 @@
   }
 
   .prep-card {
-    padding: 18px;
+    padding: 14px;
   }
 
   .prep-card-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: 10px;
+    margin-bottom: 10px;
   }
 
   .prep-tag {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-radius: 999px;
     background: #f8d7d1;
     color: #9a5b54;
     font-weight: 700;
-    font-size: 14px;
+    font-size: 12px;
   }
 
   .prep-times {
     color: #8e7a69;
     font-weight: 700;
+    font-size: 13px;
   }
 
   .prep-card h4 {
-    margin: 0 0 14px;
-    font-size: 30px;
-    line-height: 1.55;
+    margin: 0 0 10px;
+    font-size: 18px;
+    line-height: 1.5;
     color: #574637;
   }
 
   .prep-line {
-    margin-top: 8px;
-    font-size: 17px;
-    line-height: 1.7;
+    margin-top: 6px;
+    font-size: 14px;
+    line-height: 1.6;
     color: #655240;
   }
 
@@ -1274,50 +1362,71 @@
   }
 
   .analysis-panel {
-    position: sticky;
-    top: 0;
-    align-self: start;
-    padding: 18px;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 14px;
+    overflow: hidden;
+  }
+
+  .analysis-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
   }
 
   .analysis-panel h4 {
-    margin: 0 0 16px;
-    font-size: 24px;
+    margin: 0;
+    font-size: 20px;
     color: #4d3f34;
+  }
+
+  .analysis-hint {
+    font-size: 12px;
+    color: #8b7766;
+  }
+
+  .analysis-scroll {
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 6px;
   }
 
   .analysis-metrics {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
   }
 
   .metric-card {
     background: #fff;
     border: 1px solid #eaded1;
-    border-radius: 16px;
-    padding: 14px;
+    border-radius: 14px;
+    padding: 12px;
   }
 
   .metric-card span {
     display: block;
     color: #8a7666;
-    font-size: 14px;
-    margin-bottom: 6px;
+    font-size: 12px;
+    margin-bottom: 4px;
   }
 
   .metric-card strong {
-    font-size: 28px;
+    font-size: 18px;
     color: #534233;
   }
 
   .analysis-section {
-    margin-top: 18px;
+    margin-top: 14px;
   }
 
   .analysis-section h5 {
-    margin: 0 0 10px;
-    font-size: 18px;
+    margin: 0 0 8px;
+    font-size: 15px;
     color: #5a4838;
   }
 
@@ -1337,10 +1446,10 @@
   .analysis-list li {
     display: flex;
     justify-content: space-between;
-    gap: 12px;
-    padding: 8px 0;
+    gap: 10px;
+    padding: 7px 0;
     border-bottom: 1px dashed #eaded1;
-    font-size: 15px;
+    font-size: 13px;
   }
 
   .analysis-list li span {
@@ -1354,19 +1463,21 @@
   }
 
   .advice-list li {
-    margin-top: 8px;
-    line-height: 1.65;
+    margin-top: 6px;
+    line-height: 1.55;
+    font-size: 13px;
   }
 
   .muted,
   .prep-empty {
     color: #867260;
-    font-size: 16px;
-    line-height: 1.6;
+    font-size: 14px;
+    line-height: 1.55;
   }
 
   .prep-empty {
-    padding: 18px;
+    width: 100%;
+    padding: 16px;
     border-radius: 18px;
     background: #fffaf4;
     border: 1px solid #e2d5c8;

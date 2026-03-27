@@ -39,8 +39,6 @@ export interface Projectile {
   vy: number;
   radius: number;
   damage: number;
-  lifeMs: number;
-  hitMonsterIds: string[];
 }
 
 export interface FinishStats {

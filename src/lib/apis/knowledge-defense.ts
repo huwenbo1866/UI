@@ -16,6 +16,7 @@ export interface WrongQuestionRecord {
 	explanation: string;
 	last_user_answer: string;
 	wrong_count: number;
+	consecutive_correct_count: number;
 	first_wrong_at: number;
 	last_wrong_at: number;
 	created_at?: number;
@@ -38,6 +39,20 @@ export interface UpsertWrongQuestionPayload {
 	correct_answer: string;
 	explanation: string;
 	last_user_answer: string;
+}
+
+export interface MarkWrongQuestionCorrectPayload {
+	source_type: WrongQuestionSourceType;
+	source_id?: string | null;
+	question_id: string;
+	mastery_threshold?: number;
+}
+
+export interface MarkWrongQuestionCorrectResponse {
+	removed: boolean;
+	streak: number;
+	target: number;
+	item?: WrongQuestionRecord | null;
 }
 
 interface ListWrongQuestionParams {
@@ -124,6 +139,15 @@ export async function deleteWrongQuestion(id: string): Promise<void> {
 			method: 'DELETE'
 		}
 	);
+}
+
+export async function markWrongQuestionCorrect(
+	payload: MarkWrongQuestionCorrectPayload
+): Promise<MarkWrongQuestionCorrectResponse> {
+	return request<MarkWrongQuestionCorrectResponse>('/knowledge-defense/wrong-questions/mark-correct', {
+		method: 'POST',
+		body: JSON.stringify(payload)
+	});
 }
 
 export async function clearWrongQuestions(

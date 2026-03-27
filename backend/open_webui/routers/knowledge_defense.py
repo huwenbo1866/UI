@@ -7,6 +7,8 @@ from open_webui.internal.db import get_session
 from open_webui.models.knowledge_defense import (
     WrongQuestionListResponse,
     WrongQuestionModel,
+    WrongQuestionResolveForm,
+    WrongQuestionResolveResponse,
     WrongQuestionUpsertForm,
     WrongQuestions,
 )
@@ -41,6 +43,15 @@ async def upsert_wrong_question(
     db: Session = Depends(get_session),
 ):
     return WrongQuestions.upsert_wrong_question(user_id=user.id, form_data=form_data, db=db)
+
+
+@router.post('/wrong-questions/mark-correct', response_model=WrongQuestionResolveResponse)
+async def mark_wrong_question_correct(
+    form_data: WrongQuestionResolveForm,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    return WrongQuestions.mark_wrong_question_correct(user_id=user.id, form_data=form_data, db=db)
 
 
 @router.delete('/wrong-questions/{wrong_question_id}', status_code=status.HTTP_204_NO_CONTENT)

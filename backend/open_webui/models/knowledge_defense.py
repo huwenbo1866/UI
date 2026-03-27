@@ -27,6 +27,7 @@ class KnowledgeDefenseWrongQuestion(Base):
     last_user_answer = Column(Text, nullable=False)
 
     wrong_count = Column(BigInteger, nullable=False, default=1)
+    consecutive_correct_count = Column(BigInteger, nullable=False, default=0)
     first_wrong_at = Column(BigInteger, nullable=False)
     last_wrong_at = Column(BigInteger, nullable=False, index=True)
     created_at = Column(BigInteger, nullable=False)
@@ -49,6 +50,7 @@ class WrongQuestionModel(BaseModel):
     explanation: str
     last_user_answer: str
     wrong_count: int
+    consecutive_correct_count: int
     first_wrong_at: int
     last_wrong_at: int
     created_at: int
@@ -66,6 +68,20 @@ class WrongQuestionUpsertForm(BaseModel):
     correct_answer: str
     explanation: str
     last_user_answer: str
+
+
+class WrongQuestionResolveForm(BaseModel):
+    source_type: str = 'pack'
+    source_id: Optional[str] = None
+    question_id: str
+    mastery_threshold: int = 2
+
+
+class WrongQuestionResolveResponse(BaseModel):
+    removed: bool
+    streak: int
+    target: int
+    item: Optional[WrongQuestionModel] = None
 
 
 class WrongQuestionListResponse(BaseModel):
@@ -139,6 +155,7 @@ class KnowledgeDefenseWrongQuestionTable:
                 existing.file_id = form_data.file_id
                 existing.chapter = form_data.chapter
                 existing.wrong_count = int(existing.wrong_count or 0) + 1
+                existing.consecutive_correct_count = 0
                 existing.last_wrong_at = now
                 existing.updated_at = now
                 db.commit()
@@ -159,6 +176,7 @@ class KnowledgeDefenseWrongQuestionTable:
                 explanation=form_data.explanation,
                 last_user_answer=form_data.last_user_answer,
                 wrong_count=1,
+                consecutive_correct_count=0,
                 first_wrong_at=now,
                 last_wrong_at=now,
                 created_at=now,
@@ -168,6 +186,59 @@ class KnowledgeDefenseWrongQuestionTable:
             db.commit()
             db.refresh(row)
             return self._to_model(row)
+
+    def mark_wrong_question_correct(
+        self,
+        user_id: str,
+        form_data: WrongQuestionResolveForm,
+        db: Optional[Session] = None,
+    ) -> WrongQuestionResolveResponse:
+        now = int(time.time() * 1000)
+        target = max(1, int(form_data.mastery_threshold or 2))
+
+        with get_db_context(db) as db:
+            row = (
+                db.query(KnowledgeDefenseWrongQuestion)
+                .filter(
+                    and_(
+                        KnowledgeDefenseWrongQuestion.user_id == user_id,
+                        KnowledgeDefenseWrongQuestion.source_type == form_data.source_type,
+                        KnowledgeDefenseWrongQuestion.source_id == form_data.source_id,
+                        KnowledgeDefenseWrongQuestion.question_id == form_data.question_id,
+                    )
+                )
+                .first()
+            )
+
+            if not row:
+                return WrongQuestionResolveResponse(
+                    removed=False,
+                    streak=0,
+                    target=target,
+                    item=None,
+                )
+
+            row.consecutive_correct_count = int(row.consecutive_correct_count or 0) + 1
+            row.updated_at = now
+
+            if int(row.consecutive_correct_count or 0) >= target:
+                db.delete(row)
+                db.commit()
+                return WrongQuestionResolveResponse(
+                    removed=True,
+                    streak=target,
+                    target=target,
+                    item=None,
+                )
+
+            db.commit()
+            db.refresh(row)
+            return WrongQuestionResolveResponse(
+                removed=False,
+                streak=int(row.consecutive_correct_count or 0),
+                target=target,
+                item=self._to_model(row),
+            )
 
     def delete_wrong_question(
         self,

@@ -4,9 +4,12 @@ import {
   upsertWrongQuestion,
   deleteWrongQuestion,
   clearWrongQuestions,
+  markWrongQuestionCorrect,
   type WrongQuestionRecord,
   type WrongQuestionSourceType,
-  type UpsertWrongQuestionPayload
+  type UpsertWrongQuestionPayload,
+  type MarkWrongQuestionCorrectPayload,
+  type MarkWrongQuestionCorrectResponse
 } from '$lib/apis/knowledge-defense';
 
 export const wrongQuestions = writable<WrongQuestionRecord[]>([]);
@@ -60,4 +63,23 @@ export async function removeWrongQuestionEntry(id: string) {
 export async function clearWrongQuestionEntries(source_type?: WrongQuestionSourceType, source_id?: string | null) {
   await clearWrongQuestions(source_type, source_id);
   wrongQuestions.set([]);
+}
+
+
+export async function markWrongQuestionCorrectEntry(
+  payload: MarkWrongQuestionCorrectPayload
+): Promise<MarkWrongQuestionCorrectResponse> {
+  wrongQuestionsError.set(null);
+  const result = await markWrongQuestionCorrect(payload);
+
+  if (result.removed) {
+    wrongQuestions.update((items) => items.filter((item) => item.question_id !== payload.question_id));
+    return result;
+  }
+
+  if (result.item) {
+    wrongQuestions.update((items) => upsertLocal(items, result.item!));
+  }
+
+  return result;
 }
