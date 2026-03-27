@@ -9,7 +9,7 @@ export const MAX_ALIVE_MONSTERS = 8;                        // 场上最多同�
 // ==================== 玩家参数 ====================
 export const PLAYER_MAX_HP = 200;                           // 玩家最大血量
 export const PLAYER_RADIUS = 34;                            // 玩家碰撞半径（像素）
-export const PLAYER_SPEED = 80;                            // 玩家移动速度（像素/秒）
+export const PLAYER_SPEED = 80;                             // 玩家移动速度（像素/秒）
 export const PLAYER_CONTACT_IFRAME_MS = 700;                // 玩家被怪物接触后的无敌时间（毫秒）
 
 // ==================== 怪物参数 ====================
@@ -86,6 +86,28 @@ export const ENABLE_CLICK_SOUND = true;                     // 按钮点击音�
 export const ENABLE_HIT_SOUND = true;                       // 怪物被击中音效开关
 export const ENABLE_DEATH_SOUND = true;                     // 怪物死亡音效开关
 export const ENABLE_PANEL_SOUND = true;                     // 面板打开/关闭音效开关
+
+// ==================== 错题分析 AI 配置 ====================
+export const ENABLE_AI_WRONG_QUESTION_ANALYSIS = true;      // 是否开启 AI 分析（总开关）
+
+// ==================== 自定义大模型配置 ====================
+export const AI_BASE_URL = 'https://api.siliconflow.cn/v1';     
+export const AI_API_KEY = 'sk-viymlevjwnpccmttywzsafqigacubewqnqouzgcbroijzycl';                      
+export const AI_MODEL = 'deepseek-ai/DeepSeek-V3.2';                     
+
+export const AI_ANALYSIS_PROMPT = `
+你是一个专业的教育AI助手。请对以下结构化的错题记录进行分析。
+
+请严格按照以下JSON格式返回，不要添加任何额外文字和解释：
+
+{
+  "typeEntries": [ ["类型名称", 数量], ... ],   
+  "advice": [ "建议1", "建议2", ... ]           
+}
+
+错题记录：
+{questions}
+`;
 
 export function getTotalExpRequiredForLevel(level: number) {
   if (level <= 1) return 0;

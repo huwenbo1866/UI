@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { get } from 'svelte/store';
   import { PLAYFIELD_MIN_HEIGHT } from '../config/constants';
-  import type { QuestionPack, RewardChoice } from '../core/types';
+  import type { QuestionPack, RewardChoice, WrongNotebookStats } from '../core/types';
   import { samplePack } from '../data/sample-pack';
   import { createInitialGameState } from '../state/game-store';
   import { audioManager } from '../systems/audio-manager';
@@ -49,13 +49,19 @@
   let rewardPanelOpenedFromPending = false;
   let showExitConfirm = false;
 
+  // 非阻塞的错题分析统计（默认本地回退值，AI 只在打开面板时才异步执行）
+  let wrongNotebookStats: WrongNotebookStats = {
+    total: 0,
+    repeated: 0,
+    typeEntries: [],
+    advice: ['加载中...']
+  };
+
   const input = createInputState();
 
   const unsubscribeWrongNotebook = wrongNotebookStore.subscribe((items) => {
     wrongNotebook = items;
   });
-
-  $: wrongNotebookStats = buildWrongNotebookStats(wrongNotebook);
 
   function resizeArena() {
     if (!hostEl) return;
@@ -134,11 +140,26 @@
     state = { ...state };
   }
 
-  function openPrepPanel() {
+  // ========== 非阻塞核心：只有真正打开错题集时才异步调用 AI ==========
+  async function openPrepPanel() {
     if (showExitConfirm) return;
     state.ui.showPrepPanel = true;
     state.ui.showSettingsPanel = false;
     state = { ...state };
+
+    // 异步 + 完全错误隔离，绝不阻塞任何面板
+    try {
+      const stats = await buildWrongNotebookStats(wrongNotebook);
+      wrongNotebookStats = stats;
+    } catch (err) {
+      console.warn('AI 分析失败，已自动回退本地逻辑', err);
+      wrongNotebookStats = {
+        total: wrongNotebook.length,
+        repeated: wrongNotebook.filter(i => i.wrong_count >= 2).length,
+        typeEntries: [],
+        advice: ['AI 分析暂时不可用，使用本地统计']
+      };
+    }
   }
 
   function closePrepPanel() {
@@ -346,7 +367,6 @@
     if (frameHandle) cancelAnimationFrame(frameHandle);
   });
 </script>
-
 
 <div class="page-shell">
   {#if state.ui.showStartMenu}
