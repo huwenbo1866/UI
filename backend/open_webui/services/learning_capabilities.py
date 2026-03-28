@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from open_webui.env import LEARNING_CAPABILITIES_CONFIG_PATH
 from open_webui.models.chat_messages import ChatMessages
 
 
 CAPABILITY_SCORE_LABEL = "成长指数"
 RECENT_MESSAGE_LIMIT = 120
+log = logging.getLogger(__name__)
 
 
 CAPABILITY_DEFINITIONS = [
@@ -184,9 +187,130 @@ CAPABILITY_DEFINITIONS = [
     },
 ]
 
-CAPABILITY_MAP = {item["key"]: item for item in CAPABILITY_DEFINITIONS}
 QUESTION_SIGNALS = ["?", "？", "为什么", "怎么", "如何", "能不能", "可不可以"]
 FOLLOW_UP_SIGNALS = ["还有", "还能", "如果", "除了", "换一种", "是否", "比较"]
+
+DEFAULT_LEARNING_CAPABILITIES_CONFIG = {
+    "metric_label": CAPABILITY_SCORE_LABEL,
+    "recent_message_limit": RECENT_MESSAGE_LIMIT,
+    "question_signals": QUESTION_SIGNALS,
+    "follow_up_signals": FOLLOW_UP_SIGNALS,
+    "capabilities": CAPABILITY_DEFINITIONS,
+}
+
+
+def _normalize_string_list(values: Any, fallback: list[str]) -> list[str]:
+    if not isinstance(values, list):
+        return fallback
+
+    normalized_values = [
+        value.strip() for value in values if isinstance(value, str) and value.strip()
+    ]
+    return normalized_values or fallback
+
+
+def _normalize_capability_definitions(
+    values: Any, fallback: list[dict]
+) -> list[dict]:
+    if not isinstance(values, list):
+        return fallback
+
+    normalized_capabilities = []
+    for capability in values:
+        if not isinstance(capability, dict):
+            continue
+
+        key = capability.get("key")
+        label = capability.get("label")
+        prompt = capability.get("prompt")
+        description = capability.get("description", "")
+        signals = _normalize_string_list(capability.get("signals"), [])
+
+        if not (
+            isinstance(key, str)
+            and key.strip()
+            and isinstance(label, str)
+            and label.strip()
+            and isinstance(prompt, str)
+            and prompt.strip()
+            and signals
+        ):
+            continue
+
+        normalized_capabilities.append(
+            {
+                "key": key.strip(),
+                "label": label.strip(),
+                "description": description.strip()
+                if isinstance(description, str)
+                else "",
+                "prompt": prompt.strip(),
+                "signals": signals,
+            }
+        )
+
+    return normalized_capabilities or fallback
+
+
+def _load_learning_capabilities_config() -> dict:
+    config = copy.deepcopy(DEFAULT_LEARNING_CAPABILITIES_CONFIG)
+
+    if not LEARNING_CAPABILITIES_CONFIG_PATH.exists():
+        log.info(
+            "Learning capabilities config not found at %s, using built-in defaults.",
+            LEARNING_CAPABILITIES_CONFIG_PATH,
+        )
+        return config
+
+    try:
+        loaded_config = json.loads(
+            LEARNING_CAPABILITIES_CONFIG_PATH.read_text(encoding="utf-8")
+        )
+        if not isinstance(loaded_config, dict):
+            raise ValueError("learning capabilities config must be a JSON object")
+
+        metric_label = loaded_config.get("metric_label")
+        if isinstance(metric_label, str) and metric_label.strip():
+            config["metric_label"] = metric_label.strip()
+
+        recent_message_limit = loaded_config.get("recent_message_limit")
+        if isinstance(recent_message_limit, int) and recent_message_limit > 0:
+            config["recent_message_limit"] = recent_message_limit
+
+        config["question_signals"] = _normalize_string_list(
+            loaded_config.get("question_signals"),
+            config["question_signals"],
+        )
+        config["follow_up_signals"] = _normalize_string_list(
+            loaded_config.get("follow_up_signals"),
+            config["follow_up_signals"],
+        )
+        config["capabilities"] = _normalize_capability_definitions(
+            loaded_config.get("capabilities"),
+            config["capabilities"],
+        )
+
+        log.info(
+            "Loaded learning capabilities config from %s",
+            LEARNING_CAPABILITIES_CONFIG_PATH,
+        )
+    except Exception as exc:
+        log.warning(
+            "Failed to load learning capabilities config from %s, using built-in defaults: %s",
+            LEARNING_CAPABILITIES_CONFIG_PATH,
+            exc,
+        )
+
+    return config
+
+
+LEARNING_CAPABILITIES_CONFIG = _load_learning_capabilities_config()
+CAPABILITY_SCORE_LABEL = LEARNING_CAPABILITIES_CONFIG["metric_label"]
+RECENT_MESSAGE_LIMIT = LEARNING_CAPABILITIES_CONFIG["recent_message_limit"]
+QUESTION_SIGNALS = LEARNING_CAPABILITIES_CONFIG["question_signals"]
+FOLLOW_UP_SIGNALS = LEARNING_CAPABILITIES_CONFIG["follow_up_signals"]
+CAPABILITY_DEFINITIONS = LEARNING_CAPABILITIES_CONFIG["capabilities"]
+CAPABILITY_MAP = {item["key"]: item for item in CAPABILITY_DEFINITIONS}
 
 
 def _coerce_dict(value: Any) -> dict:

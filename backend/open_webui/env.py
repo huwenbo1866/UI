@@ -31,12 +31,25 @@ BACKEND_DIR = OPEN_WEBUI_DIR.parent
 # BASE_DIR is the parent of BACKEND_DIR (open-webui-dev/)
 BASE_DIR = BACKEND_DIR.parent
 
-
 try:
     from dotenv import find_dotenv, load_dotenv
     load_dotenv(find_dotenv(str(BASE_DIR / ".env")))
 except ImportError:
     print("dotenv not installed, skipping...")
+
+LEARNING_CAPABILITIES_CONFIG_PATH = Path(
+    os.environ.get(
+        "LEARNING_CAPABILITIES_CONFIG_PATH",
+        str(OPEN_WEBUI_DIR / "data" / "learning_capabilities.json"),
+    )
+).expanduser()
+
+if not LEARNING_CAPABILITIES_CONFIG_PATH.is_absolute():
+    LEARNING_CAPABILITIES_CONFIG_PATH = (
+        BASE_DIR / LEARNING_CAPABILITIES_CONFIG_PATH
+    ).resolve()
+else:
+    LEARNING_CAPABILITIES_CONFIG_PATH = LEARNING_CAPABILITIES_CONFIG_PATH.resolve()
 
 GLOBAL_CHAT_SYSTEM_PROMPT = os.environ.get("GLOBAL_CHAT_SYSTEM_PROMPT", "").strip()
 print("DEBUG GLOBAL_CHAT_SYSTEM_PROMPT =", repr(GLOBAL_CHAT_SYSTEM_PROMPT))
