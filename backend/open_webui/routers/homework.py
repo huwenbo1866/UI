@@ -566,6 +566,7 @@ async def list_homeworks(
                 "id": item.id,
                 "title": item.title,
                 "source_file": item.source_file,
+                "source_file_id": item.source_file_id,
                 "created_at": item.created_at,
                 "question_count": len(questions),
                 "difficulty_config": item.difficulty_config or {},

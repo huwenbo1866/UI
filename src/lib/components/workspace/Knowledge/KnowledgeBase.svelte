@@ -30,6 +30,7 @@
 		extractFileChapters,
 		updateFileChapterHomework
 	} from '$lib/apis/files';
+	import { listHomeworks, getHomeworkById } from '$lib/apis/homework';
 	import {
 		addFileToKnowledgeById,
 		getKnowledgeById,
@@ -108,11 +109,24 @@
 	let fileChapterHomeworks: any[] = [];
 	let selectedChapterHomework: any = null;
 	let chapterHomeworkVisible = false;
+	let chapterHomeworkLoading = false;
+	let chapterHomeworkGenerating = false;
+	let chapterHomeworkPollCount = 0;
+	let chapterHomeworkPollTimer: ReturnType<typeof setTimeout> | null = null;
 	let chapterHomeworkSaving = false;
 	let fileChapterMindmaps: any[] = [];
 	let selectedChapterMindmap: any = null;
 	let chapterMindmapVisible = false;
 	let answerMarkdownTextarea: HTMLTextAreaElement | null = null;
+	let homeworkSidebarMode: 'outline' | 'history' = 'outline';
+	let homeworkHistoryLoading = false;
+	let homeworkHistoryItems: any[] = [];
+	let selectedHistoryHomeworkId: string | null = null;
+	let selectedHistoryHomework: any = null;
+	let historyHomeworkEditMode = false;
+	let historyHomeworkAnswers: Record<string, string> = {};
+	let chapterHomeworkEditMode = false;
+	let chapterHomeworkAnswers: Record<string, string> = {};
 
 	// Helper: is the selected file a PDF?
 	$: isPdf =
@@ -201,6 +215,7 @@
 
 	const fileSelectHandler = async (file) => {
 		try {
+			stopChapterHomeworkPolling();
 			selectedFile = file;
 			selectedFileContent = selectedFile?.data?.content || '';
 
@@ -216,6 +231,10 @@
 			fileChapterMindmaps = [];
 			selectedChapterMindmap = null;
 			chapterMindmapVisible = false;
+			homeworkSidebarMode = 'outline';
+			homeworkHistoryItems = [];
+			selectedHistoryHomeworkId = null;
+			selectedHistoryHomework = null;
 
 			const fileName = file?.meta?.name || file?.filename || '';
 			const contentType = file?.meta?.content_type || '';
@@ -241,9 +260,11 @@
 					}
 				}
 
-				const chapterHomeworkRes = await loadFileChapterHomeworks(localStorage.token, file.id);
-				fileChapterHomeworks = chapterHomeworkRes.items;
-				chapterHomeworkVisible = chapterHomeworkRes.visible;
+				await refreshChapterHomeworks(file.id, true);
+				await loadHomeworkHistory();
+				if (chapterHomeworkVisible && fileChapters.length > 0 && fileChapterHomeworks.length === 0) {
+					startChapterHomeworkPolling(file.id);
+				}
 
 				const chapterMindmapRes = await loadFileChapterMindmaps(localStorage.token, file.id);
 				fileChapterMindmaps = chapterMindmapRes.items;
@@ -251,6 +272,7 @@
 			} else {
 				// txt/docx: load sections, only content tab
 				drawerTab = 'content';
+				chapterHomeworkVisible = false;
 				try {
 					fileSections = await getFileSections(localStorage.token, file.id);
 				} catch (e) {
@@ -270,6 +292,100 @@
 			}
 		} catch (e) {
 			toast.error($i18n.t('Failed to load file content.'));
+		}
+	};
+
+	const stopChapterHomeworkPolling = () => {
+		if (chapterHomeworkPollTimer) {
+			clearTimeout(chapterHomeworkPollTimer);
+			chapterHomeworkPollTimer = null;
+		}
+		chapterHomeworkGenerating = false;
+		chapterHomeworkPollCount = 0;
+	};
+
+	const refreshChapterHomeworks = async (fileId: string, showLoading = false) => {
+		if (!fileId) return;
+		if (showLoading) chapterHomeworkLoading = true;
+		try {
+			const chapterHomeworkRes = await loadFileChapterHomeworks(localStorage.token, fileId);
+			fileChapterHomeworks = chapterHomeworkRes.items;
+			chapterHomeworkVisible = chapterHomeworkRes.visible;
+
+			if (selectedChapterIndex >= 0 && fileChapters[selectedChapterIndex]) {
+				selectedChapterHomework = findChapterHomework(fileChapters[selectedChapterIndex]);
+			}
+		} finally {
+			if (showLoading) chapterHomeworkLoading = false;
+		}
+	};
+
+	const startChapterHomeworkPolling = (fileId: string) => {
+		if (!fileId) return;
+		if (chapterHomeworkPollTimer) return;
+
+		chapterHomeworkGenerating = true;
+		chapterHomeworkPollCount = 0;
+
+		const poll = async () => {
+			if (!selectedFile || selectedFile.id !== fileId) {
+				stopChapterHomeworkPolling();
+				return;
+			}
+
+			chapterHomeworkPollCount += 1;
+			await refreshChapterHomeworks(fileId, false);
+
+			if (!chapterHomeworkVisible || fileChapterHomeworks.length > 0 || chapterHomeworkPollCount >= 80) {
+				stopChapterHomeworkPolling();
+				return;
+			}
+
+			chapterHomeworkPollTimer = setTimeout(poll, 3000);
+		};
+
+		chapterHomeworkPollTimer = setTimeout(poll, 3000);
+	};
+
+	const formatHomeworkTime = (ts: number) => {
+		if (!ts) return '-';
+		return new Date(ts * 1000).toLocaleString();
+	};
+
+	const loadHomeworkHistory = async () => {
+		homeworkHistoryLoading = true;
+		try {
+			const res = await listHomeworks(localStorage.token);
+			const selectedFileId = selectedFile?.id || '';
+			const selectedFileName = (selectedFile?.meta?.name || selectedFile?.filename || '').trim();
+			homeworkHistoryItems = (res?.items ?? []).filter((item) => {
+				if (selectedFileId && item?.source_file_id === selectedFileId) {
+					return true;
+				}
+				if (selectedFileName && (item?.source_file || '').trim() === selectedFileName) {
+					return true;
+				}
+				return false;
+			});
+		} catch (e) {
+			homeworkHistoryItems = [];
+		} finally {
+			homeworkHistoryLoading = false;
+		}
+	};
+
+	const openHistoryHomework = async (homeworkId: string) => {
+		try {
+			const res = await getHomeworkById(localStorage.token, homeworkId);
+			selectedHistoryHomework = res;
+			selectedHistoryHomeworkId = homeworkId;
+			historyHomeworkEditMode = false;
+			historyHomeworkAnswers = {};
+			for (const q of selectedHistoryHomework?.questions ?? []) {
+				historyHomeworkAnswers[q.id] = '';
+			}
+		} catch (e) {
+			toast.error($i18n.t('Failed to load homework'));
 		}
 	};
 
@@ -317,6 +433,13 @@
 	const loadChapterHomework = async (chapter: any, index: number) => {
 		selectedChapterIndex = index;
 		selectedChapterHomework = findChapterHomework(chapter);
+		chapterHomeworkEditMode = true;
+		chapterHomeworkAnswers = {};
+		for (let i = 0; i < (selectedChapterHomework?.questions ?? []).length; i += 1) {
+			const question = selectedChapterHomework.questions[i];
+			const key = getChapterAnswerKey(question, i);
+			chapterHomeworkAnswers[key] = '';
+		}
 		await tick();
 		resizeAnswerMarkdownTextarea();
 	};
@@ -426,6 +549,38 @@
 			return question.options;
 		}
 		return ['A', 'B', 'C', 'D'];
+	};
+
+	const getChapterAnswerKey = (question: any, qIndex: number) => {
+		return String(question?.id ?? qIndex);
+	};
+
+	const setChapterAnswer = (question: any, qIndex: number, value: string) => {
+		const key = getChapterAnswerKey(question, qIndex);
+		chapterHomeworkAnswers[key] = value;
+		chapterHomeworkAnswers = { ...chapterHomeworkAnswers };
+	};
+
+	const submitChapterHomework = () => {
+		if (!selectedChapterHomework) return;
+		const questions = selectedChapterHomework.questions ?? [];
+		if (questions.length === 0) {
+			toast.error('当前作业没有题目');
+			return;
+		}
+
+		const unanswered = questions.filter((question: any, qIndex: number) => {
+			const key = getChapterAnswerKey(question, qIndex);
+			return !String(chapterHomeworkAnswers[key] ?? '').trim();
+		}).length;
+
+		if (unanswered > 0) {
+			toast.error(`还有 ${unanswered} 题未作答`);
+			return;
+		}
+
+		chapterHomeworkEditMode = false;
+		toast.success('提交成功');
 	};
 
 	const loadSectionContent = async (section: any) => {
@@ -1025,6 +1180,7 @@
 
 	onDestroy(() => {
 		clearTimeout(searchDebounceTimer);
+		stopChapterHomeworkPolling();
 		mediaQuery?.removeEventListener('change', handleMediaQuery);
 		const dropZone = document.querySelector('body');
 		dropZone?.removeEventListener('dragover', onDragOver);
@@ -1319,6 +1475,7 @@
 							onClose={() => {
 								selectedFileId = null;
 								selectedFile = null;
+								stopChapterHomeworkPolling();
 							}}
 						>
 							<div class="flex flex-col justify-start h-full max-h-full">
@@ -1331,6 +1488,7 @@
 												on:click={() => {
 													selectedFileId = null;
 													selectedFile = null;
+																	stopChapterHomeworkPolling();
 												}}
 											>
 												<ChevronLeft strokeWidth="2.5" />
@@ -1355,17 +1513,19 @@
 													{$i18n.t('Preview')}
 												</button>
 											{/if}
-											<button
-												class="text-xs px-2.5 py-1 rounded-lg transition-colors
-													{drawerTab === 'content'
-													? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-													: 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
-												on:click={() => {
-													drawerTab = 'content';
-												}}
-											>
-												{$i18n.t('Content')}
-											</button>
+											{#if !isPdf}
+												<button
+													class="text-xs px-2.5 py-1 rounded-lg transition-colors
+														{drawerTab === 'content'
+														? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+														: 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+													on:click={() => {
+														drawerTab = 'content';
+													}}
+												>
+													{$i18n.t('Content')}
+												</button>
+											{/if}
 											{#if isPdf && chapterMindmapVisible}
 												<button
 													class="text-xs px-2.5 py-1 rounded-lg transition-colors
@@ -1450,7 +1610,7 @@
 													/>
 												</div>
 											</div>
-										{:else if drawerTab === 'content'}
+										{:else if drawerTab === 'content' && !isPdf}
 											<!-- Content Tab -->
 											<div class="flex flex-1 overflow-hidden">
 												<!-- Left: Chapter/Section outline -->
@@ -1657,85 +1817,210 @@
 											</div>
 										{:else if drawerTab === 'homework' && isPdf && chapterHomeworkVisible}
 											<div class="flex flex-1 overflow-hidden">
-												{#if fileChapters.length > 0}
-													<div
-														class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
-													>
-														<ChapterOutline
-															items={fileChapters}
-															selectedIndex={selectedChapterIndex}
-															type="chapter"
-															actionLabel="导图"
-															actionTitle="查看本章节思维导图"
-															onActionClick={(chapter, index) => {
-																openChapterMindmap(chapter, index);
-															}}
-															onClick={(chapter, index) => {
-																loadChapterHomework(chapter, index);
-															}}
-														/>
+												<div
+													class="w-64 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
+												>
+													<div class="sticky top-0 z-10 border-b dark:border-gray-700 bg-gray-50/95 px-2 py-2 dark:bg-gray-900/95">
+														<div class="grid grid-cols-2 gap-1 rounded-lg bg-white p-1 shadow-sm dark:bg-gray-800">
+															<button
+																class="rounded-md px-2 py-1 text-xs font-medium transition-colors {homeworkSidebarMode === 'outline'
+																	? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+																	: 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'}"
+																on:click={() => {
+																	homeworkSidebarMode = 'outline';
+																}}
+															>
+																章节
+															</button>
+															<button
+																class="rounded-md px-2 py-1 text-xs font-medium transition-colors {homeworkSidebarMode === 'history'
+																	? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+																	: 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'}"
+																on:click={() => {
+																	homeworkSidebarMode = 'history';
+																}}
+															>
+																历史记录
+															</button>
+														</div>
 													</div>
-												{/if}
+
+													{#if homeworkSidebarMode === 'outline'}
+														{#if fileChapters.length > 0}
+															<ChapterOutline
+																items={fileChapters}
+																selectedIndex={selectedChapterIndex}
+																type="chapter"
+																actionLabel="导图"
+																actionTitle="查看本章节思维导图"
+																onActionClick={(chapter, index) => {
+																	openChapterMindmap(chapter, index);
+																}}
+																onClick={(chapter, index) => {
+																	loadChapterHomework(chapter, index);
+																}}
+															/>
+														{/if}
+													{:else}
+														<div class="px-2 py-2 space-y-1">
+															{#if homeworkHistoryLoading}
+																<div class="flex items-center justify-center py-5">
+																	<Spinner className="size-4" />
+																</div>
+															{:else if homeworkHistoryItems.length === 0}
+																<div class="px-1 py-2 text-xs text-gray-400">暂无历史作业</div>
+															{:else}
+																{#each homeworkHistoryItems as item}
+																	<button
+																		class="w-full rounded-lg border px-2 py-2 text-left transition-colors dark:border-gray-700 {selectedHistoryHomeworkId === item.id
+																			? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800'
+																			: 'bg-white hover:bg-gray-100 dark:bg-gray-950 dark:hover:bg-gray-800'}"
+																		on:click={() => {
+																			openHistoryHomework(item.id);
+																		}}
+																	>
+																		<div class="text-xs font-medium line-clamp-2">{item.title}</div>
+																		<div class="mt-1 text-[11px] text-gray-500">{formatHomeworkTime(item.created_at)}</div>
+																	</button>
+																{/each}
+															{/if}
+														</div>
+													{/if}
+												</div>
 
 												<div class="flex-1 overflow-y-auto px-3 py-2 space-y-3">
-													{#if selectedChapterIndex < 0}
-														<div class="text-sm text-gray-400">
-															{$i18n.t('Select a chapter to view homework')}
-														</div>
-													{:else if !selectedChapterHomework}
-														<div class="text-sm text-gray-400">
-															{$i18n.t('No homework generated for this chapter yet')}
-														</div>
-													{:else}
-														<div class="text-sm font-medium">作业</div>
-														{#each selectedChapterHomework.questions ?? [] as question, qIndex}
-															<div
-																class="rounded-lg border dark:border-gray-700 p-3 bg-white dark:bg-gray-950"
-															>
-																<div class="text-xs text-gray-500 mb-1">{`Q${qIndex + 1}`}</div>
-																<div class="text-sm leading-6 whitespace-pre-wrap">
-																	{question.question}
-																</div>
-																{#if question.type === 'choice'}
-																	<div class="mt-2 space-y-1">
-																		{#each getChoiceOptions(question) as option, optionIndex}
-																			<label
-																				class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200"
-																			>
-																				<input
-																					type="radio"
-																					name={`choice-${selectedChapterHomework.id}-${qIndex}`}
-																					disabled
-																					class="accent-blue-600"
-																				/>
-																				<span>{formatChoiceOption(option, optionIndex)}</span>
-																			</label>
-																		{/each}
-																	</div>
-																{/if}
+													{#if homeworkSidebarMode === 'outline'}
+														{#if selectedChapterIndex < 0}
+															<div class="text-sm text-gray-400">
+																{$i18n.t('Select a chapter to view homework')}
 															</div>
-														{/each}
+														{:else if !selectedChapterHomework}
+															{#if chapterHomeworkGenerating || chapterHomeworkLoading}
+																<div class="flex h-full min-h-[360px] items-center justify-center">
+																	<div class="flex flex-col items-center gap-3 text-gray-500">
+																		<Spinner className="size-7" />
+																		<div class="text-base font-medium">作业生成中，请稍候…</div>
+																		<div class="text-xs text-gray-400">章节作业生成完成后会自动刷新</div>
+																	</div>
+																</div>
+															{:else}
+																<div class="text-sm text-gray-400">
+																	{$i18n.t('No homework generated for this chapter yet')}
+																</div>
+															{/if}
+														{:else}
+															<div class="text-sm font-medium">作业</div>
+															{#each selectedChapterHomework.questions ?? [] as question, qIndex}
+																<div
+																	class="rounded-lg border dark:border-gray-700 p-3 bg-white dark:bg-gray-950"
+																>
+																	{@const answerKey = getChapterAnswerKey(question, qIndex)}
+																	<div class="text-xs text-gray-500 mb-1">{`Q${qIndex + 1}`}</div>
+																	<div class="text-sm leading-6 whitespace-pre-wrap">
+																		{question.question}
+																	</div>
+																	{#if question.type === 'choice'}
+																		<div class="mt-2 grid grid-cols-2 gap-2">
+																			{#each getChoiceOptions(question) as option, optionIndex}
+																				{@const rawOption = String(option ?? '').trim()}
+																				{@const optionLetter = (rawOption.match(/^([A-F])/i)?.[1] || optionLetters[optionIndex] || '').toUpperCase()}
+																				<button
+																					type="button"
+																					class="rounded-lg border px-2 py-1.5 text-left text-sm transition-colors dark:border-gray-700 {chapterHomeworkAnswers[answerKey] === optionLetter
+																						? 'border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-900/30 dark:text-blue-300'
+																						: 'hover:bg-gray-50 dark:hover:bg-gray-900'}"
+																					on:click={() => {
+																						setChapterAnswer(question, qIndex, optionLetter);
+																					}}
+																				>
+																					{formatChoiceOption(option, optionIndex)}
+																				</button>
+																			{/each}
+																		</div>
+																	{:else if question.type === 'judge'}
+																		<div class="mt-2 flex gap-2">
+																			<button
+																				type="button"
+																				class="rounded-lg border px-3 py-1.5 text-sm transition-colors dark:border-gray-700 {chapterHomeworkAnswers[answerKey] === '正确'
+																					? 'border-green-400 bg-green-50 text-green-700 dark:border-green-500 dark:bg-green-900/30 dark:text-green-300'
+																					: 'hover:bg-gray-50 dark:hover:bg-gray-900'}"
+																				on:click={() => {
+																					setChapterAnswer(question, qIndex, '正确');
+																				}}
+																			>
+																				正确
+																			</button>
+																			<button
+																				type="button"
+																				class="rounded-lg border px-3 py-1.5 text-sm transition-colors dark:border-gray-700 {chapterHomeworkAnswers[answerKey] === '错误'
+																					? 'border-red-400 bg-red-50 text-red-700 dark:border-red-500 dark:bg-red-900/30 dark:text-red-300'
+																					: 'hover:bg-gray-50 dark:hover:bg-gray-900'}"
+																				on:click={() => {
+																					setChapterAnswer(question, qIndex, '错误');
+																				}}
+																			>
+																				错误
+																			</button>
+																		</div>
+																	{/if}
+																</div>
+															{/each}
 
-														<div class="text-xs text-gray-500">{$i18n.t('参考答案(可编辑)')}</div>
-														<textarea
-															class="w-full text-sm outline-none resize-none overflow-hidden px-2 py-1.5 border dark:border-gray-700 rounded-md bg-white dark:bg-gray-950 min-h-[320px]"
-															bind:value={selectedChapterHomework.answer_markdown}
-															bind:this={answerMarkdownTextarea}
-															on:input={resizeAnswerMarkdownTextarea}
-															on:focus={resizeAnswerMarkdownTextarea}
-															readonly={!knowledge?.write_access}
-														/>
-
-														{#if knowledge?.write_access}
 															<div class="flex justify-end">
 																<button
-																	class="text-xs py-1.5 px-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-																	disabled={chapterHomeworkSaving}
-																	on:click={saveChapterHomeworkHandler}
+																	type="button"
+																	class="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700"
+																	on:click={submitChapterHomework}
 																>
-																	{$i18n.t('Save Homework')}
+																	提交作业
 																</button>
 															</div>
+
+															{#if !chapterHomeworkEditMode}
+																<div class="text-xs text-gray-500">{$i18n.t('参考答案(可编辑)')}</div>
+															{/if}
+															<textarea
+																class="w-full text-sm outline-none resize-none overflow-hidden px-2 py-1.5 border dark:border-gray-700 rounded-md bg-white dark:bg-gray-950 min-h-[320px]"
+																bind:value={selectedChapterHomework.answer_markdown}
+																bind:this={answerMarkdownTextarea}
+																on:input={resizeAnswerMarkdownTextarea}
+																on:focus={resizeAnswerMarkdownTextarea}
+																readonly
+																hidden={chapterHomeworkEditMode}
+															/>
+
+															{#if knowledge?.write_access && chapterHomeworkEditMode}
+																<div class="text-xs text-gray-500">作答中：当前不展示标准答案。</div>
+															{/if}
+														{/if}
+													{:else}
+														{#if !selectedHistoryHomework}
+															<div class="text-sm text-gray-400">请选择左侧历史作业</div>
+														{:else}
+															<div class="text-sm font-medium">{selectedHistoryHomework.title || '历史作业'}</div>
+															<div class="text-xs text-gray-500">创建时间：{formatHomeworkTime(selectedHistoryHomework.created_at)}</div>
+															{#each selectedHistoryHomework.questions ?? [] as question, qIndex}
+																<div class="rounded-lg border dark:border-gray-700 p-3 bg-white dark:bg-gray-950">
+																	<div class="text-xs text-gray-500 mb-1">{`Q${qIndex + 1}`}</div>
+																	<div class="text-sm leading-6 whitespace-pre-wrap">{question.question}</div>
+																	{#if question.type === 'choice'}
+																		<div class="mt-2 space-y-1">
+																			{#each getChoiceOptions(question) as option, optionIndex}
+																				<div class="text-sm text-gray-700 dark:text-gray-200">{formatChoiceOption(option, optionIndex)}</div>
+																			{/each}
+																		</div>
+																	{/if}
+																</div>
+															{/each}
+
+															{#if !historyHomeworkEditMode}
+																<div class="text-xs text-gray-500">{$i18n.t('参考答案')}</div>
+																<textarea
+																	class="w-full text-sm outline-none resize-y px-2 py-1.5 border dark:border-gray-700 rounded-md bg-white dark:bg-gray-950 min-h-[220px]"
+																	value={selectedHistoryHomework.answer_markdown || ''}
+																	readonly
+																/>
+															{/if}
 														{/if}
 													{/if}
 												</div>

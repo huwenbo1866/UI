@@ -1948,6 +1948,7 @@ def process_file(
                                     "KNOWLEDGE_CHAPTER_HOMEWORK_ENABLED", True
                                 ) and _env_bool("KNOWLEDGE_CHAPTER_HOMEWORK_VISIBLE", True)
                                 subject = _infer_subject_from_filename(file.filename or "")
+                                question_count = 5 if subject == "chinese" else 20
                                 homework_items = []
                                 mindmap_items = []
 
@@ -1971,7 +1972,7 @@ def process_file(
                                                     chapter_title=chapter_title,
                                                     chapter_content=chapter_text,
                                                     subject=subject,
-                                                    count=5,
+                                                    count=question_count,
                                                 )
                                             )
                                             homework_items.append(

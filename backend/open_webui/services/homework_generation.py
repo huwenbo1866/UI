@@ -98,11 +98,7 @@ def _normalize_subject(subject: Optional[str]) -> str:
 def _subject_instruction(subject: str) -> str:
     if subject == "chinese":
         return "仅生成古诗词或课本原文填空题，5道，答案必须是可核对的准确字词或句子。"
-    if subject == "math":
-        return "仅生成选择题，5道，每题必须含4个选项，答案只能是A/B/C/D之一。"
-    if subject == "english":
-        return "仅生成中译英题，5道，答案为英文单词或短语。"
-    return "生成5道简单题，其中2道选择题和3道判断题，避免长篇主观题。"
+    return "生成20道题：10道选择题+10道判断题。选择题必须4个选项且答案为A/B/C/D；判断题答案只能是正确或错误。"
 
 
 def _parse_options(raw_options: Any) -> list[str]:
@@ -132,18 +128,6 @@ def _parse_options(raw_options: Any) -> list[str]:
 def _normalize_for_subject_mix(result: list[dict], subject: str, total_count: int) -> list[dict]:
     normalized = result[:total_count]
 
-    if subject == "math":
-        for i, item in enumerate(normalized):
-            item["order_index"] = i
-            item["type"] = "choice"
-            item["options"] = _parse_options(item.get("options"))
-            if len(item["options"]) < 4:
-                item["options"] = ["A", "B", "C", "D"]
-            ans = str(item.get("answer", "")).upper()
-            m = re.search(r"[ABCD]", ans)
-            item["answer"] = m.group(0) if m else "A"
-        return normalized
-
     if subject == "chinese":
         for i, item in enumerate(normalized):
             item["order_index"] = i
@@ -151,17 +135,11 @@ def _normalize_for_subject_mix(result: list[dict], subject: str, total_count: in
             item["options"] = None
         return normalized
 
-    if subject == "english":
-        for i, item in enumerate(normalized):
-            item["order_index"] = i
-            item["type"] = "fill_blank"
-            item["options"] = None
-        return normalized
-
-    # other: exactly 2 choice + 3 judge (for chem/physics/biology/geography/politics/history etc.)
+    # all non-Chinese subjects: exactly 10 choice + 10 judge (20 total)
+    target_choice = min(10, total_count)
     for i, item in enumerate(normalized):
         item["order_index"] = i
-        if i < 2:
+        if i < target_choice:
             item["type"] = "choice"
             item["options"] = _parse_options(item.get("options"))
             if len(item["options"]) < 4:
@@ -267,14 +245,10 @@ def _normalize_chapter_questions(data: Any, subject: str, total_count: int) -> l
             elif isinstance(item.get("options"), (list, str)) and str(item.get("options", "")).strip():
                 q_type = "choice"
 
-        if subject == "math":
+        if subject == "chinese":
+            q_type = "fill_blank"
+        elif q_type not in {"choice", "judge"}:
             q_type = "choice"
-        elif subject == "english":
-            q_type = "fill_blank"
-        elif subject == "chinese":
-            q_type = "fill_blank"
-        elif q_type not in {"fill_blank", "choice", "judge", "short_answer"}:
-            q_type = "fill_blank"
 
         options = _parse_options(item.get("options"))
         if q_type == "choice":
@@ -320,14 +294,10 @@ def _normalize_chapter_questions(data: Any, subject: str, total_count: int) -> l
 
     if len(result) < total_count:
         for i in range(len(result), total_count):
-            if subject == "math":
-                fallback_type = "choice"
-            elif subject == "chinese":
-                fallback_type = "fill_blank"
-            elif subject == "english":
+            if subject == "chinese":
                 fallback_type = "fill_blank"
             else:
-                fallback_type = "choice" if i < 2 else "judge"
+                fallback_type = "choice" if i < 10 else "judge"
             result.append(
                 {
                     "order_index": i,
@@ -362,7 +332,7 @@ async def generate_chapter_homework_questions(
     chapter_title: str,
     chapter_content: str,
     subject: Optional[str],
-    count: int = 5,
+    count: int = 20,
 ) -> list[dict]:
     from open_webui.utils.task import get_task_model_id
 
