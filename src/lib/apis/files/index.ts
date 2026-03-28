@@ -13,7 +13,6 @@ export type FileProcessStatus = {
 	error?: string | null;
 };
 
-
 export const uploadFile = async (
 	token: string,
 	file: File,
@@ -83,7 +82,6 @@ export const getFileProcessStatusStream = async (token: string, id: string) => {
 	return res;
 };
 
-
 export const getFileProcessStatus = async (
 	token: string,
 	id: string
@@ -114,7 +112,6 @@ export const getFileProcessStatus = async (
 
 	return res;
 };
-
 
 export const uploadDir = async (token: string) => {
 	let error = null;
@@ -561,6 +558,34 @@ export const getFileChapterHomeworks = async (token: string, id: string) => {
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/files/${id}/chapter-homeworks`, {
+		method: 'GET',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err.detail;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res?.items ?? [];
+};
+
+export const getFileChapterMindmaps = async (token: string, id: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/files/${id}/chapter-mindmaps`, {
 		method: 'GET',
 		headers: {
 			Accept: 'application/json',

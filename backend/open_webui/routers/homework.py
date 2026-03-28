@@ -23,6 +23,7 @@ from open_webui.models.homework import (
 )
 from open_webui.models.users import UserModel
 from open_webui.routers.pipelines import process_pipeline_inlet_filter
+from open_webui.services.chapter_mindmap import update_chapter_mindmap_from_homework_results
 from open_webui.utils.auth import get_verified_user
 from open_webui.utils.chat import generate_chat_completion
 from open_webui.utils.models import get_all_models
@@ -48,6 +49,9 @@ class GenerateHomeworkForm(BaseModel):
     title: Optional[str] = None
     source_file_id: Optional[str] = None
     source_content: Optional[str] = None
+    source_chapter_title: Optional[str] = None
+    source_chapter_start_page: Optional[int] = None
+    source_chapter_end_page: Optional[int] = None
     description: str = ""
     difficulty_config: DifficultyConfig = Field(default_factory=DifficultyConfig)
     question_types: list[str] = Field(default_factory=lambda: DEFAULT_QUESTION_TYPES.copy())
@@ -603,7 +607,8 @@ async def generate_homework(
             if source_file.meta
             else source_file.filename
         )
-        source_content = (source_file.data or {}).get("content", "").strip()
+        if not source_content:
+            source_content = (source_file.data or {}).get("content", "").strip()
 
     if not source_content:
         raise HTTPException(
@@ -688,6 +693,13 @@ async def generate_homework(
     if not title:
         title = f"作业 - {source_file_name}"
 
+    source_context = {
+        "chapter_title": (form_data.source_chapter_title or "").strip() or None,
+        "chapter_start_page": form_data.source_chapter_start_page,
+        "chapter_end_page": form_data.source_chapter_end_page,
+    }
+    source_context = {key: value for key, value in source_context.items() if value is not None}
+
     homework = Homeworks.insert_homework(
         user.id,
         HomeworkCreateForm(
@@ -696,7 +708,10 @@ async def generate_homework(
             source_file_id=form_data.source_file_id,
             description=form_data.description,
             difficulty_config=difficulty_config,
-            question_type_config={"types": question_types},
+            question_type_config={
+                "types": question_types,
+                **({"source_context": source_context} if source_context else {}),
+            },
             knowledge_points=knowledge_points,
         ),
         db=db,
@@ -876,6 +891,25 @@ async def submit_homework(
         submission_answers,
         db=db,
     )
+
+    try:
+        source_context = (
+            homework.question_type_config.get("source_context", {})
+            if isinstance(homework.question_type_config, dict)
+            else {}
+        )
+        if homework.source_file_id and source_context:
+            update_chapter_mindmap_from_homework_results(
+                file_id=homework.source_file_id,
+                chapter_title=source_context.get("chapter_title"),
+                chapter_start_page=source_context.get("chapter_start_page"),
+                chapter_end_page=source_context.get("chapter_end_page"),
+                results=results,
+                knowledge_points=homework.knowledge_points,
+                db=db,
+            )
+    except Exception as e:
+        log.warning("Homework mindmap update failed for %s: %s", homework.id, e)
 
     return {
         "submission_id": submission.id,

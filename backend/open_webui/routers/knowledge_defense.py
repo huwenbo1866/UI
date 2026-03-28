@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from open_webui.internal.db import get_session
 from open_webui.models.knowledge_defense import (
+    KnowledgeDefenseWrongQuestion,
     WrongQuestionListResponse,
     WrongQuestionModel,
     WrongQuestionResolveForm,
@@ -12,6 +13,7 @@ from open_webui.models.knowledge_defense import (
     WrongQuestionUpsertForm,
     WrongQuestions,
 )
+from open_webui.services.chapter_mindmap import update_chapter_mindmap_from_wrong_question
 from open_webui.utils.auth import get_verified_user
 
 router = APIRouter()
@@ -42,7 +44,23 @@ async def upsert_wrong_question(
     user=Depends(get_verified_user),
     db: Session = Depends(get_session),
 ):
-    return WrongQuestions.upsert_wrong_question(user_id=user.id, form_data=form_data, db=db)
+    item = WrongQuestions.upsert_wrong_question(user_id=user.id, form_data=form_data, db=db)
+
+    if item and item.file_id and item.chapter:
+        try:
+            weight = min(2.0, 1.0 + max(0, int(item.wrong_count or 1) - 1) * 0.25)
+            update_chapter_mindmap_from_wrong_question(
+                file_id=item.file_id,
+                chapter_title=item.chapter,
+                question_text=item.question,
+                is_correct=False,
+                weight=weight,
+                db=db,
+            )
+        except Exception:
+            pass
+
+    return item
 
 
 @router.post('/wrong-questions/mark-correct', response_model=WrongQuestionResolveResponse)
@@ -51,7 +69,33 @@ async def mark_wrong_question_correct(
     user=Depends(get_verified_user),
     db: Session = Depends(get_session),
 ):
-    return WrongQuestions.mark_wrong_question_correct(user_id=user.id, form_data=form_data, db=db)
+    current = (
+        db.query(KnowledgeDefenseWrongQuestion)
+        .filter(
+            KnowledgeDefenseWrongQuestion.user_id == user.id,
+            KnowledgeDefenseWrongQuestion.source_type == form_data.source_type,
+            KnowledgeDefenseWrongQuestion.source_id == form_data.source_id,
+            KnowledgeDefenseWrongQuestion.question_id == form_data.question_id,
+        )
+        .first()
+    )
+
+    result = WrongQuestions.mark_wrong_question_correct(user_id=user.id, form_data=form_data, db=db)
+
+    if current and current.file_id and current.chapter:
+        try:
+            update_chapter_mindmap_from_wrong_question(
+                file_id=current.file_id,
+                chapter_title=current.chapter,
+                question_text=current.question,
+                is_correct=True,
+                weight=1.0,
+                db=db,
+            )
+        except Exception:
+            pass
+
+    return result
 
 
 @router.delete('/wrong-questions/{wrong_question_id}', status_code=status.HTTP_204_NO_CONTENT)

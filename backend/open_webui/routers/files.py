@@ -44,16 +44,25 @@ from open_webui.models.files import (
     FileSectionModel,
     FileChapterHomeworks,
     FileChapterHomeworkUpdateForm,
+    FileChapterMindmaps,
 )
 from open_webui.models.chats import Chats
 from open_webui.models.knowledge import Knowledges
 from open_webui.models.groups import Groups
 
 
-from open_webui.routers.retrieval import ProcessFileForm, process_file
+from open_webui.routers.retrieval import ProcessFileForm, _infer_subject_from_filename, process_file
 from open_webui.routers.audio import transcribe
 
 from open_webui.storage.provider import Storage
+from open_webui.services.chapter_mindmap import (
+    build_chapter_mindmap_form,
+    generate_chapter_mindmap,
+)
+from open_webui.services.homework_generation import (
+    build_answer_markdown,
+    generate_chapter_homework_questions,
+)
 
 from open_webui.utils.file_progress import update_file_progress
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -1185,6 +1194,38 @@ async def get_file_chapters(
 
 
 ############################
+# Get File Chapter Mindmaps (PDF)
+############################
+
+
+@router.get("/{id}/chapter-mindmaps")
+async def get_file_chapter_mindmaps(
+    id: str,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    file = Files.get_file_by_id(id, db=db)
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "read", user, db=db)
+    ):
+        items = FileChapterMindmaps.get_mindmaps_by_file_id(id, db=db)
+        return {"items": [item.model_dump() for item in items]}
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=ERROR_MESSAGES.NOT_FOUND,
+    )
+
+
+############################
 # Get File Chapter Homeworks (PDF)
 ############################
 
@@ -1282,6 +1323,7 @@ async def update_file_chapter_homework(
 
 @router.post("/{id}/chapters/extract")
 async def extract_file_chapters(
+    request: Request,
     id: str,
     user=Depends(get_verified_user),
     db: Session = Depends(get_session),
@@ -1315,10 +1357,15 @@ async def extract_file_chapters(
         result = {"chapters": [], "sections": [], "type": "unknown"}
 
         if content_type == "application/pdf" or file_lower.endswith(".pdf"):
-            from open_webui.utils.chapters import extract_primary_chapters, get_pdf_total_pages
+            from open_webui.utils.chapters import (
+                extract_pdf_page_range_text,
+                extract_primary_chapters,
+                get_pdf_total_pages,
+            )
 
             chapters = extract_primary_chapters(file_path, source_name=file_name)
             total_pages = get_pdf_total_pages(file_path)
+            subject = _infer_subject_from_filename(file_name)
 
             FileChapters.insert_chapters(
                 id,
@@ -1332,6 +1379,80 @@ async def extract_file_chapters(
                 ],
                 db=db,
             )
+
+            chapter_homework_enabled = _env_bool(
+                "KNOWLEDGE_CHAPTER_HOMEWORK_ENABLED", True
+            ) and _env_bool("KNOWLEDGE_CHAPTER_HOMEWORK_VISIBLE", True)
+
+            homework_items = []
+            mindmap_items = []
+            for chapter in chapters:
+                chapter_title = chapter["title"]
+                chapter_start = int(chapter["start_page"])
+                chapter_end = int(chapter["end_page"])
+                chapter_text = extract_pdf_page_range_text(file_path, chapter_start, chapter_end)
+
+                if not (chapter_text or "").strip():
+                    continue
+
+                if chapter_homework_enabled:
+                    try:
+                        chapter_questions = await generate_chapter_homework_questions(
+                            request=request,
+                            user=user,
+                            chapter_title=chapter_title,
+                            chapter_content=chapter_text,
+                            subject=subject,
+                            count=5,
+                        )
+                        homework_items.append(
+                            FileChapterHomeworkCreateForm(
+                                chapter_title=chapter_title,
+                                chapter_start_page=chapter_start,
+                                chapter_end_page=chapter_end,
+                                subject=subject,
+                                questions=chapter_questions,
+                                answer_markdown=build_answer_markdown(chapter_questions),
+                            )
+                        )
+                    except Exception as e:
+                        log.warning(
+                            "Chapter homework regeneration failed for file %s chapter %s: %s",
+                            id,
+                            chapter_title,
+                            e,
+                        )
+
+                try:
+                    chapter_mindmap = await generate_chapter_mindmap(
+                        request=request,
+                        user=user,
+                        chapter_title=chapter_title,
+                        chapter_content=chapter_text,
+                        subject=subject,
+                    )
+                    mindmap_items.append(
+                        build_chapter_mindmap_form(
+                            chapter_title=chapter_title,
+                            chapter_start_page=chapter_start,
+                            chapter_end_page=chapter_end,
+                            subject=subject,
+                            tree_data=chapter_mindmap["tree_data"],
+                            markmap_markdown=chapter_mindmap["markmap_markdown"],
+                        )
+                    )
+                except Exception as e:
+                    log.warning(
+                        "Chapter mindmap regeneration failed for file %s chapter %s: %s",
+                        id,
+                        chapter_title,
+                        e,
+                    )
+
+            if homework_items:
+                FileChapterHomeworks.replace_homeworks(id, homework_items, db=db)
+            if mindmap_items:
+                FileChapterMindmaps.replace_mindmaps(id, mindmap_items, db=db)
 
             # Store total_pages in file meta
             meta = file.meta or {}

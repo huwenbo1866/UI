@@ -63,6 +63,8 @@
 	import Pagination from '$lib/components/common/Pagination.svelte';
 	import AttachWebpageModal from '$lib/components/chat/MessageInput/AttachWebpageModal.svelte';
 	import { loadFileChapterHomeworks } from './chapterHomework';
+	import { loadFileChapterMindmaps } from './chapterMindmap';
+	import MarkmapRenderer from '$lib/components/chat/Messages/MarkmapRenderer.svelte';
 
 	let largeScreen = true;
 
@@ -95,7 +97,7 @@
 	let selectedFileContent = '';
 
 	// Chapter/Section state
-	let drawerTab: 'preview' | 'content' | 'homework' = 'content';
+	let drawerTab: 'preview' | 'content' | 'homework' | 'mindmap' = 'content';
 	let fileChapters: any[] = [];
 	let fileSections: any[] = [];
 	let selectedChapterIndex = -1;
@@ -107,10 +109,14 @@
 	let selectedChapterHomework: any = null;
 	let chapterHomeworkVisible = false;
 	let chapterHomeworkSaving = false;
+	let fileChapterMindmaps: any[] = [];
+	let selectedChapterMindmap: any = null;
+	let chapterMindmapVisible = false;
 	let answerMarkdownTextarea: HTMLTextAreaElement | null = null;
 
 	// Helper: is the selected file a PDF?
-	$: isPdf = selectedFile?.meta?.content_type === 'application/pdf' ||
+	$: isPdf =
+		selectedFile?.meta?.content_type === 'application/pdf' ||
 		(selectedFile?.meta?.name || selectedFile?.filename || '').toLowerCase().endsWith('.pdf');
 
 	let inputFiles = null;
@@ -207,6 +213,9 @@
 			fileChapterHomeworks = [];
 			selectedChapterHomework = null;
 			chapterHomeworkVisible = false;
+			fileChapterMindmaps = [];
+			selectedChapterMindmap = null;
+			chapterMindmapVisible = false;
 
 			const fileName = file?.meta?.name || file?.filename || '';
 			const contentType = file?.meta?.content_type || '';
@@ -235,6 +244,10 @@
 				const chapterHomeworkRes = await loadFileChapterHomeworks(localStorage.token, file.id);
 				fileChapterHomeworks = chapterHomeworkRes.items;
 				chapterHomeworkVisible = chapterHomeworkRes.visible;
+
+				const chapterMindmapRes = await loadFileChapterMindmaps(localStorage.token, file.id);
+				fileChapterMindmaps = chapterMindmapRes.items;
+				chapterMindmapVisible = chapterMindmapRes.visible;
 			} else {
 				// txt/docx: load sections, only content tab
 				drawerTab = 'content';
@@ -271,6 +284,17 @@
 		);
 	};
 
+	const findChapterMindmap = (chapter: any) => {
+		if (!chapter || !Array.isArray(fileChapterMindmaps)) return null;
+		return (
+			fileChapterMindmaps.find(
+				(item) =>
+					item.chapter_start_page === chapter.start_page &&
+					item.chapter_end_page === chapter.end_page
+			) ?? null
+		);
+	};
+
 	const loadChapterContent = async (chapter: any) => {
 		if (!selectedFile) return;
 		chapterContentLoading = true;
@@ -295,6 +319,64 @@
 		selectedChapterHomework = findChapterHomework(chapter);
 		await tick();
 		resizeAnswerMarkdownTextarea();
+	};
+
+	const loadChapterMindmap = (chapter: any, index: number) => {
+		selectedChapterIndex = index;
+		selectedChapterMindmap = findChapterMindmap(chapter);
+	};
+
+	const openChapterMindmap = (chapter: any, index: number) => {
+		drawerTab = 'mindmap';
+		loadChapterMindmap(chapter, index);
+	};
+
+	const getMindmapNodeCategory = (node: any) => {
+		const score = Number(node?.mastery_score ?? 50);
+		const wrongCount = Number(node?.wrong_count ?? 0);
+
+		if (score >= 85 && wrongCount <= 1) {
+			return 'mastered';
+		}
+
+		const risk = Math.max(0, (70 - score) * 0.9 + wrongCount * 12);
+		if (risk >= 25) {
+			return 'weak';
+		}
+
+		return 'unmastered';
+	};
+
+	const getMindmapStats = (treeData: any) => {
+		const stats = {
+			total: 0,
+			mastered: 0,
+			unmastered: 0,
+			weak: 0
+		};
+
+		const visit = (node: any) => {
+			if (!node) return;
+
+			if (node.id !== 'root') {
+				stats.total += 1;
+				const category = getMindmapNodeCategory(node);
+				if (category === 'mastered') {
+					stats.mastered += 1;
+				} else if (category === 'weak') {
+					stats.weak += 1;
+				} else {
+					stats.unmastered += 1;
+				}
+			}
+
+			for (const child of node?.children ?? []) {
+				visit(child);
+			}
+		};
+
+		visit(treeData);
+		return stats;
 	};
 
 	const resizeAnswerMarkdownTextarea = () => {
@@ -350,11 +432,7 @@
 		if (!selectedFile) return;
 		chapterContentLoading = true;
 		try {
-			const res = await getFileSectionContent(
-				localStorage.token,
-				selectedFile.id,
-				section.id
-			);
+			const res = await getFileSectionContent(localStorage.token, selectedFile.id, section.id);
 			chapterContent = res?.content || '';
 		} catch (e) {
 			console.error('Failed to load section content:', e);
@@ -1267,28 +1345,53 @@
 											{#if isPdf}
 												<button
 													class="text-xs px-2.5 py-1 rounded-lg transition-colors
-														{drawerTab === 'preview' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
-													on:click={() => { drawerTab = 'preview'; }}
+														{drawerTab === 'preview'
+														? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+														: 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+													on:click={() => {
+														drawerTab = 'preview';
+													}}
 												>
 													{$i18n.t('Preview')}
 												</button>
 											{/if}
 											<button
 												class="text-xs px-2.5 py-1 rounded-lg transition-colors
-													{drawerTab === 'content' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
-												on:click={() => { drawerTab = 'content'; }}
+													{drawerTab === 'content'
+													? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+													: 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+												on:click={() => {
+													drawerTab = 'content';
+												}}
 											>
 												{$i18n.t('Content')}
 											</button>
-												{#if isPdf && chapterHomeworkVisible}
-													<button
-														class="text-xs px-2.5 py-1 rounded-lg transition-colors
-															{drawerTab === 'homework' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
-														on:click={() => { drawerTab = 'homework'; }}
-													>
-														作业
-													</button>
-												{/if}
+											{#if isPdf && chapterMindmapVisible}
+												<button
+													class="text-xs px-2.5 py-1 rounded-lg transition-colors
+														{drawerTab === 'mindmap'
+														? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+														: 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+													on:click={() => {
+														drawerTab = 'mindmap';
+													}}
+												>
+													思维导图
+												</button>
+											{/if}
+											{#if isPdf && chapterHomeworkVisible}
+												<button
+													class="text-xs px-2.5 py-1 rounded-lg transition-colors
+															{drawerTab === 'homework'
+														? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+														: 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+													on:click={() => {
+														drawerTab = 'homework';
+													}}
+												>
+													作业
+												</button>
+											{/if}
 										</div>
 
 										{#if knowledge?.write_access && drawerTab === 'content' && !isPdf}
@@ -1318,11 +1421,18 @@
 											<div class="flex flex-1 overflow-hidden">
 												<!-- Left: Chapter outline -->
 												{#if fileChapters.length > 0}
-													<div class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+													<div
+														class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
+													>
 														<ChapterOutline
 															items={fileChapters}
 															selectedIndex={selectedChapterIndex}
 															type="chapter"
+															actionLabel="导图"
+															actionTitle="查看本章节思维导图"
+															onActionClick={(chapter, index) => {
+																openChapterMindmap(chapter, index);
+															}}
 															onClick={(chapter, index) => {
 																selectedChapterIndex = index;
 																pdfCurrentPage = chapter.start_page + 1;
@@ -1340,17 +1450,23 @@
 													/>
 												</div>
 											</div>
-
 										{:else if drawerTab === 'content'}
 											<!-- Content Tab -->
 											<div class="flex flex-1 overflow-hidden">
 												<!-- Left: Chapter/Section outline -->
 												{#if isPdf && fileChapters.length > 0}
-													<div class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+													<div
+														class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
+													>
 														<ChapterOutline
 															items={fileChapters}
 															selectedIndex={selectedChapterIndex}
 															type="chapter"
+															actionLabel="导图"
+															actionTitle="查看本章节思维导图"
+															onActionClick={(chapter, index) => {
+																openChapterMindmap(chapter, index);
+															}}
 															onClick={(chapter, index) => {
 																selectedChapterIndex = index;
 																loadChapterContent(chapter);
@@ -1358,7 +1474,9 @@
 														/>
 													</div>
 												{:else if !isPdf && fileSections.length > 0}
-													<div class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+													<div
+														class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
+													>
 														<ChapterOutline
 															items={fileSections}
 															selectedIndex={selectedSectionIndex}
@@ -1376,7 +1494,9 @@
 													{#if isPdf && fileChapters.length > 0}
 														<!-- PDF with chapters: show chapter content -->
 														{#if selectedChapterIndex < 0}
-															<div class="flex items-center justify-center h-full text-sm text-gray-400">
+															<div
+																class="flex items-center justify-center h-full text-sm text-gray-400"
+															>
 																{$i18n.t('Select a chapter to view content')}
 															</div>
 														{:else if chapterContentLoading}
@@ -1384,7 +1504,9 @@
 																<Spinner className="size-4" />
 															</div>
 														{:else}
-															<div class="px-1 py-1 text-xs text-gray-500 dark:text-gray-400 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 font-medium">
+															<div
+																class="px-1 py-1 text-xs text-gray-500 dark:text-gray-400 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 font-medium"
+															>
 																{fileChapters[selectedChapterIndex]?.title}
 															</div>
 															<div class="flex-1 overflow-y-auto">
@@ -1399,7 +1521,9 @@
 													{:else if !isPdf && fileSections.length > 0}
 														<!-- txt/docx with sections: show section content -->
 														{#if selectedSectionIndex < 0}
-															<div class="flex items-center justify-center h-full text-sm text-gray-400">
+															<div
+																class="flex items-center justify-center h-full text-sm text-gray-400"
+															>
 																{$i18n.t('Select a section to view content')}
 															</div>
 														{:else if chapterContentLoading}
@@ -1407,7 +1531,9 @@
 																<Spinner className="size-4" />
 															</div>
 														{:else}
-															<div class="px-1 py-1 text-xs text-gray-500 dark:text-gray-400 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 font-medium">
+															<div
+																class="px-1 py-1 text-xs text-gray-500 dark:text-gray-400 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 font-medium"
+															>
 																{fileSections[selectedSectionIndex]?.title}
 															</div>
 															<textarea
@@ -1427,11 +1553,15 @@
 																placeholder={$i18n.t('Add content here')}
 															/>
 															{#if knowledge?.write_access}
-																<div class="shrink-0 flex justify-end p-2 border-t dark:border-gray-700">
+																<div
+																	class="shrink-0 flex justify-end p-2 border-t dark:border-gray-700"
+																>
 																	<button
 																		class="text-sm py-1 px-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
 																		disabled={isSaving}
-																		on:click={() => { updateFileContentHandler(); }}
+																		on:click={() => {
+																			updateFileContentHandler();
+																		}}
 																	>
 																		{$i18n.t('Save')}
 																		{#if isSaving}
@@ -1444,70 +1574,173 @@
 													{/if}
 												</div>
 											</div>
-												{:else if drawerTab === 'homework' && isPdf && chapterHomeworkVisible}
-													<div class="flex flex-1 overflow-hidden">
-														{#if fileChapters.length > 0}
-															<div class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
-																<ChapterOutline
-																	items={fileChapters}
-																	selectedIndex={selectedChapterIndex}
-																	type="chapter"
-																	onClick={(chapter, index) => {
-																		loadChapterHomework(chapter, index);
-																	}}
-																/>
-															</div>
-														{/if}
-
-														<div class="flex-1 overflow-y-auto px-3 py-2 space-y-3">
-															{#if selectedChapterIndex < 0}
-																<div class="text-sm text-gray-400">{$i18n.t('Select a chapter to view homework')}</div>
-															{:else if !selectedChapterHomework}
-																<div class="text-sm text-gray-400">{$i18n.t('No homework generated for this chapter yet')}</div>
-															{:else}
-																<div class="text-sm font-medium">作业</div>
-																{#each selectedChapterHomework.questions ?? [] as question, qIndex}
-																	<div class="rounded-lg border dark:border-gray-700 p-3 bg-white dark:bg-gray-950">
-																		<div class="text-xs text-gray-500 mb-1">{`Q${qIndex + 1}`}</div>
-																		<div class="text-sm leading-6 whitespace-pre-wrap">{question.question}</div>
-																		{#if question.type === 'choice'}
-																			<div class="mt-2 space-y-1">
-																				{#each getChoiceOptions(question) as option, optionIndex}
-																					<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-																						<input type="radio" name={`choice-${selectedChapterHomework.id}-${qIndex}`} disabled class="accent-blue-600" />
-																						<span>{formatChoiceOption(option, optionIndex)}</span>
-																					</label>
-																				{/each}
-																			</div>
-																		{/if}
-																	</div>
-																{/each}
-
-																<div class="text-xs text-gray-500">{$i18n.t('参考答案(可编辑)')}</div>
-																<textarea
-																	class="w-full text-sm outline-none resize-none overflow-hidden px-2 py-1.5 border dark:border-gray-700 rounded-md bg-white dark:bg-gray-950 min-h-[320px]"
-																	bind:value={selectedChapterHomework.answer_markdown}
-																	bind:this={answerMarkdownTextarea}
-																	on:input={resizeAnswerMarkdownTextarea}
-																	on:focus={resizeAnswerMarkdownTextarea}
-																	readonly={!knowledge?.write_access}
-																/>
-
-																{#if knowledge?.write_access}
-																	<div class="flex justify-end">
-																		<button
-																			class="text-xs py-1.5 px-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-																			disabled={chapterHomeworkSaving}
-																			on:click={saveChapterHomeworkHandler}
-																		>
-																			{$i18n.t('Save Homework')}
-																		</button>
-																	</div>
-																{/if}
-															{/if}
-														</div>
+										{:else if drawerTab === 'mindmap' && isPdf && chapterMindmapVisible}
+											<div class="flex flex-1 overflow-hidden">
+												{#if fileChapters.length > 0}
+													<div
+														class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
+													>
+														<ChapterOutline
+															items={fileChapters}
+															selectedIndex={selectedChapterIndex}
+															type="chapter"
+															actionLabel="导图"
+															actionTitle="查看本章节思维导图"
+															onActionClick={(chapter, index) => {
+																loadChapterMindmap(chapter, index);
+															}}
+															onClick={(chapter, index) => {
+																loadChapterMindmap(chapter, index);
+															}}
+														/>
 													</div>
 												{/if}
+
+												<div class="flex-1 min-w-0 overflow-y-auto px-3 py-3">
+													{#if selectedChapterIndex < 0}
+														<div class="text-sm text-gray-400">请选择一个章节查看思维导图</div>
+													{:else if !selectedChapterMindmap}
+														<div class="space-y-2 text-sm text-gray-400">
+															<div>当前章节还没有可用思维导图。</div>
+															<div>如果这是刚上传的新课本，等待章节处理完成后重新打开即可。</div>
+														</div>
+													{:else}
+														{@const mindmapStats = getMindmapStats(
+															selectedChapterMindmap.tree_data
+														)}
+														<div
+															class="mb-3 rounded-xl border border-gray-200 bg-white/90 p-3 dark:border-gray-800 dark:bg-gray-950/80"
+														>
+															<div class="text-sm font-medium text-gray-800 dark:text-gray-100">
+																{selectedChapterMindmap.chapter_title}
+															</div>
+															<div
+																class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400"
+															>
+																<span
+																	class="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
+																>
+																	<span class="inline-block h-2 w-2 rounded-full bg-blue-400"
+																	></span>
+																	已掌握 {mindmapStats.mastered}
+																</span>
+																<span
+																	class="inline-flex items-center gap-1 rounded-full bg-pink-50 px-2 py-1 text-pink-600 dark:bg-pink-950/40 dark:text-pink-300"
+																>
+																	<span class="inline-block h-2 w-2 rounded-full bg-pink-400"
+																	></span>
+																	待巩固 {mindmapStats.unmastered}
+																</span>
+																<span
+																	class="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-red-600 dark:bg-red-950/40 dark:text-red-300"
+																>
+																	<span class="inline-block h-2 w-2 rounded-full bg-red-500"></span>
+																	薄弱/高频错题 {mindmapStats.weak}
+																</span>
+																<span class="text-gray-400">节点总数 {mindmapStats.total}</span>
+															</div>
+															<div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+																节点染色规则：蓝色表示已掌握，粉色表示待巩固，红色越深表示错题越集中、掌握越薄弱。
+															</div>
+														</div>
+
+														<div
+															class="min-h-[520px] rounded-2xl border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-950"
+														>
+															<MarkmapRenderer
+																markdown={selectedChapterMindmap.markmap_markdown ?? ''}
+																className="h-full min-h-[500px] w-full"
+															/>
+														</div>
+													{/if}
+												</div>
+											</div>
+										{:else if drawerTab === 'homework' && isPdf && chapterHomeworkVisible}
+											<div class="flex flex-1 overflow-hidden">
+												{#if fileChapters.length > 0}
+													<div
+														class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
+													>
+														<ChapterOutline
+															items={fileChapters}
+															selectedIndex={selectedChapterIndex}
+															type="chapter"
+															actionLabel="导图"
+															actionTitle="查看本章节思维导图"
+															onActionClick={(chapter, index) => {
+																openChapterMindmap(chapter, index);
+															}}
+															onClick={(chapter, index) => {
+																loadChapterHomework(chapter, index);
+															}}
+														/>
+													</div>
+												{/if}
+
+												<div class="flex-1 overflow-y-auto px-3 py-2 space-y-3">
+													{#if selectedChapterIndex < 0}
+														<div class="text-sm text-gray-400">
+															{$i18n.t('Select a chapter to view homework')}
+														</div>
+													{:else if !selectedChapterHomework}
+														<div class="text-sm text-gray-400">
+															{$i18n.t('No homework generated for this chapter yet')}
+														</div>
+													{:else}
+														<div class="text-sm font-medium">作业</div>
+														{#each selectedChapterHomework.questions ?? [] as question, qIndex}
+															<div
+																class="rounded-lg border dark:border-gray-700 p-3 bg-white dark:bg-gray-950"
+															>
+																<div class="text-xs text-gray-500 mb-1">{`Q${qIndex + 1}`}</div>
+																<div class="text-sm leading-6 whitespace-pre-wrap">
+																	{question.question}
+																</div>
+																{#if question.type === 'choice'}
+																	<div class="mt-2 space-y-1">
+																		{#each getChoiceOptions(question) as option, optionIndex}
+																			<label
+																				class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200"
+																			>
+																				<input
+																					type="radio"
+																					name={`choice-${selectedChapterHomework.id}-${qIndex}`}
+																					disabled
+																					class="accent-blue-600"
+																				/>
+																				<span>{formatChoiceOption(option, optionIndex)}</span>
+																			</label>
+																		{/each}
+																	</div>
+																{/if}
+															</div>
+														{/each}
+
+														<div class="text-xs text-gray-500">{$i18n.t('参考答案(可编辑)')}</div>
+														<textarea
+															class="w-full text-sm outline-none resize-none overflow-hidden px-2 py-1.5 border dark:border-gray-700 rounded-md bg-white dark:bg-gray-950 min-h-[320px]"
+															bind:value={selectedChapterHomework.answer_markdown}
+															bind:this={answerMarkdownTextarea}
+															on:input={resizeAnswerMarkdownTextarea}
+															on:focus={resizeAnswerMarkdownTextarea}
+															readonly={!knowledge?.write_access}
+														/>
+
+														{#if knowledge?.write_access}
+															<div class="flex justify-end">
+																<button
+																	class="text-xs py-1.5 px-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+																	disabled={chapterHomeworkSaving}
+																	on:click={saveChapterHomeworkHandler}
+																>
+																	{$i18n.t('Save Homework')}
+																</button>
+															</div>
+														{/if}
+													{/if}
+												</div>
+											</div>
+										{/if}
 									{/key}
 								</div>
 							</div>

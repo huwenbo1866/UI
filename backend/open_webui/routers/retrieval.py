@@ -38,8 +38,16 @@ from langchain_core.documents import Document
 
 from open_webui.utils.file_progress import update_file_progress
 from open_webui.models.files import FileModel, FileUpdateForm, Files, FileChapters, FileSections
-from open_webui.models.files import FileChapterHomeworkCreateForm, FileChapterHomeworks
+from open_webui.models.files import (
+    FileChapterHomeworkCreateForm,
+    FileChapterHomeworks,
+    FileChapterMindmaps,
+)
 from open_webui.models.knowledge import Knowledges
+from open_webui.services.chapter_mindmap import (
+    build_chapter_mindmap_form,
+    generate_chapter_mindmap,
+)
 from open_webui.services.homework_generation import (
     build_answer_markdown,
     generate_chapter_homework_questions,
@@ -1934,59 +1942,93 @@ def process_file(
                                 FileChapters.insert_chapters(file.id, chapters, db=db)
                                 log.info(f"Extracted {len(chapters)} chapters for file {file.id}")
 
+                                from open_webui.utils.chapters import extract_pdf_page_range_text
+
                                 chapter_homework_enabled = _env_bool(
                                     "KNOWLEDGE_CHAPTER_HOMEWORK_ENABLED", True
                                 ) and _env_bool("KNOWLEDGE_CHAPTER_HOMEWORK_VISIBLE", True)
-                                if chapter_homework_enabled:
-                                    from open_webui.utils.chapters import extract_pdf_page_range_text
+                                subject = _infer_subject_from_filename(file.filename or "")
+                                homework_items = []
+                                mindmap_items = []
 
-                                    subject = _infer_subject_from_filename(file.filename or "")
-                                    homework_items = []
-                                    for chapter in chapters:
-                                        chapter_start = int(chapter.get("start_page", 0))
-                                        chapter_end = int(chapter.get("end_page", 0))
-                                        chapter_text = extract_pdf_page_range_text(
-                                            actual_path, chapter_start, chapter_end
-                                        )
+                                for chapter in chapters:
+                                    chapter_title = chapter.get("title", "")
+                                    chapter_start = int(chapter.get("start_page", 0))
+                                    chapter_end = int(chapter.get("end_page", 0))
+                                    chapter_text = extract_pdf_page_range_text(
+                                        actual_path, chapter_start, chapter_end
+                                    )
 
-                                        if not (chapter_text or "").strip():
-                                            continue
+                                    if not (chapter_text or "").strip():
+                                        continue
 
+                                    if chapter_homework_enabled:
                                         try:
                                             chapter_questions = asyncio.run(
                                                 generate_chapter_homework_questions(
                                                     request=request,
                                                     user=user,
-                                                    chapter_title=chapter.get("title", ""),
+                                                    chapter_title=chapter_title,
                                                     chapter_content=chapter_text,
                                                     subject=subject,
                                                     count=5,
                                                 )
                                             )
+                                            homework_items.append(
+                                                FileChapterHomeworkCreateForm(
+                                                    chapter_title=chapter_title,
+                                                    chapter_start_page=chapter_start,
+                                                    chapter_end_page=chapter_end,
+                                                    subject=subject,
+                                                    questions=chapter_questions,
+                                                    answer_markdown=build_answer_markdown(chapter_questions),
+                                                )
+                                            )
                                         except Exception as e:
                                             log.warning(
-                                                f"Chapter homework generation failed for file {file.id} chapter {chapter.get('title', '')}: {e}"
+                                                f"Chapter homework generation failed for file {file.id} chapter {chapter_title}: {e}"
                                             )
-                                            continue
 
-                                        homework_items.append(
-                                            FileChapterHomeworkCreateForm(
-                                                chapter_title=chapter.get("title", ""),
+                                    try:
+                                        chapter_mindmap = asyncio.run(
+                                            generate_chapter_mindmap(
+                                                request=request,
+                                                user=user,
+                                                chapter_title=chapter_title,
+                                                chapter_content=chapter_text,
+                                                subject=subject,
+                                            )
+                                        )
+                                        mindmap_items.append(
+                                            build_chapter_mindmap_form(
+                                                chapter_title=chapter_title,
                                                 chapter_start_page=chapter_start,
                                                 chapter_end_page=chapter_end,
                                                 subject=subject,
-                                                questions=chapter_questions,
-                                                answer_markdown=build_answer_markdown(chapter_questions),
+                                                tree_data=chapter_mindmap["tree_data"],
+                                                markmap_markdown=chapter_mindmap["markmap_markdown"],
                                             )
                                         )
+                                    except Exception as e:
+                                        log.warning(
+                                            f"Chapter mindmap generation failed for file {file.id} chapter {chapter_title}: {e}"
+                                        )
 
-                                    if homework_items:
-                                        FileChapterHomeworks.replace_homeworks(
-                                            file.id, homework_items, db=db
-                                        )
-                                        log.info(
-                                            f"Generated {len(homework_items)} chapter homeworks for file {file.id}"
-                                        )
+                                if homework_items:
+                                    FileChapterHomeworks.replace_homeworks(
+                                        file.id, homework_items, db=db
+                                    )
+                                    log.info(
+                                        f"Generated {len(homework_items)} chapter homeworks for file {file.id}"
+                                    )
+
+                                if mindmap_items:
+                                    FileChapterMindmaps.replace_mindmaps(
+                                        file.id, mindmap_items, db=db
+                                    )
+                                    log.info(
+                                        f"Generated {len(mindmap_items)} chapter mindmaps for file {file.id}"
+                                    )
                             total_pages = get_pdf_total_pages(actual_path)
                             if total_pages > 0:
                                 Files.update_file_metadata_by_id(

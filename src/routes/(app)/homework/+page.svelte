@@ -126,6 +126,8 @@
 
 	let sourceFileId = '';
 	let sourceChapterName = '';
+	let sourceChapterStartPage: number | null = null;
+	let sourceChapterEndPage: number | null = null;
 	let sourceContent = '';
 	let sourceFileName = '';
 	let sourceFilePreview = '';
@@ -186,6 +188,8 @@
 	const resetSourceSelection = () => {
 		sourceFileId = '';
 		sourceChapterName = '';
+		sourceChapterStartPage = null;
+		sourceChapterEndPage = null;
 		sourceContent = '';
 		sourceFileName = '';
 		sourceFilePreview = '';
@@ -220,7 +224,15 @@
 
 		loadingKnowledgeFiles = true;
 		try {
-			const res = await searchKnowledgeFilesById(localStorage.token, selectedKnowledgeId, null, null, null, null, 1);
+			const res = await searchKnowledgeFilesById(
+				localStorage.token,
+				selectedKnowledgeId,
+				null,
+				null,
+				null,
+				null,
+				1
+			);
 			knowledgeFiles = res?.items ?? [];
 		} catch (error) {
 			toast.error(`${error}`);
@@ -286,8 +298,11 @@
 
 			sourceFileId = selectedKnowledgeFileId;
 			sourceChapterName = chapter.title;
+			sourceChapterStartPage = chapter.start_page;
+			sourceChapterEndPage = chapter.end_page;
 			sourceFileName =
-				knowledgeFiles.find((file) => file.id === selectedKnowledgeFileId)?.meta?.name ?? '未命名课本';
+				knowledgeFiles.find((file) => file.id === selectedKnowledgeFileId)?.meta?.name ??
+				'未命名课本';
 			sourceFilePreview = sourceContent.slice(0, 600);
 			sourceReady = true;
 		} catch (error) {
@@ -344,7 +359,12 @@
 			generating = true;
 			const payload = {
 				title: formTitle?.trim() || undefined,
+				source_file_id: sourceFileId || undefined,
 				source_content: sourceContent,
+				source_chapter_title: sourceChapterName || undefined,
+				source_chapter_start_page:
+					sourceChapterStartPage === null ? undefined : sourceChapterStartPage,
+				source_chapter_end_page: sourceChapterEndPage === null ? undefined : sourceChapterEndPage,
 				description: composedDescription,
 				difficulty_config: {
 					easy: Number(difficultyEasy) || 0,
@@ -474,16 +494,11 @@
 				{:else}
 					{#each homeworks as item}
 						<div
-							class="w-full rounded-xl border px-3 py-2 transition {selectedHomeworkId ===
-							item.id
+							class="w-full rounded-xl border px-3 py-2 transition {selectedHomeworkId === item.id
 								? 'border-blue-400 bg-blue-50 dark:border-blue-500/80 dark:bg-blue-900/20'
 								: 'border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800/50'}"
 						>
-							<button
-								type="button"
-								class="w-full text-left"
-								on:click={() => openHomework(item.id)}
-							>
+							<button type="button" class="w-full text-left" on:click={() => openHomework(item.id)}>
 								<div class="line-clamp-1 text-sm font-medium">{item.title}</div>
 								<div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
 									<div>题数：{item.question_count}</div>
@@ -558,7 +573,8 @@
 							</option>
 							{#each selectedChapters as chapter, chapterIdx}
 								<option value={String(chapterIdx)}>
-									{chapter.title}（p.{chapter.start_page + 1} - p.{(chapter.end_page ?? chapter.start_page) + 1}）
+									{chapter.title}（p.{chapter.start_page + 1} - p.{(chapter.end_page ??
+										chapter.start_page) + 1}）
 								</option>
 							{/each}
 						</select>
@@ -571,7 +587,9 @@
 								<div class="mt-1 line-clamp-1">章节：{sourceChapterName}</div>
 							{/if}
 							{#if sourceReady}
-								<div class="mt-1 text-green-600 dark:text-green-400">章节内容已就绪，可用于生成作业</div>
+								<div class="mt-1 text-green-600 dark:text-green-400">
+									章节内容已就绪，可用于生成作业
+								</div>
 							{/if}
 						</div>
 					{/if}
@@ -646,21 +664,41 @@
 						<span>根据内容自动选择题型（推荐）</span>
 					</label>
 					{#if autoQuestionTypeSelection}
-						<div class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-900/20 dark:text-amber-300">
+						<div
+							class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-900/20 dark:text-amber-300"
+						>
 							将根据学科内容自动选择题型，例如数学可包含计算题/应用题，避免仅三种固定题型。
 						</div>
 					{/if}
 					<div class="flex flex-wrap gap-3 text-sm">
-						<label class="flex items-center gap-1.5 {autoQuestionTypeSelection ? 'opacity-50' : ''}">
-							<input type="checkbox" bind:checked={includeChoice} disabled={autoQuestionTypeSelection} />
+						<label
+							class="flex items-center gap-1.5 {autoQuestionTypeSelection ? 'opacity-50' : ''}"
+						>
+							<input
+								type="checkbox"
+								bind:checked={includeChoice}
+								disabled={autoQuestionTypeSelection}
+							/>
 							<span>选择题</span>
 						</label>
-						<label class="flex items-center gap-1.5 {autoQuestionTypeSelection ? 'opacity-50' : ''}">
-							<input type="checkbox" bind:checked={includeJudge} disabled={autoQuestionTypeSelection} />
+						<label
+							class="flex items-center gap-1.5 {autoQuestionTypeSelection ? 'opacity-50' : ''}"
+						>
+							<input
+								type="checkbox"
+								bind:checked={includeJudge}
+								disabled={autoQuestionTypeSelection}
+							/>
 							<span>判断题</span>
 						</label>
-						<label class="flex items-center gap-1.5 {autoQuestionTypeSelection ? 'opacity-50' : ''}">
-							<input type="checkbox" bind:checked={includeShort} disabled={autoQuestionTypeSelection} />
+						<label
+							class="flex items-center gap-1.5 {autoQuestionTypeSelection ? 'opacity-50' : ''}"
+						>
+							<input
+								type="checkbox"
+								bind:checked={includeShort}
+								disabled={autoQuestionTypeSelection}
+							/>
 							<span>简答题</span>
 						</label>
 					</div>
@@ -717,11 +755,15 @@
 				{@const latestSubmission = getLatestSubmission()}
 
 				{#if latestSubmission}
-					<div class="mb-3 rounded-xl border border-indigo-200 bg-indigo-50/80 p-3 text-xs text-indigo-700 dark:border-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-200">
+					<div
+						class="mb-3 rounded-xl border border-indigo-200 bg-indigo-50/80 p-3 text-xs text-indigo-700 dark:border-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-200"
+					>
 						<div class="text-sm font-semibold">上一次批改记录</div>
 						<div class="mt-1">时间：{formatTime(latestSubmission.created_at)}</div>
 						<div class="mt-1">分数：{latestSubmission.score} / 100</div>
-						<div class="mt-1">正确题数：{latestSubmission.correct_count}/{latestSubmission.total_questions}</div>
+						<div class="mt-1">
+							正确题数：{latestSubmission.correct_count}/{latestSubmission.total_questions}
+						</div>
 					</div>
 				{/if}
 

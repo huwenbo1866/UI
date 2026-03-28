@@ -10,6 +10,9 @@ export type GenerateHomeworkPayload = {
 	title?: string;
 	source_file_id?: string;
 	source_content?: string;
+	source_chapter_title?: string;
+	source_chapter_start_page?: number;
+	source_chapter_end_page?: number;
 	description?: string;
 	difficulty_config?: DifficultyConfig;
 	question_types?: string[];

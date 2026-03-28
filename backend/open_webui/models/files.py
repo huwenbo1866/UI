@@ -4,7 +4,7 @@ import uuid
 from typing import Optional, List
 
 from sqlalchemy.orm import Session
-from open_webui.internal.db import Base, JSONField, get_db, get_db_context
+from open_webui.internal.db import Base, JSONField, engine, get_db, get_db_context
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import BigInteger, Column, Integer, String, Text, JSON, ForeignKey
 
@@ -593,6 +593,198 @@ FileSections = FileSectionsTable()
 
 
 ####################
+# FileChapterMindmap DB Schema (PDF 章节思维导图)
+####################
+
+
+class FileChapterMindmap(Base):
+    __tablename__ = "file_chapter_mindmap"
+
+    id = Column(String, primary_key=True)
+    file_id = Column(String, ForeignKey("file.id", ondelete="CASCADE"), nullable=False, index=True)
+    chapter_title = Column(Text, nullable=False)
+    chapter_start_page = Column(Integer, nullable=False)
+    chapter_end_page = Column(Integer, nullable=False)
+    subject = Column(String, nullable=True)
+    tree_data = Column(JSON, nullable=False)
+    markmap_markdown = Column(Text, nullable=False)
+    created_at = Column(BigInteger)
+    updated_at = Column(BigInteger)
+
+
+class FileChapterMindmapModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    file_id: str
+    chapter_title: str
+    chapter_start_page: int
+    chapter_end_page: int
+    subject: Optional[str] = None
+    tree_data: dict = Field(default_factory=dict)
+    markmap_markdown: str
+    created_at: Optional[int] = None
+    updated_at: Optional[int] = None
+
+
+class FileChapterMindmapCreateForm(BaseModel):
+    chapter_title: str
+    chapter_start_page: int
+    chapter_end_page: int
+    subject: Optional[str] = None
+    tree_data: dict = Field(default_factory=dict)
+    markmap_markdown: str = ""
+
+
+class FileChapterMindmapUpdateForm(BaseModel):
+    tree_data: Optional[dict] = None
+    markmap_markdown: Optional[str] = None
+
+
+class FileChapterMindmapsTable:
+    def replace_mindmaps(
+        self,
+        file_id: str,
+        mindmaps: List[FileChapterMindmapCreateForm],
+        db: Optional[Session] = None,
+    ) -> List[FileChapterMindmapModel]:
+        with get_db_context(db) as db:
+            try:
+                db.query(FileChapterMindmap).filter_by(file_id=file_id).delete()
+                db.flush()
+
+                now = int(time.time())
+                rows = []
+                for item in mindmaps:
+                    row = FileChapterMindmap(
+                        id=str(uuid.uuid4()),
+                        file_id=file_id,
+                        chapter_title=item.chapter_title,
+                        chapter_start_page=item.chapter_start_page,
+                        chapter_end_page=item.chapter_end_page,
+                        subject=item.subject,
+                        tree_data=item.tree_data,
+                        markmap_markdown=item.markmap_markdown,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    db.add(row)
+                    rows.append(row)
+
+                db.commit()
+                return [FileChapterMindmapModel.model_validate(row) for row in rows]
+            except Exception as e:
+                log.exception(f"Error replacing chapter mindmaps for file {file_id}: {e}")
+                db.rollback()
+                return []
+
+    def get_mindmaps_by_file_id(
+        self, file_id: str, db: Optional[Session] = None
+    ) -> List[FileChapterMindmapModel]:
+        with get_db_context(db) as db:
+            try:
+                rows = (
+                    db.query(FileChapterMindmap)
+                    .filter_by(file_id=file_id)
+                    .order_by(FileChapterMindmap.chapter_start_page.asc())
+                    .all()
+                )
+                return [FileChapterMindmapModel.model_validate(row) for row in rows]
+            except Exception as e:
+                log.exception(f"Error getting chapter mindmaps for file {file_id}: {e}")
+                return []
+
+    def get_mindmap_by_id(
+        self, mindmap_id: str, db: Optional[Session] = None
+    ) -> Optional[FileChapterMindmapModel]:
+        with get_db_context(db) as db:
+            try:
+                row = db.get(FileChapterMindmap, mindmap_id)
+                if row:
+                    return FileChapterMindmapModel.model_validate(row)
+                return None
+            except Exception:
+                return None
+
+    def get_mindmap_by_file_and_chapter(
+        self,
+        file_id: str,
+        chapter_title: Optional[str] = None,
+        chapter_start_page: Optional[int] = None,
+        chapter_end_page: Optional[int] = None,
+        db: Optional[Session] = None,
+    ) -> Optional[FileChapterMindmapModel]:
+        with get_db_context(db) as db:
+            try:
+                query = db.query(FileChapterMindmap).filter_by(file_id=file_id)
+
+                if chapter_start_page is not None and chapter_end_page is not None:
+                    row = (
+                        query.filter_by(
+                            chapter_start_page=chapter_start_page,
+                            chapter_end_page=chapter_end_page,
+                        )
+                        .order_by(FileChapterMindmap.chapter_start_page.asc())
+                        .first()
+                    )
+                    if row:
+                        return FileChapterMindmapModel.model_validate(row)
+
+                if chapter_title:
+                    normalized_title = chapter_title.strip()
+                    rows = query.order_by(FileChapterMindmap.chapter_start_page.asc()).all()
+                    for row in rows:
+                        if (row.chapter_title or "").strip() == normalized_title:
+                            return FileChapterMindmapModel.model_validate(row)
+                    return None
+
+                if chapter_start_page is not None or chapter_end_page is not None:
+                    return None
+
+                row = query.order_by(FileChapterMindmap.chapter_start_page.asc()).first()
+                if row:
+                    return FileChapterMindmapModel.model_validate(row)
+                return None
+            except Exception as e:
+                log.exception(
+                    "Error getting chapter mindmap for file %s chapter %s: %s",
+                    file_id,
+                    chapter_title,
+                    e,
+                )
+                return None
+
+    def update_mindmap_by_id(
+        self,
+        mindmap_id: str,
+        form_data: FileChapterMindmapUpdateForm,
+        db: Optional[Session] = None,
+    ) -> Optional[FileChapterMindmapModel]:
+        with get_db_context(db) as db:
+            try:
+                row = db.get(FileChapterMindmap, mindmap_id)
+                if not row:
+                    return None
+
+                if form_data.tree_data is not None:
+                    row.tree_data = form_data.tree_data
+                if form_data.markmap_markdown is not None:
+                    row.markmap_markdown = form_data.markmap_markdown
+                row.updated_at = int(time.time())
+
+                db.commit()
+                db.refresh(row)
+                return FileChapterMindmapModel.model_validate(row)
+            except Exception as e:
+                log.exception(f"Error updating chapter mindmap {mindmap_id}: {e}")
+                db.rollback()
+                return None
+
+
+FileChapterMindmaps = FileChapterMindmapsTable()
+
+
+####################
 # FileChapterHomework DB Schema (PDF 章节作业)
 ####################
 
@@ -734,3 +926,7 @@ class FileChapterHomeworksTable:
 
 
 FileChapterHomeworks = FileChapterHomeworksTable()
+
+
+# Pragmatic table bootstrap for custom forks without an alembic migration yet.
+Base.metadata.create_all(bind=engine, tables=[FileChapterMindmap.__table__])
