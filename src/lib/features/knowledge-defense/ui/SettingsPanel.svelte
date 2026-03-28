@@ -2,12 +2,36 @@
   import { createEventDispatcher } from 'svelte';
   import type { AttackPreference } from '../core/types';
 
+  export type KnowledgeBaseOption = { id: string; name: string };
+  export type KnowledgeFileOption = { id: string; name: string };
+  export type ChapterHomeworkOption = {
+    id: string;
+    chapter_title: string;
+    question_count: number;
+  };
+
   export let visible = false;
   export let attackPreference: AttackPreference = 'straight';
+
+  export let loadingKnowledgeBases = false;
+  export let loadingKnowledgeFiles = false;
+  export let loadingChapterHomeworks = false;
+
+  export let knowledgeBases: KnowledgeBaseOption[] = [];
+  export let knowledgeFiles: KnowledgeFileOption[] = [];
+  export let chapterHomeworks: ChapterHomeworkOption[] = [];
+
+  export let selectedKnowledgeId = '';
+  export let selectedFileId = '';
+  export let selectedHomeworkId = '';
+  export let usingSampleFallback = true;
 
   const dispatch = createEventDispatcher<{
     close: void;
     changePreference: { value: AttackPreference };
+    changeKnowledge: { value: string };
+    changeFile: { value: string };
+    changeChapterHomework: { value: string };
   }>();
 
   function close() {
@@ -21,7 +45,7 @@
       <div class="header">
         <div>
           <h2>设置</h2>
-          <p>第一轮先开放攻击模式设置。后续你可以继续把攻速、怪物强度、题目来源等都放进来。</p>
+          <p>可切换攻击模式，并选择知识库文件章节作业作为闯关题源；加载失败时自动回退 sample_pack。</p>
         </div>
         <button class="close" on:click={close}>关闭</button>
       </div>
@@ -46,6 +70,73 @@
           </button>
         </div>
       </div>
+
+      <div class="section">
+        <h3>题目来源（知识库章节作业）</h3>
+        <div class="field-grid">
+          <label>
+            <span>知识库</span>
+            <select
+              value={selectedKnowledgeId}
+              disabled={loadingKnowledgeBases}
+              aria-label="选择知识库"
+              on:change={(event) =>
+                dispatch('changeKnowledge', {
+                  value: (event.currentTarget as HTMLSelectElement).value
+                })}
+            >
+              <option value="">{loadingKnowledgeBases ? '知识库加载中...' : '选择知识库'}</option>
+              {#each knowledgeBases as kb}
+                <option value={kb.id}>{kb.name}</option>
+              {/each}
+            </select>
+          </label>
+
+          <label>
+            <span>文件</span>
+            <select
+              value={selectedFileId}
+              disabled={!selectedKnowledgeId || loadingKnowledgeFiles}
+              aria-label="选择知识库文件"
+              on:change={(event) =>
+                dispatch('changeFile', {
+                  value: (event.currentTarget as HTMLSelectElement).value
+                })}
+            >
+              <option value="">{loadingKnowledgeFiles ? '文件加载中...' : '选择文件'}</option>
+              {#each knowledgeFiles as file}
+                <option value={file.id}>{file.name}</option>
+              {/each}
+            </select>
+          </label>
+
+          <label>
+            <span>章节作业</span>
+            <select
+              value={selectedHomeworkId}
+              disabled={!selectedFileId || loadingChapterHomeworks}
+              aria-label="选择章节作业"
+              on:change={(event) =>
+                dispatch('changeChapterHomework', {
+                  value: (event.currentTarget as HTMLSelectElement).value
+                })}
+            >
+              <option value="">{loadingChapterHomeworks ? '章节作业加载中...' : '选择章节作业'}</option>
+              {#each chapterHomeworks as hw}
+                <option value={hw.id}>{hw.chapter_title}（{hw.question_count}题）</option>
+              {/each}
+            </select>
+          </label>
+        </div>
+
+        <p class="source-tip" class:fallback={usingSampleFallback}>
+          {#if usingSampleFallback}
+            当前使用 sample_pack（知识库题源不可用时自动回退）
+          {:else}
+            当前使用知识库章节作业题源
+          {/if}
+        </p>
+      </div>
     </div>
   </div>
 {/if}
@@ -62,7 +153,7 @@
     backdrop-filter: blur(3px);
   }
   .panel {
-    width: min(720px, calc(100vw - 48px));
+    width: min(760px, calc(100vw - 48px));
     background: #fffaf4;
     border: 1px solid #e3d5c7;
     border-radius: 28px;
@@ -105,5 +196,33 @@
     border-color: #f59e0b;
     background: #fff7ed;
     box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .field-grid label {
+    display: grid;
+    gap: 6px;
+    color: #6b5848;
+    font-size: 13px;
+  }
+  .field-grid select {
+    border: 1px solid #ddccb8;
+    border-radius: 12px;
+    padding: 8px 10px;
+    background: #fffdfa;
+    color: #4f3d2f;
+    min-width: 0;
+  }
+  .source-tip {
+    margin: 10px 0 0;
+    color: #5a4736;
+    font-size: 13px;
+  }
+  .source-tip.fallback {
+    color: #a16207;
   }
 </style>
