@@ -2,11 +2,16 @@
 	import { toast } from 'svelte-sonner';
 	import dayjs from 'dayjs';
 	import { createEventDispatcher } from 'svelte';
-	import { onMount, getContext } from 'svelte';
+	import { getContext } from 'svelte';
 
 	import { goto } from '$app/navigation';
 
-	import { updateUserById, getUserGroupsById } from '$lib/apis/users';
+	import {
+		updateUserById,
+		getUserGroupsById,
+		getUserLearningProfile,
+		type UserLearningProfile
+	} from '$lib/apis/users';
 
 	import Modal from '$lib/components/common/Modal.svelte';
 	import localizedFormat from 'dayjs/plugin/localizedFormat';
@@ -18,6 +23,18 @@
 	const dispatch = createEventDispatcher();
 	dayjs.extend(localizedFormat);
 
+	type EditableUser = {
+		id?: string;
+		profile_image_url: string;
+		role: string;
+		name: string;
+		email: string;
+		password: string;
+		settings?: Record<string, any>;
+		oauth?: Record<string, any>;
+		created_at?: number;
+	};
+
 	export let show = false;
 	export let selectedUser;
 	export let sessionUser;
@@ -28,21 +45,66 @@
 
 	const init = () => {
 		if (selectedUser) {
-			_user = selectedUser;
-			_user.password = '';
+			_user = {
+				...selectedUser,
+				password: '',
+				settings: selectedUser.settings
+					? JSON.parse(JSON.stringify(selectedUser.settings))
+					: undefined
+			};
+			learningProfile = null;
 			loadUserGroups();
+			loadLearningProfile();
 		}
 	};
 
-	let _user = {
+	let _user: EditableUser = {
 		profile_image_url: '',
 		role: 'pending',
 		name: '',
 		email: '',
-		password: ''
+		password: '',
+		settings: undefined
 	};
 
 	let userGroups: any[] | null = null;
+	let learningProfile: UserLearningProfile | null = null;
+	let loadingLearningProfile = false;
+
+	const ensureLearningProfileSettings = () => {
+		if (!_user.settings || typeof _user.settings !== 'object') {
+			_user.settings = {};
+		}
+
+		if (!_user.settings.ui || typeof _user.settings.ui !== 'object') {
+			_user.settings.ui = {};
+		}
+
+		if (
+			!_user.settings.ui.learning_profile ||
+			typeof _user.settings.ui.learning_profile !== 'object'
+		) {
+			_user.settings.ui.learning_profile = {};
+		}
+
+		return _user.settings.ui.learning_profile;
+	};
+
+	const setSelectedCapability = (capabilityKey: string | null) => {
+		const learningProfileSettings = ensureLearningProfileSettings();
+		learningProfileSettings.selected_capability = capabilityKey;
+
+		if (learningProfile) {
+			learningProfile = {
+				...learningProfile,
+				selected_capability: capabilityKey,
+				capabilities: learningProfile.capabilities.map((capability) => ({
+					...capability,
+					selected: capability.key === capabilityKey
+				}))
+			};
+		}
+	};
 
 	const submitHandler = async () => {
 		const res = await updateUserById(localStorage.token, selectedUser.id, _user).catch((error) => {
@@ -63,6 +125,24 @@
 			toast.error(`${error}`);
 			return null;
 		});
+	};
+
+	const loadLearningProfile = async () => {
+		if (!selectedUser?.id) return;
+		loadingLearningProfile = true;
+
+		learningProfile = await getUserLearningProfile(localStorage.token, selectedUser.id).catch(
+			(error) => {
+				toast.error(`${error}`);
+				return null;
+			}
+		);
+
+		if (learningProfile) {
+			setSelectedCapability(learningProfile.selected_capability ?? null);
+		}
+
+		loadingLearningProfile = false;
 	};
 </script>
 
@@ -208,6 +288,84 @@
 												required={false}
 											/>
 										</div>
+									</div>
+
+									<div
+										class="mt-2 rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-950/60 p-3"
+									>
+										<div class="flex items-start justify-between gap-3">
+											<div>
+												<div class="text-sm font-medium text-gray-900 dark:text-gray-100">
+													培养能力
+												</div>
+												<div class="mt-1 text-xs text-gray-500">
+													同一时间只能选择一个培养方向，点击保存后，AI 会自动使用对应的引导式回答
+													prompt。
+												</div>
+											</div>
+
+											{#if learningProfile}
+												<div class="text-[11px] text-right text-gray-500 leading-5">
+													<div>{learningProfile.metric_label}</div>
+													<div>最近 {learningProfile.sample_count} 条学习交互</div>
+												</div>
+											{/if}
+										</div>
+
+										{#if loadingLearningProfile}
+											<div class="py-4 text-xs text-gray-500">正在生成能力画像...</div>
+										{:else if learningProfile?.capabilities?.length}
+											<div class="mt-3 flex flex-col gap-2">
+												{#each learningProfile.capabilities as capability}
+													<button
+														class={`w-full rounded-2xl border px-3 py-2.5 text-left transition ${
+															capability.selected
+																? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/30'
+																: 'border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-gray-900/70 dark:hover:border-gray-700'
+														}`}
+														type="button"
+														on:click={() => setSelectedCapability(capability.key)}
+													>
+														<div class="flex items-start justify-between gap-3">
+															<div class="min-w-0 flex-1">
+																<div class="flex items-center justify-between gap-3">
+																	<div
+																		class="truncate text-sm font-medium text-gray-900 dark:text-gray-100"
+																	>
+																		{capability.label}
+																	</div>
+
+																	<div
+																		class="shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-200"
+																	>
+																		{learningProfile.metric_label}
+																		{capability.score.toFixed(1)}
+																	</div>
+																</div>
+
+																<div class="mt-1 text-xs text-gray-500">
+																	{capability.description}
+																</div>
+															</div>
+
+															<div
+																class={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
+																	capability.selected
+																		? 'border-blue-500 bg-blue-500 text-white'
+																		: 'border-gray-300 text-transparent dark:border-gray-700'
+																}`}
+															>
+																✓
+															</div>
+														</div>
+													</button>
+												{/each}
+											</div>
+										{:else}
+											<div class="py-4 text-xs text-gray-500">
+												暂无足够的学习交互数据，系统会随着学生继续使用自动生成成长指数。
+											</div>
+										{/if}
 									</div>
 								</div>
 							</div>

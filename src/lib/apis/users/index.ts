@@ -327,6 +327,51 @@ export const getUserById = async (token: string, userId: string) => {
 	return res;
 };
 
+export type LearningCapabilityScore = {
+	key: string;
+	label: string;
+	description: string;
+	score: number;
+	selected: boolean;
+};
+
+export type UserLearningProfile = {
+	metric_label: string;
+	sample_count: number;
+	selected_capability?: string | null;
+	capabilities: LearningCapabilityScore[];
+};
+
+export const getUserLearningProfile = async (
+	token: string,
+	userId: string
+): Promise<UserLearningProfile | null> => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/users/${userId}/learning-profile`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			error = err.detail;
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
 export const updateUserStatus = async (token: string, formData: object) => {
 	let error = null;
 
@@ -488,6 +533,7 @@ type UserUpdateForm = {
 	email: string;
 	name: string;
 	password: string;
+	settings?: Record<string, any> | null;
 };
 
 export const updateUserById = async (token: string, userId: string, user: UserUpdateForm) => {
@@ -504,7 +550,8 @@ export const updateUserById = async (token: string, userId: string, user: UserUp
 			role: user.role,
 			email: user.email,
 			name: user.name,
-			password: user.password !== '' ? user.password : undefined
+			password: user.password !== '' ? user.password : undefined,
+			settings: user.settings ?? undefined
 		})
 	})
 		.then(async (res) => {

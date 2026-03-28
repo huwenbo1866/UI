@@ -233,6 +233,7 @@ class UserUpdateForm(BaseModel):
     email: str
     profile_image_url: str
     password: Optional[str] = None
+    settings: Optional[dict] = None
 
 
 class UsersTable:

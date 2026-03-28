@@ -1,4 +1,5 @@
 import logging
+import copy
 from typing import Optional
 from sqlalchemy.orm import Session
 import base64
@@ -40,6 +41,12 @@ from open_webui.utils.auth import (
     validate_password,
 )
 from open_webui.utils.access_control import get_permissions, has_permission
+from open_webui.utils.misc import deep_update
+from open_webui.services.learning_capabilities import (
+    build_learning_profile_settings,
+    get_learning_profile,
+    get_selected_learning_capability,
+)
 
 
 log = logging.getLogger(__name__)
@@ -444,6 +451,21 @@ class UserActiveResponse(UserStatus):
     model_config = ConfigDict(extra="allow")
 
 
+class LearningCapabilityScore(BaseModel):
+    key: str
+    label: str
+    description: str
+    score: float
+    selected: bool = False
+
+
+class UserLearningProfileResponse(BaseModel):
+    metric_label: str
+    sample_count: int = 0
+    selected_capability: Optional[str] = None
+    capabilities: list[LearningCapabilityScore] = []
+
+
 @router.get("/{user_id}", response_model=UserActiveResponse)
 async def get_user_by_id(
     user_id: str, user=Depends(get_verified_user), db: Session = Depends(get_session)
@@ -476,6 +498,30 @@ async def get_user_by_id(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.USER_NOT_FOUND,
         )
+
+
+@router.get("/{user_id}/learning-profile", response_model=UserLearningProfileResponse)
+async def get_user_learning_profile(
+    user_id: str,
+    session_user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    if session_user.role != "admin" and session_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACTION_PROHIBITED,
+        )
+
+    target_user = Users.get_user_by_id(user_id, db=db)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.USER_NOT_FOUND,
+        )
+
+    return UserLearningProfileResponse(
+        **get_learning_profile(user_id, target_user.settings, db=db)
+    )
 
 
 @router.get("/{user_id}/oauth/sessions")
@@ -603,14 +649,28 @@ async def update_user_by_id(
             Auths.update_user_password_by_id(user_id, hashed, db=db)
 
         Auths.update_email_by_id(user_id, form_data.email.lower(), db=db)
+        updated_user_payload = {
+            "role": form_data.role,
+            "name": form_data.name,
+            "email": form_data.email.lower(),
+            "profile_image_url": form_data.profile_image_url,
+        }
+
+        if form_data.settings is not None:
+            merged_settings = (
+                copy.deepcopy(user.settings) if isinstance(user.settings, dict) else {}
+            )
+            if isinstance(form_data.settings, dict):
+                merged_settings = deep_update(merged_settings, form_data.settings)
+
+            updated_user_payload["settings"] = build_learning_profile_settings(
+                merged_settings,
+                get_selected_learning_capability(merged_settings),
+            )
+
         updated_user = Users.update_user_by_id(
             user_id,
-            {
-                "role": form_data.role,
-                "name": form_data.name,
-                "email": form_data.email.lower(),
-                "profile_image_url": form_data.profile_image_url,
-            },
+            updated_user_payload,
             db=db,
         )
 

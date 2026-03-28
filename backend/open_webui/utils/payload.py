@@ -4,10 +4,33 @@ from open_webui.utils.misc import (
     add_or_update_system_message,
     replace_system_message_content,
 )
+from open_webui.services.learning_capabilities import (
+    get_learning_capability_system_prompt,
+)
 
 from typing import Callable, Optional
 import copy
 import json
+
+
+def _get_existing_system_content(messages: list[dict]) -> str:
+    for message in messages:
+        if message.get("role") != "system":
+            continue
+
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            texts = [
+                item.get("text", "")
+                for item in content
+                if isinstance(item, dict) and isinstance(item.get("text"), str)
+            ]
+            return "\n".join([text for text in texts if text])
+
+    return ""
 
 
 # inplace function: form_data is modified
@@ -18,6 +41,11 @@ def apply_system_prompt_to_body(
     user=None,
     replace: bool = False,
 ) -> dict:
+    capability_prompt = get_learning_capability_system_prompt(user)
+    existing_system = _get_existing_system_content(form_data.get("messages", []))
+    if capability_prompt and capability_prompt not in (system or "") and capability_prompt not in existing_system:
+        system = f"{system}\n\n{capability_prompt}".strip() if system else capability_prompt
+
     if not system:
         return form_data
 

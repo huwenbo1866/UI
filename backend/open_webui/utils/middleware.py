@@ -2286,13 +2286,16 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         )
         system_message = get_system_message(form_data.get("messages", []))
 
-    if system_message:  # Chat Controls/User Settings / Global System Prompt
-        try:
-            form_data = apply_system_prompt_to_body(
-                system_message.get("content"), form_data, metadata, user, replace=True
-            )
-        except:
-            pass
+    try:
+        form_data = apply_system_prompt_to_body(
+            system_message.get("content") if system_message else None,
+            form_data,
+            metadata,
+            user,
+            replace=bool(system_message),
+        )
+    except:
+        pass
 
     form_data = await convert_url_images_to_base64(form_data)
 
