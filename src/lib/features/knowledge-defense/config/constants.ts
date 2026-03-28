@@ -109,6 +109,47 @@ export const AI_ANALYSIS_PROMPT = `
 {questions}
 `;
 
+
+// ==================== 知识闯关题库回写/强化配置 ====================
+export const KD_ENABLE_DEBUG_LOGS = true;                  // 是否输出知识闯关的调试日志
+export const KD_SYNC_BATCH_SIZE = 6;                       // 累积多少次答题后立即回写
+export const KD_SYNC_DEFER_MS = 12_000;                    // 未达到批次时的延迟回写时间
+export const KD_CHAPTER_MAX_QUESTIONS = 50;                // 章节题库最大题量
+
+export const KD_MASTERY_STREAK_TO_REMOVE = 2;              // 连续答对达到该次数后从强化池移除
+export const KD_CORRECT_COOLDOWN_ROUNDS = 9;               // 普通答对后的冷却轮次
+export const KD_MASTERED_COOLDOWN_ROUNDS = 14;             // 连续答对达标后的更长冷却轮次
+export const KD_WRONG_COOLDOWN_MIN_ROUNDS = 4;             // 答错后的最小冷却轮次
+export const KD_WRONG_COOLDOWN_MAX_ROUNDS = 9;             // 答错后的最大冷却轮次
+export const KD_WRONG_COOLDOWN_BASE = 3;                   // 答错冷却基础值（叠加 wrong 次数）
+
+export const KD_AMPLIFY_PER_WRONG_MIN = 1;                 // 错题最少生成同类型强化题数量
+export const KD_AMPLIFY_PER_WRONG_MAX = 3;                 // 错题最多生成同类型强化题数量
+export const KD_AMPLIFY_ORDER_OFFSET = 1000;               // 强化题排序偏移，确保排在后面
+
+export const KD_ADAPTIVE_BASE_WEIGHT_UNSEEN = 1.4;         // 未做过题目的基础权重
+export const KD_ADAPTIVE_MISS_RATE_FACTOR = 1.6;           // 错误率权重系数
+export const KD_ADAPTIVE_RECENT_WRONG_BONUS = 0.35;        // 最近答错加权
+export const KD_ADAPTIVE_VOLUME_BONUS_PER_ATTEMPT = 0.04;  // 做题次数加权步进
+export const KD_ADAPTIVE_VOLUME_BONUS_MAX = 0.35;          // 做题次数加权上限
+
+export const KD_REINFORCE_PROMPT_VARIANTS = [               // 错题强化题干变式文案
+  '变式训练',
+  '同场景迁移',
+  '易错点再练',
+  '对比辨析',
+  '小测巩固'
+] as const;
+
+export const KD_REINFORCE_FALLBACK_DISTRACTORS = [          // 干扰项补位（选项不够时）
+  '以上都不对',
+  '题干信息不足',
+  '需结合教材上下文判断',
+  '需要二次推理'
+] as const;
+
+
+
 export function getTotalExpRequiredForLevel(level: number) {
   if (level <= 1) return 0;
   return 10 * (2 ** (level - 1) - 1);

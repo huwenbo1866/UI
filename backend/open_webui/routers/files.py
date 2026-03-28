@@ -62,6 +62,7 @@ from open_webui.services.chapter_mindmap import (
 from open_webui.services.homework_generation import (
     build_answer_markdown,
     generate_chapter_homework_questions,
+    generate_reinforcement_questions_from_records,
 )
 
 from open_webui.utils.file_progress import update_file_progress
@@ -1085,6 +1086,14 @@ class MetaForm(BaseModel):
     meta: dict
 
 
+class ChapterHomeworkReinforceForm(BaseModel):
+    chapter_title: Optional[str] = None
+    subject: Optional[str] = None
+    count: int = 0
+    wrong_records: list[dict] = []
+    existing_questions: list[str] = []
+
+
 @router.post("/{id}/data/content/update")
 def update_file_data_content_by_id(
     request: Request,
@@ -1314,6 +1323,62 @@ async def update_file_chapter_homework(
         )
 
     return {"item": updated.model_dump()}
+
+
+@router.post("/{id}/chapter-homeworks/{homework_id}/reinforce")
+async def reinforce_file_chapter_homework(
+    request: Request,
+    id: str,
+    homework_id: str,
+    form_data: ChapterHomeworkReinforceForm,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    if not _env_bool("KNOWLEDGE_CHAPTER_HOMEWORK_VISIBLE", True):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    file = Files.get_file_by_id(id, db=db)
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if not (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "write", user, db=db)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+
+    current = FileChapterHomeworks.get_homework_by_id(homework_id, db=db)
+    if not current or current.file_id != id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chapter homework not found",
+        )
+
+    target_count = max(0, min(30, int(form_data.count or 0)))
+    if target_count <= 0:
+        return {"items": []}
+
+    generated = await generate_reinforcement_questions_from_records(
+        request=request,
+        user=user,
+        chapter_title=form_data.chapter_title or current.chapter_title,
+        wrong_records=form_data.wrong_records or [],
+        existing_questions=form_data.existing_questions or [],
+        subject=form_data.subject or current.subject,
+        count=target_count,
+    )
+
+    return {"items": generated}
 
 
 ############################

@@ -40,7 +40,8 @@ export function createInitialGameState(
     battle: {
       kills: 0,
       correct: 0,
-      wrong: 0
+      wrong: 0,
+      qaRound: 0
     },
     buffs: {
       queuedWeaponBuff: null,

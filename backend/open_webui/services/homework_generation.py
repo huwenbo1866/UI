@@ -372,3 +372,116 @@ async def generate_chapter_homework_questions(
     )
 
     return _normalize_chapter_questions(raw, normalized_subject, count)
+
+def _normalize_reinforcement_questions(data: Any, count: int) -> list[dict]:
+    if isinstance(data, dict):
+        if isinstance(data.get("questions"), list):
+            data = data.get("questions")
+        else:
+            data = [data]
+
+    if not isinstance(data, list):
+        raise ValueError("Invalid reinforcement format")
+
+    result: list[dict] = []
+    for idx, item in enumerate(data):
+        if not isinstance(item, dict):
+            continue
+
+        question = str(item.get("question", "")).strip()
+        answer = str(item.get("answer", "")).strip()
+        if not question or not answer:
+            continue
+
+        q_type = str(item.get("type", "choice")).strip().lower()
+        if q_type in {"judge", "true_false", "truefalse", "判断", "判断题"}:
+            options = ["正确", "错误"]
+            if answer in {"对", "正确", "true", "True", "TRUE", "是"}:
+                answer = "正确"
+            elif answer in {"错", "错误", "false", "False", "FALSE", "否"}:
+                answer = "错误"
+            elif answer not in {"正确", "错误"}:
+                answer = "正确"
+            q_type = "judge"
+        else:
+            options = _parse_options(item.get("options"))
+            if len(options) < 4:
+                options = [opt for opt in options if opt][:4]
+                while len(options) < 4:
+                    options.append(f"选项{len(options) + 1}")
+            q_type = "choice"
+
+        result.append(
+            {
+                "order_index": idx,
+                "type": q_type,
+                "difficulty": str(item.get("difficulty", "medium")).strip() or "medium",
+                "question": question,
+                "options": options,
+                "answer": answer,
+                "analysis": str(item.get("analysis", "")).strip(),
+            }
+        )
+
+        if len(result) >= count:
+            break
+
+    return result
+
+
+async def generate_reinforcement_questions_from_records(
+    request: Any,
+    user: UserModel,
+    chapter_title: str,
+    wrong_records: list[dict],
+    existing_questions: list[str],
+    subject: Optional[str],
+    count: int,
+) -> list[dict]:
+    from open_webui.utils.task import get_task_model_id
+
+    if count <= 0:
+        return []
+
+    normalized_subject = _normalize_subject(subject)
+    base_model_id = _resolve_model_id(request)
+    task_model_id = get_task_model_id(
+        base_model_id,
+        request.app.state.config.TASK_MODEL,
+        request.app.state.config.TASK_MODEL_EXTERNAL,
+        request.app.state.MODELS,
+    )
+
+    wrong_text = json.dumps(wrong_records[:20], ensure_ascii=False)
+    existing_text = json.dumps(existing_questions[:120], ensure_ascii=False)
+
+    system_prompt = (
+        "你是中小学命题教研助手。"
+        "必须只输出JSON数组，每项字段：type,question,options,answer,analysis,difficulty。"
+        "新题必须与错题同一知识类型，又具有差异性，绝不允许是题干/选项的简单改变。"
+        "必须围绕错题同一知识类型生成可判分题。"
+    )
+
+    user_prompt = (
+        f"章节：{chapter_title}\n"
+        f"学科：{normalized_subject}\n"
+        f"目标：生成{count}道全新强化题。\n"
+        "约束：\n"
+        "1) 与existing_questions中的题干重复度要低（避免同题复读）；\n"
+        "2) 聚焦wrong_records中的易错知识类型；\n"
+        "3) 选择题必须4个可区分选项，answer可写正确选项文本或A/B/C/D；\n"
+        "4) 判断题answer只能为正确/错误。\n\n"
+        f"wrong_records={wrong_text}\n"
+        f"existing_questions={existing_text}"
+    )
+
+    raw = await _chat_json(
+        request,
+        user,
+        task_model_id,
+        system_prompt,
+        user_prompt,
+        "knowledge_chapter_homework_reinforcement_generation",
+    )
+
+    return _normalize_reinforcement_questions(raw, count)

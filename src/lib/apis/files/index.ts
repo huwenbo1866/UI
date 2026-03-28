@@ -643,3 +643,44 @@ export const updateFileChapterHomework = async (
 
 	return res?.item ?? null;
 };
+
+
+export const generateChapterHomeworkReinforcement = async (
+	token: string,
+	id: string,
+	homeworkId: string,
+	payload: {
+		chapter_title?: string;
+		subject?: string | null;
+		count?: number;
+		wrong_records?: Array<Record<string, any>>;
+		existing_questions?: string[];
+	}
+) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_API_BASE_URL}/files/${id}/chapter-homeworks/${homeworkId}/reinforce`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(payload)
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err.detail;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res?.items ?? [];
+};

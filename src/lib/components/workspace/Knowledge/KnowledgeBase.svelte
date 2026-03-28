@@ -1912,10 +1912,11 @@
 														{:else}
 															<div class="text-sm font-medium">作业</div>
 															{#each selectedChapterHomework.questions ?? [] as question, qIndex}
+																{@const answerKey = getChapterAnswerKey(question, qIndex)}
 																<div
 																	class="rounded-lg border dark:border-gray-700 p-3 bg-white dark:bg-gray-950"
 																>
-																	{@const answerKey = getChapterAnswerKey(question, qIndex)}
+																	
 																	<div class="text-xs text-gray-500 mb-1">{`Q${qIndex + 1}`}</div>
 																	<div class="text-sm leading-6 whitespace-pre-wrap">
 																		{question.question}

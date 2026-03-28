@@ -15,6 +15,18 @@ export interface Question {
 	options: string[];
 	answer: string;
 	explanation: string;
+	sourceIndex?: number;
+	performance?: {
+		attempts: number;
+		correct: number;
+		wrong: number;
+		accuracy: number;
+		consecutive_correct_count?: number;
+		cooldown_until_round?: number;
+		last_user_answer?: string;
+		last_result?: 'correct' | 'wrong';
+		updated_at?: number;
+	};
 }
 
 export interface PackSourceContext {
@@ -107,6 +119,7 @@ export interface BattleStats {
 	kills: number;
 	correct: number;
 	wrong: number;
+	qaRound: number;
 }
 
 export interface BuffState {

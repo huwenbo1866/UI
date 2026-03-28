@@ -45,3 +45,64 @@ export function getQuestionType(question: string) {
 export function buildQuestionIndex(questions: Question[]) {
   return new Map(questions.map((question) => [question.id, question]));
 }
+
+export function normalizeAnswerText(input: string) {
+  return String(input ?? '')
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) =>
+      String.fromCharCode(s.charCodeAt(0) - 0xfee0)
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+export function extractChoiceLabel(input: string): string | null {
+  const normalized = normalizeAnswerText(input);
+  const matched = normalized.match(/^([a-d])(?:[\.\)、:：\s]|$)/i);
+  if (matched?.[1]) return matched[1].toUpperCase();
+  if (normalized === '正确' || normalized === '对' || normalized === 'true') return '正确';
+  if (normalized === '错误' || normalized === '错' || normalized === 'false') return '错误';
+  return null;
+}
+
+export function isAnswerCorrect(selected: string, answer: string) {
+  const selectedNorm = normalizeAnswerText(selected);
+  const answerNorm = normalizeAnswerText(answer);
+  if (selectedNorm === answerNorm) return true;
+
+  const selectedLabel = extractChoiceLabel(selected);
+  const answerLabel = extractChoiceLabel(answer);
+  if (selectedLabel && answerLabel && selectedLabel === answerLabel) return true;
+
+  if (selectedLabel && !answerLabel && selectedLabel === answerNorm.toUpperCase()) return true;
+  if (answerLabel && !selectedLabel && answerLabel === selectedNorm.toUpperCase()) return true;
+
+  return false;
+}
+
+export function isAnswerCorrectWithOptions(
+  selected: string,
+  answer: string,
+  options: string[] = []
+) {
+  if (isAnswerCorrect(selected, answer)) return true;
+
+  const answerLabel = extractChoiceLabel(answer);
+  if (answerLabel && /^[A-D]$/.test(answerLabel) && options.length > 0) {
+    const index = answerLabel.charCodeAt(0) - 65;
+    const optionText = options[index];
+    if (optionText && normalizeAnswerText(selected) === normalizeAnswerText(optionText)) {
+      return true;
+    }
+  }
+
+  const selectedIndex = options.findIndex(
+    (opt) => normalizeAnswerText(opt) === normalizeAnswerText(selected)
+  );
+  if (selectedIndex >= 0) {
+    const selectedLabel = String.fromCharCode(65 + selectedIndex);
+    if (answerLabel && selectedLabel === answerLabel) return true;
+  }
+
+  return false;
+}
