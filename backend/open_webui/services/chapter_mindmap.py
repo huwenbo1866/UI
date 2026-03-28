@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 DEFAULT_MASTERY_SCORE = 50.0
 MAX_DEPTH = 3
 MAX_CHILDREN = 6
+DETAIL_NODE_COLOR = "#64748b"
 
 
 def _clean_label(value: Any, fallback: str) -> str:
@@ -34,6 +35,14 @@ def _clean_label(value: Any, fallback: str) -> str:
     if not text:
         text = fallback
     return text[:32]
+
+
+def _clean_summary(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.strip(" -:：,，；;|")
+    return text[:96]
 
 
 def _unique_strings(values: list[Any], limit: int = 6) -> list[str]:
@@ -59,26 +68,53 @@ def _default_children_from_title(chapter_title: str) -> list[dict]:
     return [
         {
             "label": "核心概念",
+            "summary": f"{topic}的基础定义、关键特征与判断依据。",
             "aliases": [topic, "概念", "定义"],
             "children": [
-                {"label": "基础定义", "aliases": [topic, "定义"]},
-                {"label": "关键特征", "aliases": [topic, "特点"]},
+                {
+                    "label": "基础定义",
+                    "summary": f"概括{topic}是什么、研究什么以及基本表述。",
+                    "aliases": [topic, "定义"],
+                },
+                {
+                    "label": "关键特征",
+                    "summary": f"梳理{topic}的主要特点、判断标志与区分方法。",
+                    "aliases": [topic, "特点"],
+                },
             ],
         },
         {
             "label": "重点规律",
+            "summary": f"提炼{topic}中的重要规律、条件与典型结论。",
             "aliases": [topic, "规律", "原理"],
             "children": [
-                {"label": "核心规律", "aliases": [topic, "规律"]},
-                {"label": "典型应用", "aliases": [topic, "应用"]},
+                {
+                    "label": "核心规律",
+                    "summary": f"说明{topic}中最关键的规律、适用条件和结论。",
+                    "aliases": [topic, "规律"],
+                },
+                {
+                    "label": "典型应用",
+                    "summary": f"结合题目或生活场景说明{topic}如何应用。",
+                    "aliases": [topic, "应用"],
+                },
             ],
         },
         {
             "label": "易错薄弱",
+            "summary": f"归纳{topic}常见误区、易混点和纠错思路。",
             "aliases": [topic, "易错点", "错题"],
             "children": [
-                {"label": "常见误区", "aliases": [topic, "误区"]},
-                {"label": "纠错方法", "aliases": [topic, "纠错"]},
+                {
+                    "label": "常见误区",
+                    "summary": f"提醒学习{topic}时最容易出现的错误理解。",
+                    "aliases": [topic, "误区"],
+                },
+                {
+                    "label": "纠错方法",
+                    "summary": f"给出修正{topic}错误认识的判断方法与练习建议。",
+                    "aliases": [topic, "纠错"],
+                },
             ],
         },
     ]
@@ -97,6 +133,9 @@ def _normalize_tree_node(node: Any, fallback_label: str, depth: int, path: str) 
     normalized = {
         "id": path,
         "label": label,
+        "summary": _clean_summary(
+            raw.get("summary") or raw.get("content") or raw.get("detail")
+        ),
         "aliases": aliases,
         "mastery_score": float(raw.get("mastery_score") or DEFAULT_MASTERY_SCORE),
         "practice_count": int(raw.get("practice_count") or 0),
@@ -185,6 +224,14 @@ def _render_markdown_lines(node: dict, depth: int, lines: list[str]) -> None:
     lines.append(
         f'{prefix} <span style="color:{color};font-weight:700;">{label}</span>'
     )
+
+    summary = _clean_summary(node.get("summary"))
+    if summary and node.get("id") != "root":
+        detail_prefix = "#" * max(1, depth + 1)
+        detail_text = html.escape(f"要点：{summary}")
+        lines.append(
+            f'{detail_prefix} <span style="color:{DETAIL_NODE_COLOR};font-weight:500;">{detail_text}</span>'
+        )
 
     for child in node.get("children") or []:
         _render_markdown_lines(child, depth + 1, lines)
@@ -284,20 +331,24 @@ async def generate_chapter_mindmap(
 
     system_prompt = (
         "你是中小学教材思维导图生成助手。"
-        "请只输出JSON对象，字段为 label、aliases、children。"
+        "请只输出JSON对象，字段为 label、aliases、summary、children。"
         "children 继续使用相同结构。"
         "要求："
         "1. 根节点是当前章节；"
         "2. 最多3层；"
         "3. 一级节点 3-5 个，二级节点每个 2-4 个；"
         "4. 节点名称简短，适合中小学生阅读；"
-        "5. aliases 中给出 2-4 个可用于匹配作业/错题的关键词。"
+        "5. aliases 中给出 2-4 个可用于匹配作业/错题的关键词；"
+        "6. 每个非根节点都要提供 summary，用 1 句话写出该知识点的具体内容、定义、影响、条件或应用；"
+        "7. summary 必须具体，不能只重复节点标题，也不能写“掌握相关知识”这类空话。"
     )
 
     user_prompt = (
         f"学科：{normalized_subject}\n"
         f"章节标题：{chapter_title}\n"
-        "请围绕教材内容提炼知识结构，不要输出解释文字。\n\n"
+        "请围绕教材内容提炼知识结构，不要输出解释文字。\n"
+        "我们会把 summary 做成节点点击后展开的具体内容，所以像“阻力对运动的影响”这种节点，"
+        "summary 里必须写清楚具体影响是什么。\n\n"
         f"章节内容：\n{_sample_text(chapter_content, max_chars=12000, segments=5)}"
     )
 

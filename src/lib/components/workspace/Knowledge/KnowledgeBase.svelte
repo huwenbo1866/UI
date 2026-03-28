@@ -1800,7 +1800,7 @@
 																<span class="text-gray-400">节点总数 {mindmapStats.total}</span>
 															</div>
 															<div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-																节点染色规则：蓝色表示已掌握，粉色表示待巩固，红色越深表示错题越集中、掌握越薄弱。
+																节点染色规则：蓝色表示已掌握，粉色表示待巩固，红色越深表示错题越集中、掌握越薄弱。点击带圆点的知识点可以展开或收起具体内容。
 															</div>
 														</div>
 
@@ -1809,6 +1809,7 @@
 														>
 															<MarkmapRenderer
 																markdown={selectedChapterMindmap.markmap_markdown ?? ''}
+																initialExpandLevel={3}
 																className="h-full min-h-[500px] w-full"
 															/>
 														</div>

@@ -5,6 +5,7 @@
 	export let markdown = '';
 	export let className = '';
 	export let visible = true;
+	export let initialExpandLevel = -1;
 
 	const SVG_NS = 'http://www.w3.org/2000/svg';
 	const XLINK_NS = 'http://www.w3.org/1999/xlink';
@@ -122,6 +123,12 @@
 
 			const md = sanitize(stripFences(mdRaw));
 			const { root, features } = transformer.transform(md);
+			const markmapOptions = {
+				autoFit: false,
+				zoom: true,
+				pan: true,
+				initialExpandLevel
+			};
 
 			const assets = transformer.getUsedAssets(features);
 			if (assets?.styles?.length) loadCSS(assets.styles);
@@ -131,22 +138,13 @@
 
 			if (mm?.setData) {
 				const previousTransform = _hasRendered ? captureZoomTransform() : null;
-				await mm.setData(root, {
-					autoFit: false,
-					zoom: true,
-					pan: true,
-					duration: 0
-				});
+				await mm.setData(root, { ...markmapOptions, duration: 0 });
 				restoreZoomTransform(previousTransform);
 			} else {
 				try {
 					mm?.destroy?.();
 				} catch {}
-				mm = Markmap.create(
-					svgEl,
-					{ autoFit: false, zoom: true, pan: true, duration: 160 },
-					root
-				);
+				mm = Markmap.create(svgEl, { ...markmapOptions, duration: 160 }, root);
 			}
 
 			if (!_hasRendered) {
@@ -288,9 +286,7 @@
 		if (!svgEl || typeof DOMPoint === 'undefined') return null;
 
 		const elements = Array.from(
-			svgEl.querySelectorAll(
-				'path,circle,ellipse,line,polyline,polygon,rect,text,foreignObject'
-			)
+			svgEl.querySelectorAll('path,circle,ellipse,line,polyline,polygon,rect,text,foreignObject')
 		) as SVGGraphicsElement[];
 
 		let minX = Number.POSITIVE_INFINITY;
@@ -324,7 +320,12 @@
 			} catch {}
 		}
 
-		if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+		if (
+			!Number.isFinite(minX) ||
+			!Number.isFinite(minY) ||
+			!Number.isFinite(maxX) ||
+			!Number.isFinite(maxY)
+		) {
 			return null;
 		}
 
@@ -425,7 +426,10 @@
 		ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
 		const pngBlob: Blob = await new Promise((resolve, reject) => {
-			canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Failed to create PNG blob'))), 'image/png');
+			canvas.toBlob(
+				(b) => (b ? resolve(b) : reject(new Error('Failed to create PNG blob'))),
+				'image/png'
+			);
 		});
 
 		return pngBlob;
@@ -491,6 +495,11 @@ html,body{margin:0;height:100%;font-family:system-ui,-apple-system,Segoe UI,Robo
 		scheduleRender();
 	}
 
+	$: if (browser && svgEl) {
+		initialExpandLevel;
+		scheduleRender();
+	}
+
 	onDestroy(() => {
 		_destroyed = true;
 		clearRenderTimer();
@@ -501,15 +510,15 @@ html,body{margin:0;height:100%;font-family:system-ui,-apple-system,Segoe UI,Robo
 </script>
 
 <div
-	class={
-		'w-full rounded-2xl border border-gray-200/30 dark:border-gray-700/60 ' +
+	class={'w-full rounded-2xl border border-gray-200/30 dark:border-gray-700/60 ' +
 		'bg-white dark:bg-black shadow-sm overflow-hidden ' +
-		className
-	}
+		className}
 >
-	<div class="flex items-center justify-between px-3 py-2 text-xs border-b border-gray-200/20 dark:border-gray-700/40">
+	<div
+		class="flex items-center justify-between px-3 py-2 text-xs border-b border-gray-200/20 dark:border-gray-700/40"
+	>
 		<div class="opacity-80">Markmap 预览</div>
-		<div class="opacity-60">拖拽移动 · 滚轮缩放</div>
+		<div class="opacity-60">拖拽移动 · 滚轮缩放 · 点击圆点折叠/展开</div>
 	</div>
 	<div class="w-full h-[70vh] min-h-[520px] p-2">
 		<svg bind:this={svgEl} class="w-full h-full"></svg>
