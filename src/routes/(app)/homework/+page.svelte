@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
+	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 
@@ -11,7 +12,21 @@
 		listHomeworks,
 		submitHomework
 	} from '$lib/apis/homework';
+	import { showSidebar } from '$lib/stores';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+
+	type GradedQuestionResult = {
+		question_id: string;
+		type: string;
+		difficulty: string;
+		question: string;
+		student_answer: string;
+		standard_answer: string;
+		is_correct: boolean;
+		score: number;
+		feedback: string;
+		analysis: string;
+	};
 
 	type KnowledgeBaseItem = {
 		id: string;
@@ -71,6 +86,14 @@
 			correct_count: number;
 			created_at: number;
 		}[];
+		latest_submission?: {
+			id: string;
+			score: number;
+			total_questions: number;
+			correct_count: number;
+			created_at: number;
+		} | null;
+		latest_submission_results?: GradedQuestionResult[];
 	};
 
 	type SubmitResult = {
@@ -79,18 +102,7 @@
 		score: number;
 		correct_count: number;
 		total_questions: number;
-		results: {
-			question_id: string;
-			type: string;
-			difficulty: string;
-			question: string;
-			student_answer: string;
-			standard_answer: string;
-			is_correct: boolean;
-			score: number;
-			feedback: string;
-			analysis: string;
-		}[];
+		results: GradedQuestionResult[];
 	};
 
 	let loadingHistory = false;
@@ -132,6 +144,8 @@
 	let sourceFileName = '';
 	let sourceFilePreview = '';
 	let sourceReady = false;
+	let showHistoryPanel = false;
+	let previousShowSidebar = true;
 
 	let answers: Record<string, string> = {};
 	let submitResult: SubmitResult | null = null;
@@ -166,12 +180,31 @@
 		}
 	};
 
-	const openHomework = async (homeworkId: string, clearSubmitResult = true) => {
+	const openHomework = async (homeworkId: string, clearSubmitResult = false) => {
 		try {
 			const res = await getHomeworkById(localStorage.token, homeworkId);
-			currentHomework = res as HomeworkDetail;
+			const detail = res as HomeworkDetail;
+			currentHomework = detail;
 			selectedHomeworkId = homeworkId;
-			resetAnswerState(clearSubmitResult);
+			resetAnswerState(false);
+
+			if (
+				!clearSubmitResult &&
+				detail?.latest_submission &&
+				Array.isArray(detail?.latest_submission_results) &&
+				detail.latest_submission_results.length > 0
+			) {
+				submitResult = {
+					submission_id: detail.latest_submission.id,
+					homework_id: detail.homework.id,
+					score: detail.latest_submission.score,
+					correct_count: detail.latest_submission.correct_count,
+					total_questions: detail.latest_submission.total_questions,
+					results: detail.latest_submission_results
+				};
+			} else if (clearSubmitResult) {
+				submitResult = null;
+			}
 		} catch (error) {
 			toast.error(`${error}`);
 		}
@@ -445,8 +478,14 @@
 	};
 
 	onMount(async () => {
+		previousShowSidebar = get(showSidebar);
+		showSidebar.set(false);
 		await loadHistory();
 		await loadKnowledgeBaseOptions();
+	});
+
+	onDestroy(() => {
+		showSidebar.set(previousShowSidebar);
 	});
 </script>
 
@@ -454,7 +493,18 @@
 	<div
 		class="flex items-center justify-between rounded-2xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900"
 	>
-		<div class="text-sm font-semibold">生成作业</div>
+		<div class="flex items-center gap-2">
+			<div class="text-sm font-semibold">生成作业</div>
+			<button
+				type="button"
+				class="inline-flex items-center rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 transition hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 lg:hidden"
+				on:click={() => {
+					showHistoryPanel = !showHistoryPanel;
+				}}
+			>
+				{showHistoryPanel ? '隐藏历史' : '显示历史'}
+			</button>
+		</div>
 		<button
 			type="button"
 			class="inline-flex size-8 items-center justify-center rounded-lg text-lg leading-none text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
@@ -468,7 +518,7 @@
 	<div class="grid min-h-0 flex-1 gap-3 sm:gap-4 lg:grid-cols-3">
 		<!-- 左侧：历史 -->
 		<section
-			class="flex min-h-0 flex-col rounded-2xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
+			class="{showHistoryPanel ? 'flex' : 'hidden'} min-h-0 flex-col rounded-2xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900 lg:flex"
 		>
 			<div class="mb-3 flex items-center justify-between">
 				<h2 class="text-sm font-semibold">历史作业记录</h2>
@@ -826,6 +876,8 @@
 										{#if graded.feedback}
 											<div class="mt-1 whitespace-pre-wrap">{graded.feedback}</div>
 										{/if}
+										<div class="mt-1 whitespace-pre-wrap">你的答案：{graded.student_answer || '（空）'}</div>
+										<div class="mt-1 whitespace-pre-wrap">标准答案：{graded.standard_answer || '（无）'}</div>
 										{#if graded.analysis}
 											<div class="mt-1 whitespace-pre-wrap">解析：{graded.analysis}</div>
 										{/if}

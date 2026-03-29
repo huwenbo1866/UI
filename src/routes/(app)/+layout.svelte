@@ -44,7 +44,7 @@
 	let DB = null;
 	let localDBChats = [];
 	let isStandalonePage = false;
-	$: isStandalonePage = false;
+	$: isStandalonePage = $page.url.pathname.startsWith('/homework');
 
 	const clearChatInputStorage = () => {
 		const chatInputKeys = Object.keys(localStorage).filter((key) => key.startsWith('chat-input'));

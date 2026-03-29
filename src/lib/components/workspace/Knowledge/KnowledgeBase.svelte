@@ -30,7 +30,12 @@
 		extractFileChapters,
 		updateFileChapterHomework
 	} from '$lib/apis/files';
-	import { listHomeworks, getHomeworkById } from '$lib/apis/homework';
+	import {
+		listHomeworks,
+		getHomeworkById,
+		createHomeworkFromQuestions,
+		submitHomework
+	} from '$lib/apis/homework';
 	import {
 		addFileToKnowledgeById,
 		getKnowledgeById,
@@ -389,6 +394,12 @@
 		}
 	};
 
+	const getHistoryGradedResult = (questionId: string) => {
+		const results = selectedHistoryHomework?.latest_submission_results;
+		if (!Array.isArray(results)) return null;
+		return results.find((item: any) => item?.question_id === questionId) ?? null;
+	};
+
 	const findChapterHomework = (chapter: any) => {
 		if (!chapter || !Array.isArray(fileChapterHomeworks)) return null;
 		return (
@@ -561,8 +572,8 @@
 		chapterHomeworkAnswers = { ...chapterHomeworkAnswers };
 	};
 
-	const submitChapterHomework = () => {
-		if (!selectedChapterHomework) return;
+	const submitChapterHomework = async () => {
+		if (!selectedChapterHomework || !selectedFile) return;
 		const questions = selectedChapterHomework.questions ?? [];
 		if (questions.length === 0) {
 			toast.error('当前作业没有题目');
@@ -579,8 +590,61 @@
 			return;
 		}
 
-		chapterHomeworkEditMode = false;
-		toast.success('提交成功');
+		chapterHomeworkSaving = true;
+		try {
+			const chapter = selectedChapterIndex >= 0 ? fileChapters[selectedChapterIndex] : null;
+			const chapterTitle = chapter?.title || selectedChapterHomework.chapter_title || '章节作业';
+			const sourceFileName = selectedFile?.meta?.name || selectedFile?.filename || '课本';
+
+			const createRes = await createHomeworkFromQuestions(localStorage.token, {
+				title: `${sourceFileName} - ${chapterTitle}`,
+				source_file_id: selectedFile.id,
+				source_file: sourceFileName,
+				source_chapter_title: chapterTitle,
+				source_chapter_start_page: chapter?.start_page,
+				source_chapter_end_page: chapter?.end_page,
+				description: `知识库章节作业提交 - ${chapterTitle}`,
+				questions: questions.map((q: any) => ({
+					type: q.type || 'short_answer',
+					difficulty: q.difficulty || 'medium',
+					question: q.question || '',
+					options: Array.isArray(q.options) ? q.options : undefined,
+					answer: q.answer || '',
+					analysis: q.analysis || ''
+				}))
+			});
+
+			const createdQuestions = createRes?.questions ?? [];
+			if (!createRes?.homework_id || createdQuestions.length === 0) {
+				throw new Error('创建作业记录失败');
+			}
+
+			const answers = createdQuestions
+				.sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+				.map((questionItem: any, idx: number) => {
+					const localQuestion = questions[idx] ?? {};
+					const answerKey = getChapterAnswerKey(localQuestion, idx);
+					return {
+						question_id: questionItem.id,
+						answer: String(chapterHomeworkAnswers[answerKey] ?? '').trim()
+					};
+				});
+
+			await submitHomework(localStorage.token, {
+				homework_id: createRes.homework_id,
+				answers
+			});
+
+			await loadHomeworkHistory();
+			homeworkSidebarMode = 'history';
+			await openHistoryHomework(createRes.homework_id);
+			chapterHomeworkEditMode = false;
+			toast.success('提交成功，已加入历史记录');
+		} catch (e: any) {
+			toast.error(e?.message ?? String(e) ?? '提交失败');
+		} finally {
+			chapterHomeworkSaving = false;
+		}
 	};
 
 	const loadSectionContent = async (section: any) => {
@@ -1499,7 +1563,7 @@
 										</div>
 
 										<!-- Tab buttons -->
-										<div class="flex items-center gap-1 mr-2">
+										<div class="flex items-center gap-1 mr-2 overflow-x-auto whitespace-nowrap max-w-[56vw] md:max-w-none">
 											{#if isPdf}
 												<button
 													class="text-xs px-2.5 py-1 rounded-lg transition-colors
@@ -1578,11 +1642,11 @@
 									{#key selectedFile.id}
 										{#if drawerTab === 'preview' && isPdf}
 											<!-- PDF Preview Tab: left outline + right PDF viewer -->
-											<div class="flex flex-1 overflow-hidden">
+											<div class="flex flex-1 overflow-hidden flex-col md:flex-row">
 												<!-- Left: Chapter outline -->
 												{#if fileChapters.length > 0}
 													<div
-														class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
+															class="w-full md:w-56 shrink-0 border-b md:border-b-0 md:border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900 max-h-56 md:max-h-none"
 													>
 														<ChapterOutline
 															items={fileChapters}
@@ -1602,7 +1666,7 @@
 												{/if}
 
 												<!-- Right: PDF viewer -->
-												<div class="flex-1 overflow-hidden">
+													<div class="flex-1 overflow-hidden min-h-[48vh] md:min-h-0">
 													<PdfViewer
 														fileId={selectedFile.id}
 														token={localStorage.token}
@@ -1657,7 +1721,7 @@
 															<div
 																class="flex items-center justify-center h-full text-sm text-gray-400"
 															>
-																{$i18n.t('Select a chapter to view content')}
+																{$i18n.t('请选择章节查看内容')}
 															</div>
 														{:else if chapterContentLoading}
 															<div class="flex items-center justify-center h-full">
@@ -1684,7 +1748,7 @@
 															<div
 																class="flex items-center justify-center h-full text-sm text-gray-400"
 															>
-																{$i18n.t('Select a section to view content')}
+																{$i18n.t('请选择小节查看内容')}
 															</div>
 														{:else if chapterContentLoading}
 															<div class="flex items-center justify-center h-full">
@@ -1735,10 +1799,10 @@
 												</div>
 											</div>
 										{:else if drawerTab === 'mindmap' && isPdf && chapterMindmapVisible}
-											<div class="flex flex-1 overflow-hidden">
+											<div class="flex flex-1 overflow-hidden flex-col md:flex-row">
 												{#if fileChapters.length > 0}
 													<div
-														class="w-56 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
+															class="w-full md:w-56 shrink-0 border-b md:border-b-0 md:border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900 max-h-56 md:max-h-none"
 													>
 														<ChapterOutline
 															items={fileChapters}
@@ -1756,7 +1820,7 @@
 													</div>
 												{/if}
 
-												<div class="flex-1 min-w-0 overflow-y-auto px-3 py-3">
+												<div class="flex-1 min-w-0 overflow-y-auto px-2 md:px-3 py-3 min-h-0">
 													{#if selectedChapterIndex < 0}
 														<div class="text-sm text-gray-400">请选择一个章节查看思维导图</div>
 													{:else if !selectedChapterMindmap}
@@ -1817,9 +1881,9 @@
 												</div>
 											</div>
 										{:else if drawerTab === 'homework' && isPdf && chapterHomeworkVisible}
-											<div class="flex flex-1 overflow-hidden">
+											<div class="flex flex-1 overflow-hidden flex-col md:flex-row">
 												<div
-													class="w-64 shrink-0 border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900"
+														class="w-full md:w-64 shrink-0 border-b md:border-b-0 md:border-r dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900 max-h-56 md:max-h-none"
 												>
 													<div class="sticky top-0 z-10 border-b dark:border-gray-700 bg-gray-50/95 px-2 py-2 dark:bg-gray-900/95">
 														<div class="grid grid-cols-2 gap-1 rounded-lg bg-white p-1 shadow-sm dark:bg-gray-800">
@@ -1863,7 +1927,7 @@
 															/>
 														{/if}
 													{:else}
-														<div class="px-2 py-2 space-y-1">
+																	<div class="px-2 py-2 flex md:block gap-1 md:space-y-1 overflow-x-auto md:overflow-x-visible">
 															{#if homeworkHistoryLoading}
 																<div class="flex items-center justify-center py-5">
 																	<Spinner className="size-4" />
@@ -1873,7 +1937,7 @@
 															{:else}
 																{#each homeworkHistoryItems as item}
 																	<button
-																		class="w-full rounded-lg border px-2 py-2 text-left transition-colors dark:border-gray-700 {selectedHistoryHomeworkId === item.id
+																					class="w-auto md:w-full shrink-0 min-w-40 md:min-w-0 rounded-lg border px-2 py-2 text-left transition-colors dark:border-gray-700 {selectedHistoryHomeworkId === item.id
 																			? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800'
 																			: 'bg-white hover:bg-gray-100 dark:bg-gray-950 dark:hover:bg-gray-800'}"
 																		on:click={() => {
@@ -1889,11 +1953,11 @@
 													{/if}
 												</div>
 
-												<div class="flex-1 overflow-y-auto px-3 py-2 space-y-3">
+												<div class="flex-1 overflow-y-auto px-2 md:px-3 py-2 space-y-3 min-h-0">
 													{#if homeworkSidebarMode === 'outline'}
 														{#if selectedChapterIndex < 0}
 															<div class="text-sm text-gray-400">
-																{$i18n.t('Select a chapter to view homework')}
+																{$i18n.t('请选择章节查看作业')}
 															</div>
 														{:else if !selectedChapterHomework}
 															{#if chapterHomeworkGenerating || chapterHomeworkLoading}
@@ -1906,7 +1970,7 @@
 																</div>
 															{:else}
 																<div class="text-sm text-gray-400">
-																	{$i18n.t('No homework generated for this chapter yet')}
+																	{$i18n.t('当前章节暂未生成作业')}
 																</div>
 															{/if}
 														{:else}
@@ -1916,7 +1980,6 @@
 																<div
 																	class="rounded-lg border dark:border-gray-700 p-3 bg-white dark:bg-gray-950"
 																>
-																	
 																	<div class="text-xs text-gray-500 mb-1">{`Q${qIndex + 1}`}</div>
 																	<div class="text-sm leading-6 whitespace-pre-wrap">
 																		{question.question}
@@ -1928,7 +1991,7 @@
 																				{@const optionLetter = (rawOption.match(/^([A-F])/i)?.[1] || optionLetters[optionIndex] || '').toUpperCase()}
 																				<button
 																					type="button"
-																					class="rounded-lg border px-2 py-1.5 text-left text-sm transition-colors dark:border-gray-700 {chapterHomeworkAnswers[answerKey] === optionLetter
+																					class="rounded-lg border px-2 py-1.5 text-left text-sm transition-colors dark:border-gray-700 {chapterHomeworkAnswers[getChapterAnswerKey(question, qIndex)] === optionLetter
 																						? 'border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-900/30 dark:text-blue-300'
 																						: 'hover:bg-gray-50 dark:hover:bg-gray-900'}"
 																					on:click={() => {
@@ -1943,7 +2006,7 @@
 																		<div class="mt-2 flex gap-2">
 																			<button
 																				type="button"
-																				class="rounded-lg border px-3 py-1.5 text-sm transition-colors dark:border-gray-700 {chapterHomeworkAnswers[answerKey] === '正确'
+																				class="rounded-lg border px-3 py-1.5 text-sm transition-colors dark:border-gray-700 {chapterHomeworkAnswers[getChapterAnswerKey(question, qIndex)] === '正确'
 																					? 'border-green-400 bg-green-50 text-green-700 dark:border-green-500 dark:bg-green-900/30 dark:text-green-300'
 																					: 'hover:bg-gray-50 dark:hover:bg-gray-900'}"
 																				on:click={() => {
@@ -1954,7 +2017,7 @@
 																			</button>
 																			<button
 																				type="button"
-																				class="rounded-lg border px-3 py-1.5 text-sm transition-colors dark:border-gray-700 {chapterHomeworkAnswers[answerKey] === '错误'
+																				class="rounded-lg border px-3 py-1.5 text-sm transition-colors dark:border-gray-700 {chapterHomeworkAnswers[getChapterAnswerKey(question, qIndex)] === '错误'
 																					? 'border-red-400 bg-red-50 text-red-700 dark:border-red-500 dark:bg-red-900/30 dark:text-red-300'
 																					: 'hover:bg-gray-50 dark:hover:bg-gray-900'}"
 																				on:click={() => {
@@ -1971,10 +2034,15 @@
 															<div class="flex justify-end">
 																<button
 																	type="button"
-																	class="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700"
+																	class="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+																	disabled={chapterHomeworkSaving}
 																	on:click={submitChapterHomework}
 																>
-																	提交作业
+																	{#if chapterHomeworkSaving}
+																		提交中...
+																	{:else}
+																		提交作业
+																	{/if}
 																</button>
 															</div>
 
@@ -2001,6 +2069,13 @@
 														{:else}
 															<div class="text-sm font-medium">{selectedHistoryHomework.title || '历史作业'}</div>
 															<div class="text-xs text-gray-500">创建时间：{formatHomeworkTime(selectedHistoryHomework.created_at)}</div>
+															{#if selectedHistoryHomework?.latest_submission}
+																<div class="rounded-lg border border-indigo-200 bg-indigo-50/80 p-2 text-xs text-indigo-700 dark:border-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-200">
+																	<div>最近批改时间：{formatHomeworkTime(selectedHistoryHomework.latest_submission.created_at)}</div>
+																	<div class="mt-1">分数：{selectedHistoryHomework.latest_submission.score} / 100</div>
+																	<div class="mt-1">正确题数：{selectedHistoryHomework.latest_submission.correct_count}/{selectedHistoryHomework.latest_submission.total_questions}</div>
+																</div>
+															{/if}
 															{#each selectedHistoryHomework.questions ?? [] as question, qIndex}
 																<div class="rounded-lg border dark:border-gray-700 p-3 bg-white dark:bg-gray-950">
 																	<div class="text-xs text-gray-500 mb-1">{`Q${qIndex + 1}`}</div>
@@ -2010,6 +2085,22 @@
 																			{#each getChoiceOptions(question) as option, optionIndex}
 																				<div class="text-sm text-gray-700 dark:text-gray-200">{formatChoiceOption(option, optionIndex)}</div>
 																			{/each}
+																		</div>
+																	{/if}
+
+																	{#if getHistoryGradedResult(question.id)}
+																		<div class="mt-2 rounded-lg border px-2 py-2 text-xs {getHistoryGradedResult(question.id)?.is_correct
+																			? 'border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300'
+																			: 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'}">
+																			<div class="font-medium">{getHistoryGradedResult(question.id)?.is_correct ? '正确' : '错误'} · 得分 {getHistoryGradedResult(question.id)?.score}</div>
+																			<div class="mt-1 whitespace-pre-wrap">你的答案：{getHistoryGradedResult(question.id)?.student_answer || '（空）'}</div>
+																			<div class="mt-1 whitespace-pre-wrap">标准答案：{getHistoryGradedResult(question.id)?.standard_answer || '（无）'}</div>
+																			{#if getHistoryGradedResult(question.id)?.feedback}
+																				<div class="mt-1 whitespace-pre-wrap">评语：{getHistoryGradedResult(question.id)?.feedback}</div>
+																			{/if}
+																			{#if getHistoryGradedResult(question.id)?.analysis}
+																				<div class="mt-1 whitespace-pre-wrap">解析：{getHistoryGradedResult(question.id)?.analysis}</div>
+																			{/if}
 																		</div>
 																	{/if}
 																</div>

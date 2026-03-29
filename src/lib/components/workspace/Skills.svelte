@@ -225,7 +225,7 @@
 							<div class="self-center mr-1"><Spinner className="size-3" /></div>
 						{/if}
 						<div class=" self-center font-medium line-clamp-1">
-							{$i18n.t('Refresh External')}
+							{$i18n.t('刷新技能库')}
 						</div>
 					</button>
 
@@ -235,7 +235,7 @@
 							skillsImportInputElement.click();
 						}}
 					>
-						<div class=" self-center font-medium line-clamp-1">{$i18n.t('Import')}</div>
+						<div class=" self-center font-medium line-clamp-1">{$i18n.t('导入技能')}</div>
 					</button>
 				{/if}
 
@@ -265,7 +265,7 @@
 					href="/workspace/skills/create"
 				>
 					<Plus className="size-3" strokeWidth="2.5" />
-					<div class=" hidden md:block md:ml-1 text-xs">{$i18n.t('New Skill')}</div>
+					<div class=" hidden md:block md:ml-1 text-xs">{$i18n.t('解锁新本领')}</div>
 				</a>
 			</div>
 		</div>
@@ -280,7 +280,7 @@
 				<input
 					class=" w-full text-sm pr-4 py-1 rounded-r-xl outline-hidden bg-transparent"
 					bind:value={query}
-					placeholder={$i18n.t('Search Skills')}
+					placeholder={$i18n.t('搜索 Skills')}
 				/>
 
 				{#if query}
@@ -397,9 +397,9 @@
 			<div class=" w-full h-full flex flex-col justify-center items-center my-16 mb-24">
 				<div class="max-w-md text-center">
 					<div class=" text-3xl mb-3">😕</div>
-					<div class=" text-lg font-medium mb-1">{$i18n.t('No skills found')}</div>
+					<div class=" text-lg font-medium mb-1">{$i18n.t('暂无 Skills')}</div>
 					<div class=" text-gray-500 text-center text-xs">
-						{$i18n.t('Try adjusting your search or filter to find what you are looking for.')}
+						{$i18n.t('快去添加第一个属于你的本领')}
 					</div>
 				</div>
 			</div>

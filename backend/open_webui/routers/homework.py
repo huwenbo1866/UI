@@ -69,6 +69,26 @@ class SubmitHomeworkForm(BaseModel):
     model: Optional[str] = None
 
 
+class ManualHomeworkQuestionItem(BaseModel):
+    type: str = "short_answer"
+    difficulty: str = "medium"
+    question: str
+    options: Optional[list[str]] = None
+    answer: Optional[str] = ""
+    analysis: Optional[str] = ""
+
+
+class CreateHomeworkFromQuestionsForm(BaseModel):
+    title: Optional[str] = None
+    source_file_id: Optional[str] = None
+    source_file: Optional[str] = None
+    source_chapter_title: Optional[str] = None
+    source_chapter_start_page: Optional[int] = None
+    source_chapter_end_page: Optional[int] = None
+    description: str = ""
+    questions: list[ManualHomeworkQuestionItem] = Field(default_factory=list)
+
+
 def _normalize_type(value: str) -> str:
     key = (value or "").strip().lower()
     mapping = {
@@ -752,6 +772,140 @@ async def generate_homework(
     }
 
 
+@router.post("/create-from-questions")
+async def create_homework_from_questions(
+    form_data: CreateHomeworkFromQuestionsForm,
+    user=Depends(get_verified_user),
+    db: Session = Depends(get_session),
+):
+    if not form_data.questions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Questions are required",
+        )
+
+    source_file_name = (form_data.source_file or "").strip() or "章节作业"
+
+    if form_data.source_file_id:
+        source_file = Files.get_file_by_id(form_data.source_file_id, db=db)
+        if not source_file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Source file not found",
+            )
+
+        if user.role != "admin" and source_file.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No access to source file",
+            )
+
+        source_file_name = (
+            source_file.meta.get("name", source_file.filename)
+            if source_file.meta
+            else source_file.filename
+        )
+
+    normalized_questions: list[dict[str, Any]] = []
+    type_set: set[str] = set()
+
+    for idx, item in enumerate(form_data.questions):
+        question_text = (item.question or "").strip()
+        if not question_text:
+            continue
+
+        q_type = _normalize_type(item.type)
+        q_difficulty = _normalize_difficulty(item.difficulty)
+        q_options = [str(opt).strip() for opt in (item.options or []) if str(opt).strip()]
+
+        if q_type == "choice" and len(q_options) < 2:
+            q_options = ["A", "B", "C", "D"]
+        elif q_type == "judge" and not q_options:
+            q_options = ["正确", "错误"]
+        elif q_type == "short_answer":
+            q_options = []
+
+        normalized_questions.append(
+            {
+                "order_index": idx,
+                "type": q_type,
+                "difficulty": q_difficulty,
+                "question": question_text,
+                "options": q_options,
+                "answer": (item.answer or "").strip(),
+                "analysis": (item.analysis or "").strip(),
+            }
+        )
+        type_set.add(q_type)
+
+    if not normalized_questions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid questions",
+        )
+
+    source_context = {
+        "chapter_title": (form_data.source_chapter_title or "").strip() or None,
+        "chapter_start_page": form_data.source_chapter_start_page,
+        "chapter_end_page": form_data.source_chapter_end_page,
+    }
+    source_context = {key: value for key, value in source_context.items() if value is not None}
+
+    title = (form_data.title or "").strip() or f"作业 - {source_file_name}"
+
+    homework = Homeworks.insert_homework(
+        user.id,
+        HomeworkCreateForm(
+            title=title,
+            source_file=source_file_name,
+            source_file_id=form_data.source_file_id,
+            description=form_data.description,
+            difficulty_config=DEFAULT_DIFFICULTY_CONFIG.copy(),
+            question_type_config={
+                "types": sorted(type_set),
+                **({"source_context": source_context} if source_context else {}),
+            },
+            knowledge_points=[],
+        ),
+        db=db,
+    )
+
+    if not homework:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save homework",
+        )
+
+    questions = HomeworkQuestions.insert_questions(
+        homework.id,
+        [
+            HomeworkQuestionCreateForm(
+                order_index=item["order_index"],
+                type=item["type"],
+                difficulty=item["difficulty"],
+                question=item["question"],
+                options=item["options"],
+                answer=item["answer"],
+                analysis=item["analysis"],
+            )
+            for item in normalized_questions
+        ],
+        db=db,
+    )
+
+    if not questions:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save generated questions",
+        )
+
+    return {
+        "homework_id": homework.id,
+        "homework": homework.model_dump(),
+        "questions": [item.model_dump() for item in questions],
+    }
+
+
 @router.post("/submit")
 async def submit_homework(
     request: Request,
@@ -944,8 +1098,36 @@ async def get_homework(
     questions = HomeworkQuestions.get_questions_by_homework_id(homework_id, db=db)
     submissions = HomeworkSubmissions.get_submissions_by_homework_id(homework_id, db=db)
 
+    latest_submission = submissions[0] if submissions else None
+    latest_submission_results: list[dict[str, Any]] = []
+
+    if latest_submission:
+        submission_answers = HomeworkSubmissionAnswers.get_submission_answers_by_submission_id(
+            latest_submission.id, db=db
+        )
+        answer_map = {item.question_id: item for item in submission_answers}
+
+        for question in questions:
+            graded = answer_map.get(question.id)
+            latest_submission_results.append(
+                {
+                    "question_id": question.id,
+                    "type": question.type,
+                    "difficulty": question.difficulty,
+                    "question": question.question,
+                    "student_answer": (graded.answer if graded else "") or "",
+                    "standard_answer": (question.answer or "").strip(),
+                    "is_correct": bool(graded.is_correct) if graded else False,
+                    "score": round(float(graded.score), 2) if graded else 0.0,
+                    "feedback": (graded.feedback if graded else "") or "",
+                    "analysis": (graded.analysis if graded else (question.analysis or "")) or "",
+                }
+            )
+
     return {
         "homework": homework.model_dump(),
         "questions": [q.model_dump() for q in questions],
         "submissions": [s.model_dump() for s in submissions[:5]],
+        "latest_submission": latest_submission.model_dump() if latest_submission else None,
+        "latest_submission_results": latest_submission_results,
     }

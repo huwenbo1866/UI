@@ -22,7 +22,7 @@
 		class="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide border-b dark:border-gray-700"
 	>
 		{#if type === 'chapter'}
-			{$i18n.t('Chapters')}
+			{$i18n.t('目录')}
 		{:else}
 			{$i18n.t('Sections')}
 		{/if}

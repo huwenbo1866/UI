@@ -1666,6 +1666,12 @@ ENABLE_NOTES = PersistentConfig(
     os.environ.get("ENABLE_NOTES", "True").lower() == "true",
 )
 
+ENABLE_SKILLS_SIDEBAR = PersistentConfig(
+    "ENABLE_SKILLS_SIDEBAR",
+    "skills.sidebar.enable",
+    os.environ.get("ENABLE_SKILLS_SIDEBAR", "False").lower() == "true",
+)
+
 ENABLE_USER_STATUS = PersistentConfig(
     "ENABLE_USER_STATUS",
     "users.enable_status",
