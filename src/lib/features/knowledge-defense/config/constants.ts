@@ -38,9 +38,8 @@ export const MONSTER_DAMAGE = {                             // 怪物对玩家�
   medium: 60,
   hard: 80
 } as const;
-
-// 新增：怪物贴身时对玩家的持续伤害
-export const MONSTER_CONTACT_DAMAGE_PER_SECOND = 30;        // 怪物贴身时每秒扣血量
+export const MONSTER_ATTACK_INTERVAL_MS = 1200;             // 怪物近战攻击间隔
+export const MONSTER_ATTACK_WINDUP_MS = 320;                // 怪物攻击前摇（给玩家反应窗口）
 
 // ==================== 攻击参数 ====================
 export const AUTO_ATTACK_COOLDOWN_MS = 1000;                // 自动攻击冷却时间（毫秒）
@@ -123,7 +122,7 @@ export const KD_WRONG_COOLDOWN_MIN_ROUNDS = 4;             // 答错后的最小
 export const KD_WRONG_COOLDOWN_MAX_ROUNDS = 9;             // 答错后的最大冷却轮次
 export const KD_WRONG_COOLDOWN_BASE = 3;                   // 答错冷却基础值（叠加 wrong 次数）
 
-export const KD_AMPLIFY_PER_WRONG_MIN = 1;                 // 错题最少生成同类型强化题数量
+export const KD_AMPLIFY_PER_WRONG_MIN = 1;                 // 错题最少生成同类型强化题量
 export const KD_AMPLIFY_PER_WRONG_MAX = 3;                 // 错题最多生成同类型强化题数量
 export const KD_AMPLIFY_ORDER_OFFSET = 1000;               // 强化题排序偏移，确保排在后面
 
@@ -147,8 +146,6 @@ export const KD_REINFORCE_FALLBACK_DISTRACTORS = [          // 干扰项补位�
   '需结合教材上下文判断',
   '需要二次推理'
 ] as const;
-
-
 
 export function getTotalExpRequiredForLevel(level: number) {
   if (level <= 1) return 0;

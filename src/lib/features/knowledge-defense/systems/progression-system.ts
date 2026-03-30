@@ -40,5 +40,6 @@ export function applyRewardByKind(state: GameState, rewardKind: RewardKind) {
   if (rewardKind === 'drone') {
     // 具体添加无人机由外层系统执行，避免循环依赖
     closeRewardPanel(state);
+    return;
   }
 }

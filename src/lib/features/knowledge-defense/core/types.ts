@@ -50,6 +50,7 @@ export interface PlayerState {
 	hp: number;
 	maxHp: number;
 	contactInvulnMs: number;
+	hurtFlashMs: number;
 }
 
 export interface MonsterState {
@@ -63,6 +64,9 @@ export interface MonsterState {
 	speed: number;
 	damage: number;
 	isDead: boolean;
+	hurtFlashMs: number;
+	attackCooldownMs: number;
+	attackWindupMs: number;
 }
 
 export interface ProjectileState {
@@ -149,6 +153,15 @@ export interface UiState {
 	rewardFeedbackKind: 'success' | 'error' | null;
 }
 
+export interface DamageTextState {
+	id: string;
+	x: number;
+	y: number;
+	value: number;
+	color: string;
+	ttlMs: number;
+	driftSpeed: number;
+}
 export interface RuntimeState {
 	running: boolean;
 	timeScale: number;
@@ -166,6 +179,7 @@ export interface GameState {
 	projectiles: ProjectileState[];
 	drones: DroneState[];
 	lasers: LaserEffectState[];
+	damageTexts: DamageTextState[];
 	attackSequences: AttackSequenceState[];
 	battle: BattleStats;
 	buffs: BuffState;

@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import type { RewardChoice } from '../core/types';
   import { audioManager } from '../systems/audio-manager';
-  
+
   export let choices: RewardChoice[] = [];
   export let feedback: string | null = null;
   export let feedbackKind: 'success' | 'error' | null = null;
@@ -24,7 +24,7 @@
         <h2>升级选择 · 奖励答题</h2>
         <p>升级后不会自动打断战斗。你可以在需要的时候按空格或点击角色打开这里，答对任意一张卡即可领取对应奖励。</p>
       </div>
-      <button class="close" on:click={() => {audioManager.playClick();dispatch('close');}}>关闭</button>
+      <button class="close" on:click={() => { audioManager.playClick(); dispatch('close'); }}>关闭</button>
     </div>
 
     {#if feedback}
@@ -43,9 +43,10 @@
             <div class="prompt">{choice.question.prompt}</div>
             <div class="options">
               {#each choice.question.options as option}
-                <button class="option" 
+                <button
+                  class="option"
                   on:click={() => {
-                    audioManager.playClick();   // ← 点击按钮音效
+                    audioManager.playClick();
                     answer(choice, option);
                   }}
                 >
@@ -152,6 +153,7 @@
     font-weight: 600;
   }
   .option:hover { background: #fff6eb; }
+
   @media (max-width: 980px) {
     .grid { grid-template-columns: 1fr; }
   }

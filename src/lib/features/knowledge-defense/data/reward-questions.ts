@@ -30,23 +30,23 @@ function getRewardMeta(attackPreference: AttackPreference): Record<RewardKind, {
 
 export function buildRewardChoices(pack: QuestionPack, attackPreference: AttackPreference): RewardChoice[] {
   const picked: Question[] = pickAdaptiveQuestions(pack.questions, 3, 0);
-    return buildChoicesByPicked(pack, attackPreference, picked);
-  }
+  return buildChoicesByPicked(pack, attackPreference, picked);
+}
 
-  export function buildRewardChoicesWithRound(
-    pack: QuestionPack,
-    attackPreference: AttackPreference,
-    round: number
-  ): RewardChoice[] {
-    const picked: Question[] = pickAdaptiveQuestions(pack.questions, 3, round);
-    return buildChoicesByPicked(pack, attackPreference, picked);
-  }
+export function buildRewardChoicesWithRound(
+  pack: QuestionPack,
+  attackPreference: AttackPreference,
+  round: number
+): RewardChoice[] {
+  const picked: Question[] = pickAdaptiveQuestions(pack.questions, 3, round);
+  return buildChoicesByPicked(pack, attackPreference, picked);
+}
 
-  function buildChoicesByPicked(
-    pack: QuestionPack,
-    attackPreference: AttackPreference,
-    picked: Question[]
-  ): RewardChoice[] {
+function buildChoicesByPicked(
+  pack: QuestionPack,
+  attackPreference: AttackPreference,
+  picked: Question[]
+): RewardChoice[] {
   const kinds: RewardKind[] = ['weapon', 'xp', 'drone'];
   const meta = getRewardMeta(attackPreference);
   return kinds.map((rewardKind, index) => ({
@@ -103,5 +103,3 @@ function getQuestionWeight(question: Question): number {
   );
   return 1 + missRate * KD_ADAPTIVE_MISS_RATE_FACTOR + recencyBoost + volumeBoost;
 }
-
-

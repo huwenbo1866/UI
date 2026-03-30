@@ -30,12 +30,14 @@ export function createInitialGameState(
       speed: PLAYER_SPEED,
       hp: PLAYER_MAX_HP,
       maxHp: PLAYER_MAX_HP,
-      contactInvulnMs: 0
+      contactInvulnMs: 0,
+      hurtFlashMs: 0
     },
     monsters: [],
     projectiles: [],
     drones: [],
     lasers: [],
+    damageTexts: [],
     attackSequences: [],
     battle: {
       kills: 0,

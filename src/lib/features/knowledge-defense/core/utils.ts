@@ -85,24 +85,22 @@ export function isAnswerCorrectWithOptions(
   answer: string,
   options: string[] = []
 ) {
-  if (isAnswerCorrect(selected, answer)) return true;
+  const selectedNorm = normalizeAnswerText(selected);
+  const answerNorm = normalizeAnswerText(answer);
 
+  // 1) 优先按“答案文本本身”判定，避免 A/B/C/D 标号与选项顺序错位导致误判
+  if (selectedNorm === answerNorm) return true;
+
+  // 2) 如果题库给的是 A/B/C/D，则只将其映射到“当前 options 的答案文本”再比较
   const answerLabel = extractChoiceLabel(answer);
   if (answerLabel && /^[A-D]$/.test(answerLabel) && options.length > 0) {
     const index = answerLabel.charCodeAt(0) - 65;
     const optionText = options[index];
-    if (optionText && normalizeAnswerText(selected) === normalizeAnswerText(optionText)) {
+    if (optionText && selectedNorm === normalizeAnswerText(optionText)) {
       return true;
     }
   }
 
-  const selectedIndex = options.findIndex(
-    (opt) => normalizeAnswerText(opt) === normalizeAnswerText(selected)
-  );
-  if (selectedIndex >= 0) {
-    const selectedLabel = String.fromCharCode(65 + selectedIndex);
-    if (answerLabel && selectedLabel === answerLabel) return true;
-  }
-
-  return false;
+  // 3) 兜底：仅保留语义一致判定（正确/错误等），不再通过“用户所选位置 => A/B/C/D”反推
+  return isAnswerCorrect(selected, answer);
 }

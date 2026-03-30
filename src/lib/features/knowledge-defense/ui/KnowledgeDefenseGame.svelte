@@ -44,6 +44,7 @@
 	} from '../adapters/wrong-question-adapter';
 	import { updatePlayer } from '../systems/player-system';
 	import { maybeSpawnMonster, updateMonsters } from '../systems/monster-system';
+	import { tickDamageTexts } from '../systems/combat-feedback-system';
 	import { tickAutoAttack, tickAttackSequences } from '../systems/auto-attack-system';
 	import { updateProjectiles } from '../systems/projectile-system';
 	import { applyRewardByKind } from '../systems/progression-system';
@@ -387,11 +388,12 @@
 
 			maybeSpawnMonster(state, dtMs);
 			updatePlayer(state, input, dtSeconds, dtMs);
-			updateMonsters(state, dtSeconds);
+			updateMonsters(state, dtSeconds, dtMs);
 			tickAutoAttack(state, dtMs);
 			tickAttackSequences(state, dtMs);
 			updateProjectiles(state, dtSeconds);
 			updateDrones(state, dtSeconds, dtMs);
+			tickDamageTexts(state, dtSeconds, dtMs);
 			state = { ...state };
 		}
 
@@ -864,6 +866,7 @@
 				projectiles={state.projectiles}
 				drones={state.drones}
 				lasers={state.lasers}
+				damageTexts={state.damageTexts}
 				pendingLevelUps={state.progress.pendingLevelUps}
 				onTouchStartPoint={handleSurfaceTouchStart}
 				onTouchMovePoint={handleSurfaceTouchMove}

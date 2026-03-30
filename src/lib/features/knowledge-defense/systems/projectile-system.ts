@@ -2,6 +2,7 @@ import type { GameState, MonsterState } from '../core/types';
 import { clamp, distance } from '../core/utils';
 import { gainExpForKill } from './progression-system';
 import { audioManager } from './audio-manager';
+import { markMonsterHit } from './combat-feedback-system';
 
 function handleMonsterKilled(state: GameState, monster: MonsterState) {
   monster.isDead = true;
@@ -27,6 +28,7 @@ export function updateProjectiles(state: GameState, dtSeconds: number) {
 
       if (distance(projectile.x, projectile.y, monster.x, monster.y) <= projectile.radius + monster.radius) {
         monster.hp = clamp(monster.hp - projectile.damage, 0, monster.maxHp);
+        markMonsterHit(state, monster, projectile.damage);
         hit = true;
 
         // 怪物被击中音效

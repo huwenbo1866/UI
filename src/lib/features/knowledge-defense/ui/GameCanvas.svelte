@@ -1,6 +1,7 @@
 <script lang="ts">
   import type {
     DroneState,
+    DamageTextState,
     GameProgressState,
     LaserEffectState,
     MonsterState,
@@ -16,6 +17,7 @@
   export let projectiles: ProjectileState[] = [];
   export let drones: DroneState[] = [];
   export let lasers: LaserEffectState[] = [];
+  export let damageTexts: DamageTextState[] = [];
   export let pendingLevelUps = 0;
   export let onTouchStartPoint: ((event: TouchEvent) => void) | undefined;
   export let onTouchMovePoint: ((event: TouchEvent) => void) | undefined;
@@ -52,14 +54,16 @@
 
   {#each monsters as monster (monster.id)}
     <div
-      class={`monster ${monster.difficulty}`}
+      class={`monster ${monster.difficulty} ${monster.hurtFlashMs > 0 ? "hurt" : ""} ${monster.attackWindupMs > 0 ? "attacking" : ""}`}
       style={`left:${monster.x}px; top:${monster.y}px; width:${monster.radius * 2}px; height:${monster.radius * 2}px;`}
     >
       <div class="monster-hp-bar">
         <span style={`width:${(monster.hp / monster.maxHp) * 100}%`}></span>
       </div>
-      <!-- 怪物形象：按难度使用不同图片 -->
       <div class="monster-face"></div>
+      {#if monster.attackWindupMs > 0}
+        <div class="monster-attack-ring"></div>
+      {/if}
     </div>
   {/each}
 
@@ -67,6 +71,10 @@
     <div class="drone" style={`left:${drone.x}px; top:${drone.y}px;`}>
       <div class="drone-face"></div>
     </div>
+  {/each}
+
+  {#each damageTexts as damage (damage.id)}
+    <div class="damage-text" style={`left:${damage.x}px; top:${damage.y}px; color:${damage.color};`}>- {damage.value}</div>
   {/each}
 
   {#each projectiles as projectile (projectile.id)}
@@ -78,7 +86,7 @@
 
   <button
     type="button"
-    class="player"
+    class={`player ${player.hurtFlashMs > 0 ? "hurt" : ""}`}
     style={`left:${player.x}px; top:${player.y}px; width:${player.radius * 2}px; height:${player.radius * 2}px;`}
     on:click|stopPropagation={onPlayerActivate}
     on:touchstart|stopPropagation={onPlayerActivate}
@@ -91,212 +99,42 @@
     {#if pendingLevelUps > 0}
       <div class="reward-ready">!{pendingLevelUps > 1 ? `×${pendingLevelUps}` : ''}</div>
     {/if}
-    <!-- 玩家形象 -->
     <div class="player-avatar"></div>
   </button>
 </div>
 
 <style>
-  .arena {
-    position: relative;
-    width: 100%;
-    min-height: var(--arena-height);
-    height: var(--arena-height);
-    overflow: hidden;
-    border-radius: 28px;
-    background:
+  .arena { position: relative; width: 100%; min-height: var(--arena-height); height: var(--arena-height); overflow: hidden; border-radius: 28px; background:
       radial-gradient(circle at 15% 18%, rgba(83, 69, 56, 0.12) 0 6%, transparent 6.2%),
       radial-gradient(circle at 70% 24%, rgba(83, 69, 56, 0.12) 0 7%, transparent 7.2%),
       radial-gradient(circle at 85% 68%, rgba(83, 69, 56, 0.12) 0 5.6%, transparent 5.9%),
-      radial-gradient(circle at 28% 82%, rgba(83, 69, 56, 0.12) 0 6.4%, transparent 6.7%),
-      #ede5dc;
-    border: 1px solid #d8cbbd;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
-  }
-
-  .rings {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    border: 1px solid rgba(31, 41, 55, 0.18);
-    border-radius: 999px;
-    pointer-events: none;
-  }
-
-  .ring-1 { width: 190px; height: 190px; }
-  .ring-2 { width: 420px; height: 420px; }
-  .ring-3 { width: 650px; height: 650px; }
-  .ring-4 { width: 900px; height: 900px; }
-
-  .player,
-  .monster,
-  .projectile,
-  .drone,
-  .laser {
-    position: absolute;
-    transform: translate(-50%, -50%);
-  }
-
-  /* ==================== 玩家 - 去除圆形框 ==================== */
-  .player {
-    border: none;
-    padding: 0;
-    background: transparent;           /* 去掉渐变背景 */
-    box-shadow: none;                  /* 去掉阴影框 */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    width: 68px;                       /* 根据你的图片大小微调 */
-    height: 68px;
-  }
-
-  .player-avatar {
-    width: 100%;
-    height: 100%;
-    background-image: url('/knowledge-defense/player.png');
-    background-size: contain;
-    background-position: center;
-    background-repeat: no-repeat;
-  }
-
-  /* ==================== 怪物 - 去除圆形/方形框 ==================== */
-  .monster {
-    border: none;                      /* 去掉边框 */
-    background: transparent;           /* 去掉难度颜色背景 */
-    box-shadow: none;                  /* 去掉阴影 */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: visible;                 /* 允许图片自然显示 */
-    width: 54px;                       /* 根据怪物图片大小调整 */
-    height: 54px;
-  }
-
-  .monster-face {
-    width: 100%;
-    height: 100%;
-    background-size: contain;
-    background-position: center;
-    background-repeat: no-repeat;
-  }
-
-  /* 不同难度怪物图片 */
-  .monster.easy .monster-face {
-    background-image: url('/knowledge-defense/monster-easy.png');
-  }
-
-  .monster.medium .monster-face {
-    background-image: url('/knowledge-defense/monster-medium.png');
-  }
-
-  .monster.hard .monster-face {
-    background-image: url('/knowledge-defense/monster-hard.png');
-  }
-
-  /* ==================== 无人机 ==================== */
-  .drone {
-    width: 34px;
-    height: 34px;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: visible;
-  }
-
-  .drone-face {
-    width: 100%;
-    height: 100%;
-    background-image: url('/knowledge-defense/drone.png');
-    background-size: contain;
-    background-position: center;
-    background-repeat: no-repeat;
-  }
-
-  /* ==================== 保留的 UI 元素 ==================== */
-  .player-bars {
-    position: absolute;
-    left: 50%;
-    top: -42px;
-    transform: translateX(-50%);
-    width: 90px;
-    display: grid;
-    gap: 4px;
-  }
-
-  .player-level {
-    color: #5a4736;
-    font-size: 11px;
-    text-align: center;
-    font-weight: 700;
-    text-shadow: 0 1px 0 rgba(255,255,255,0.7);
-  }
-
-  .player-exp-bar,
-  .player-hp-bar,
-  .monster-hp-bar {
-    height: 8px;
-    border-radius: 999px;
-    background: rgba(0, 0, 0, 0.14);
-    overflow: hidden;
-    box-shadow: inset 0 1px 2px rgba(0,0,0,0.08);
-  }
-
-  .monster-hp-bar {
-    position: absolute;
-    left: 50%;
-    top: -14px;
-    transform: translateX(-50%);
-    width: 74px;
-  }
-
-  .player-exp-bar span,
-  .player-hp-bar span,
-  .monster-hp-bar span {
-    display: block;
-    height: 100%;
-    border-radius: 999px;
-  }
-
+      radial-gradient(circle at 28% 82%, rgba(83, 69, 56, 0.12) 0 6.4%, transparent 6.7%), #ede5dc;
+    border: 1px solid #d8cbbd; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
+  .rings { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border: 1px solid rgba(31, 41, 55, 0.18); border-radius: 999px; pointer-events: none; }
+  .ring-1 { width: 190px; height: 190px; } .ring-2 { width: 420px; height: 420px; } .ring-3 { width: 650px; height: 650px; } .ring-4 { width: 900px; height: 900px; }
+  .player,.monster,.projectile,.drone,.laser { position: absolute; transform: translate(-50%, -50%); }
+  .player { border: none; padding: 0; background: transparent; box-shadow: none; display: flex; align-items: center; justify-content: center; cursor: pointer; width: 68px; height: 68px; }
+  .player.hurt .player-avatar,.monster.hurt .monster-face { filter: saturate(1.6) brightness(1.1) drop-shadow(0 0 8px rgba(255, 60, 60, 0.8)); }
+  .damage-text { position: absolute; transform: translate(-50%, -50%); font-size: 18px; font-weight: 800; text-shadow: 0 0 10px rgba(255, 90, 90, 0.45); pointer-events: none; z-index: 32; }
+  .player-avatar { width: 100%; height: 100%; background-image: url('/knowledge-defense/player.png'); background-size: contain; background-position: center; background-repeat: no-repeat; }
+  .monster { border: none; background: transparent; box-shadow: none; display: flex; align-items: center; justify-content: center; overflow: visible; width: 54px; height: 54px; }
+  .monster-face { width: 100%; height: 100%; background-size: contain; background-position: center; background-repeat: no-repeat; }
+  .monster.easy .monster-face { background-image: url('/knowledge-defense/monster-easy.png'); }
+  .monster.medium .monster-face { background-image: url('/knowledge-defense/monster-medium.png'); }
+  .monster.hard .monster-face { background-image: url('/knowledge-defense/monster-hard.png'); }
+  .monster.attacking .monster-face { filter: saturate(1.4) brightness(1.05) drop-shadow(0 0 10px rgba(248, 113, 113, 0.8)); }
+  .monster-attack-ring { position: absolute; left: 50%; top: 50%; width: 74px; height: 74px; border-radius: 999px; border: 2px solid rgba(248, 113, 113, 0.9); transform: translate(-50%, -50%); animation: monsterWindup 320ms ease-out infinite; pointer-events: none; }
+  .drone { width: 34px; height: 34px; background: transparent; border: none; box-shadow: none; display: flex; align-items: center; justify-content: center; overflow: visible; }
+  .drone-face { width: 100%; height: 100%; background-image: url('/knowledge-defense/drone.png'); background-size: contain; background-position: center; background-repeat: no-repeat; }
+  .player-bars { position: absolute; left: 50%; top: -42px; transform: translateX(-50%); width: 90px; display: grid; gap: 4px; }
+  .player-level { color: #5a4736; font-size: 11px; text-align: center; font-weight: 700; text-shadow: 0 1px 0 rgba(255,255,255,0.7); }
+  .player-exp-bar,.player-hp-bar,.monster-hp-bar { height: 8px; border-radius: 999px; background: rgba(0, 0, 0, 0.14); overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.08); }
+  .monster-hp-bar { position: absolute; left: 50%; top: -14px; transform: translateX(-50%); width: 74px; }
+  .player-exp-bar span,.player-hp-bar span,.monster-hp-bar span { display: block; height: 100%; border-radius: 999px; }
   .player-exp-bar span { background: linear-gradient(90deg, #f59e0b, #f97316); }
-  .player-hp-bar span,
-  .monster-hp-bar span { background: linear-gradient(90deg, #34d399, #22c55e); }
-
-  .reward-ready {
-    position: absolute;
-    right: -6px;
-    top: -8px;
-    min-width: 24px;
-    height: 24px;
-    padding: 0 6px;
-    border-radius: 999px;
-    background: #ef4444;
-    color: #fff;
-    font-size: 12px;
-    font-weight: 800;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 8px 16px rgba(239, 68, 68, 0.35);
-  }
-
-  .projectile {
-    width: 12px;
-    height: 12px;
-    border-radius: 999px;
-    box-shadow: 0 0 10px rgba(255,255,255,0.5);
-  }
-
-  .laser {
-    height: 3px;
-    background: linear-gradient(90deg, rgba(96,165,250,0.15), rgba(96,165,250,0.95), rgba(96,165,250,0.15));
-    transform-origin: left center;
-    pointer-events: none;
-    border-radius: 999px;
-    box-shadow: 0 0 10px rgba(96,165,250,0.7);
-  }
+  .player-hp-bar span,.monster-hp-bar span { background: linear-gradient(90deg, #34d399, #22c55e); }
+  .reward-ready { position: absolute; right: -6px; top: -8px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 999px; background: #ef4444; color: #fff; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 16px rgba(239, 68, 68, 0.35); }
+  .projectile { width: 12px; height: 12px; border-radius: 999px; box-shadow: 0 0 10px rgba(255,255,255,0.5); }
+  .laser { height: 3px; background: linear-gradient(90deg, rgba(96,165,250,0.15), rgba(96,165,250,0.95), rgba(96,165,250,0.15)); transform-origin: left center; pointer-events: none; border-radius: 999px; box-shadow: 0 0 10px rgba(96,165,250,0.7); }
+  @keyframes monsterWindup { from { transform: translate(-50%, -50%) scale(0.82); opacity: 0.95; } to { transform: translate(-50%, -50%) scale(1.12); opacity: 0.15; } }
 </style>

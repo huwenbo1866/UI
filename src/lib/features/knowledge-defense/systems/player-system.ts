@@ -2,6 +2,7 @@ import { PLAYER_CONTACT_IFRAME_MS } from '../config/constants';
 import type { GameState } from '../core/types';
 import { clamp } from '../core/utils';
 import type { InputState } from '../adapters/input-adapter';
+import { markPlayerHit } from './combat-feedback-system';
 
 export function updatePlayer(state: GameState, input: InputState, dtSeconds: number, dtMs: number) {
   const player = state.player;
@@ -28,18 +29,19 @@ export function updatePlayer(state: GameState, input: InputState, dtSeconds: num
   if (player.contactInvulnMs > 0) {
     player.contactInvulnMs = Math.max(0, player.contactInvulnMs - dtMs);
   }
+  player.hurtFlashMs = Math.max(0, player.hurtFlashMs - dtMs);
 }
 
-// 原有接触扣血（保留不动）
 export function applyPlayerContactDamage(state: GameState, damage: number) {
   if (state.player.contactInvulnMs > 0) return;
   state.player.hp = Math.max(0, state.player.hp - damage);
   state.player.contactInvulnMs = PLAYER_CONTACT_IFRAME_MS;
+  markPlayerHit(state, damage);
 }
 
-// 新增：怪物贴身时的**连续扣血**（每秒30滴血）
 export function applyContinuousPlayerDamage(state: GameState, damagePerSecond: number, dtSeconds: number) {
-  if (state.player.contactInvulnMs > 0) return;   // 仍保留短暂无敌帧
+  if (state.player.contactInvulnMs > 0) return;
   const damage = damagePerSecond * dtSeconds;
   state.player.hp = Math.max(0, state.player.hp - damage);
+  markPlayerHit(state, damage);
 }
