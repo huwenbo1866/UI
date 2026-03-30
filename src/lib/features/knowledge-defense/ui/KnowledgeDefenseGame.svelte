@@ -950,34 +950,34 @@
 	.page-shell {
 		position: relative;
 		width: 100%;
-		min-height: 100vh;
+		min-height: 100dvh;
 		box-sizing: border-box;
 		background: linear-gradient(180deg, #faf7f3 0%, #f4eee7 100%);
 		overflow: hidden;
 	}
 
 	.start-shell {
-		min-height: 100vh;
+		min-height: 100dvh;
 	}
 
 	.arena-shell {
 		position: relative;
-		width: min(100%, 1600px);
-		min-height: 100vh;
-		margin: 0 auto;
-		padding: 16px;
+		width: 100%;
+		min-height: 100dvh;
+		margin: 0;
+		padding: 0;
 		box-sizing: border-box;
 	}
 
 	.game-over {
 		position: absolute;
-		inset: 16px;
+		inset: 0;
 		display: grid;
 		place-items: center;
 		background: rgba(39, 28, 19, 0.38);
 		backdrop-filter: blur(4px);
 		z-index: 170;
-		border-radius: 28px;
+		padding: 20px;
 	}
 
 	.game-over-card {
@@ -1049,12 +1049,13 @@
 	}
 
 	@media (max-width: 900px) {
-		.arena-shell {
-			padding: 10px;
+		.game-over {
+			padding: 14px;
 		}
 
-		.game-over {
-			inset: 10px;
+		.game-over-card {
+			border-radius: 22px;
+			padding: 18px;
 		}
 	}
 </style>

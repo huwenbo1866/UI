@@ -88,7 +88,7 @@
 
 <style>
   .overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
     z-index: 155;
     display: grid;
@@ -100,7 +100,7 @@
 
   .panel {
     width: min(1220px, calc(100vw - 48px));
-    max-height: min(86vh, 920px);
+    max-height: min(86dvh, 920px);
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -283,12 +283,33 @@
   }
 
   @media (max-width: 980px) {
+    .overlay {
+      padding: 14px;
+      align-items: end;
+    }
+
+    .panel {
+      width: 100%;
+      max-height: 92dvh;
+      border-radius: 22px 22px 0 0;
+      padding: 14px;
+    }
+
+    .header h2 {
+      font-size: 22px;
+    }
+
     .layout {
       grid-template-columns: 1fr;
     }
 
     .cards {
       grid-template-columns: 1fr;
+    }
+
+    .question {
+      min-height: auto;
+      font-size: 16px;
     }
   }
 </style>

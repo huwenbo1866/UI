@@ -104,14 +104,17 @@
 </div>
 
 <style>
-  .arena { position: relative; width: 100%; min-height: var(--arena-height); height: var(--arena-height); overflow: hidden; border-radius: 28px; background:
+  .arena { position: relative; width: 100%; min-height: var(--arena-height); height: var(--arena-height); overflow: hidden; border-radius: 0; background:
       radial-gradient(circle at 15% 18%, rgba(83, 69, 56, 0.12) 0 6%, transparent 6.2%),
       radial-gradient(circle at 70% 24%, rgba(83, 69, 56, 0.12) 0 7%, transparent 7.2%),
       radial-gradient(circle at 85% 68%, rgba(83, 69, 56, 0.12) 0 5.6%, transparent 5.9%),
       radial-gradient(circle at 28% 82%, rgba(83, 69, 56, 0.12) 0 6.4%, transparent 6.7%), #ede5dc;
-    border: 1px solid #d8cbbd; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
+    border: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); }
   .rings { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border: 1px solid rgba(31, 41, 55, 0.18); border-radius: 999px; pointer-events: none; }
-  .ring-1 { width: 190px; height: 190px; } .ring-2 { width: 420px; height: 420px; } .ring-3 { width: 650px; height: 650px; } .ring-4 { width: 900px; height: 900px; }
+  .ring-1 { width: clamp(150px, 24vw, 190px); height: clamp(150px, 24vw, 190px); }
+  .ring-2 { width: clamp(310px, 54vw, 420px); height: clamp(310px, 54vw, 420px); }
+  .ring-3 { width: clamp(480px, 78vw, 650px); height: clamp(480px, 78vw, 650px); }
+  .ring-4 { width: clamp(620px, 106vw, 900px); height: clamp(620px, 106vw, 900px); }
   .player,.monster,.projectile,.drone,.laser { position: absolute; transform: translate(-50%, -50%); }
   .player { border: none; padding: 0; background: transparent; box-shadow: none; display: flex; align-items: center; justify-content: center; cursor: pointer; width: 68px; height: 68px; }
   .player.hurt .player-avatar,.monster.hurt .monster-face { filter: saturate(1.6) brightness(1.1) drop-shadow(0 0 8px rgba(255, 60, 60, 0.8)); }
@@ -137,4 +140,14 @@
   .projectile { width: 12px; height: 12px; border-radius: 999px; box-shadow: 0 0 10px rgba(255,255,255,0.5); }
   .laser { height: 3px; background: linear-gradient(90deg, rgba(96,165,250,0.15), rgba(96,165,250,0.95), rgba(96,165,250,0.15)); transform-origin: left center; pointer-events: none; border-radius: 999px; box-shadow: 0 0 10px rgba(96,165,250,0.7); }
   @keyframes monsterWindup { from { transform: translate(-50%, -50%) scale(0.82); opacity: 0.95; } to { transform: translate(-50%, -50%) scale(1.12); opacity: 0.15; } }
+  @media (max-width: 900px) {
+    .arena {
+      border-radius: 18px;
+      margin: 8px;
+      width: calc(100% - 16px);
+      min-height: calc(100dvh - 16px);
+      height: calc(100dvh - 16px);
+      border: 1px solid #d8cbbd;
+    }
+  }
 </style>

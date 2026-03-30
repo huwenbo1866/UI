@@ -143,7 +143,7 @@
 
 <style>
   .overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
     z-index: 160;
     display: grid;
@@ -154,6 +154,8 @@
   }
   .panel {
     width: min(760px, calc(100vw - 48px));
+    max-height: min(90dvh, 920px);
+    overflow: auto;
     background: #fffaf4;
     border: 1px solid #e3d5c7;
     border-radius: 28px;
@@ -224,5 +226,27 @@
   }
   .source-tip.fallback {
     color: #a16207;
+  }
+  
+  @media (max-width: 900px) {
+    .overlay {
+      padding: 14px;
+      align-items: end;
+    }
+
+    .panel {
+      width: 100%;
+      max-height: 92dvh;
+      border-radius: 22px 22px 0 0;
+      padding: 14px;
+    }
+
+    .header h2 {
+      font-size: 24px;
+    }
+
+    .field-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

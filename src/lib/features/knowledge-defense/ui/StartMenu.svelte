@@ -52,7 +52,7 @@
 <style>
   .start-page {
     position: relative;
-    min-height: 100vh;
+    min-height: 100dvh;
     width: 100%;
     overflow: hidden;
     background:
@@ -128,7 +128,7 @@
   .content {
     position: relative;
     z-index: 1;
-    min-height: 100vh;
+    min-height: 100dvh;
     width: min(1400px, calc(100% - 64px));
     margin: 0 auto;
     display: grid;
@@ -273,6 +273,40 @@
     .main-btn {
       min-height: 68px;
       font-size: 20px;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .icon-exit {
+      top: 14px;
+      left: 14px;
+    }
+
+    .icon-shell {
+      width: 46px;
+      height: 46px;
+      border-radius: 14px;
+    }
+
+    .content {
+      width: calc(100% - 20px);
+      padding: 72px 0 18px;
+      gap: 16px;
+    }
+
+    .subtitle {
+      line-height: 1.65;
+      font-size: 16px;
+    }
+
+    .main-btn {
+      min-height: 58px;
+      font-size: 18px;
+    }
+
+    .tip {
+      font-size: 13px;
+      line-height: 1.6;
     }
   }
 </style>
