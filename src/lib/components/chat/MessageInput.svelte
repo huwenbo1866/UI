@@ -77,7 +77,6 @@
 	import Photo from '../icons/Photo.svelte';
 	import Camera from '../icons/Camera.svelte';
 	import DocumentChartBar from '../icons/DocumentChartBar.svelte';
-	import PencilSquare from '../icons/PencilSquare.svelte';
 	import Note from '../icons/Note.svelte';
 	import Wrench from '../icons/Wrench.svelte';
 	import Sparkles from '../icons/Sparkles.svelte';
@@ -1502,18 +1501,6 @@
 									<DocumentChartBar className="size-3.5" />
 								</span>
 								生成思维导图
-							</button>
-
-							<button
-								type="button"
-								class="group relative inline-flex items-center gap-1.5 rounded-full border border-orange-300/80 dark:border-orange-700/60 bg-orange-100/90 dark:bg-orange-900/35 px-3 py-1.5 text-xs font-medium text-orange-900 dark:text-orange-100 hover:brightness-95 transition"
-								on:click={() => goto('/homework')}
-							>
-								<span class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-orange-400/80 dark:bg-orange-300/70"></span>
-								<span class="inline-flex size-5 items-center justify-center rounded-full bg-white/70 dark:bg-gray-900/40">
-									<PencilSquare className="size-3.5" strokeWidth="1.9" />
-								</span>
-								作业生成与批改
 							</button>
 
 							<button
