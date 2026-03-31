@@ -119,9 +119,9 @@
 
 	let formTitle = '';
 	let formDescription = '';
-	let difficultyEasy = 5;
-	let difficultyMedium = 3;
-	let difficultyHard = 2;
+	let difficultyEasy = 1;
+	let difficultyMedium = 4;
+	let difficultyHard = 5;
 
 	let includeChoice = true;
 	let includeJudge = true;

@@ -34,15 +34,15 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 
-DEFAULT_DIFFICULTY_CONFIG = {"easy": 5, "medium": 3, "hard": 2}
+DEFAULT_DIFFICULTY_CONFIG = {"easy": 1, "medium": 4, "hard": 5}
 DEFAULT_QUESTION_TYPES = ["choice", "judge", "short_answer"]
 SUPPORTED_FILE_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 
 
 class DifficultyConfig(BaseModel):
-    easy: int = 5
-    medium: int = 3
-    hard: int = 2
+    easy: int = 1
+    medium: int = 4
+    hard: int = 5
 
 
 class GenerateHomeworkForm(BaseModel):
@@ -678,6 +678,7 @@ async def generate_homework(
         "你是作业生成助手。"
         "请严格输出JSON数组，每个元素字段为: "
         "type(choice|judge|short_answer), difficulty(easy|medium|hard), question, options(数组, choice/judge必填), answer, analysis。"
+        "题目应对齐考试难度，重点考查综合理解、迁移应用与干扰项辨析能力。"
         "不要输出JSON以外的内容。"
     )
     generation_user_prompt = (
@@ -690,7 +691,7 @@ async def generate_homework(
         f"medium: {difficulty_config['medium']}\n"
         f"hard: {difficulty_config['hard']}\n\n"
         f"题型要求:\n{json.dumps(question_types, ensure_ascii=False)}\n\n"
-        "请确保题量与难度分布尽量匹配。"
+        "请确保题量与难度分布尽量匹配，并避免整套题偏基础记忆。"
     )
 
     try:

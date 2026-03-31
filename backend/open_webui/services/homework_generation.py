@@ -97,8 +97,42 @@ def _normalize_subject(subject: Optional[str]) -> str:
 
 def _subject_instruction(subject: str) -> str:
     if subject == "chinese":
-        return "仅生成古诗词或课本原文填空题，5道，答案必须是可核对的准确字词或句子。"
-    return "生成20道题：10道选择题+10道判断题。选择题必须4个选项且答案为A/B/C/D；判断题答案只能是正确或错误。"
+        return "仅生成古诗词或课本原文高区分度填空题，优先考查易错字词、上下句联动与语境辨析，答案必须可核对。"
+    return "按综合性考试难度生成20道题：10道选择题+10道判断题。选择题必须4个高迷惑度选项且答案为A/B/C/D；判断题答案只能是正确或错误。"
+
+
+def _exam_difficulty_at(index: int, total_count: int) -> str:
+    total = max(1, int(total_count or 1))
+    hard_target = max(1, int(round(total * 0.5)))
+    medium_target = max(0, int(round(total * 0.4)))
+
+    if index < hard_target:
+        return "hard"
+    if index < hard_target + medium_target:
+        return "medium"
+    return "easy"
+
+
+def _coerce_exam_difficulty(value: Any, index: int, total_count: int) -> str:
+    key = str(value or "").strip().lower()
+    mapping = {
+        "hard": "hard",
+        "difficult": "hard",
+        "困难": "hard",
+        "medium": "medium",
+        "normal": "medium",
+        "中等": "medium",
+        "easy": "easy",
+        "simple": "easy",
+        "简单": "easy",
+    }
+    normalized = mapping.get(key)
+    if normalized == "easy":
+        # 强化题默认至少中等难度，避免退化为基础题。
+        return "medium"
+    if normalized in {"medium", "hard"}:
+        return normalized
+    return _exam_difficulty_at(index, total_count)
 
 
 def _parse_options(raw_options: Any) -> list[str]:
@@ -281,7 +315,7 @@ def _normalize_chapter_questions(data: Any, subject: str, total_count: int) -> l
             {
                 "order_index": idx,
                 "type": q_type,
-                "difficulty": "easy",
+                "difficulty": _exam_difficulty_at(idx, total_count),
                 "question": q,
                 "options": options,
                 "answer": answer,
@@ -302,7 +336,7 @@ def _normalize_chapter_questions(data: Any, subject: str, total_count: int) -> l
                 {
                     "order_index": i,
                     "type": fallback_type,
-                    "difficulty": "easy",
+                    "difficulty": _exam_difficulty_at(i, total_count),
                     "question": f"请根据本章内容回答第{i + 1}题。",
                     "options": ["A", "B", "C", "D"] if fallback_type == "choice" else (["正确", "错误"] if fallback_type == "judge" else None),
                     "answer": "A" if fallback_type == "choice" else ("正确" if fallback_type == "judge" else "见教材原文"),
@@ -349,7 +383,8 @@ async def generate_chapter_homework_questions(
         "你是中小学作业命题助手。"
         "必须只输出JSON数组，每个元素字段为："
         "type,question,options,answer,analysis。"
-        "题目要简单，答案必须可直接判定。"
+        "题目需对齐同学段考试难度，强调知识迁移、综合理解与迷惑项设计，避免只考死记硬背。"
+        "答案必须可直接判定。"
         "严禁输出JSON之外内容。"
     )
 
@@ -358,6 +393,7 @@ async def generate_chapter_homework_questions(
         f"章节标题：{chapter_title}\n"
         f"要求：{_subject_instruction(normalized_subject)}\n"
         f"题目数量：{count}。\n"
+        "难度要求：整体以中高难为主，区分度要明显。\n"
         "若是选择题，options必须4个且answer为A/B/C/D。\n\n"
         f"章节内容：\n{_sample_text(chapter_content)}"
     )
@@ -415,7 +451,9 @@ def _normalize_reinforcement_questions(data: Any, count: int) -> list[dict]:
             {
                 "order_index": idx,
                 "type": q_type,
-                "difficulty": str(item.get("difficulty", "medium")).strip() or "medium",
+                "difficulty": _coerce_exam_difficulty(
+                    item.get("difficulty", "medium"), idx, count
+                ),
                 "question": question,
                 "options": options,
                 "answer": answer,
@@ -460,6 +498,7 @@ async def generate_reinforcement_questions_from_records(
         "必须只输出JSON数组，每项字段：type,question,options,answer,analysis,difficulty。"
         "新题必须与错题同一知识类型，又具有差异性，绝不允许是题干/选项的简单改变。"
         "必须围绕错题同一知识类型生成可判分题。"
+        "新题难度至少为中等，优先中高难，符合考试命题风格。"
     )
 
     user_prompt = (
