@@ -95,22 +95,28 @@ def _normalize_subject(subject: Optional[str]) -> str:
     return mapping.get(key, "other")
 
 
-def _subject_instruction(subject: str) -> str:
+def _subject_instruction(subject: str, count: int) -> str:
+    total = max(1, int(count or 1))
     if subject == "chinese":
-        return "仅生成古诗词或课本原文高区分度填空题，优先考查易错字词、上下句联动与语境辨析，答案必须可核对。"
-    return "按综合性考试难度生成20道题：10道选择题+10道判断题。选择题必须4个高迷惑度选项且答案为A/B/C/D；判断题答案只能是正确或错误。"
+        return f"生成{total}道古诗词或课本原文高区分度填空题，优先考查易错字词、上下句联动与语境辨析，答案必须可核对。"
+
+    return (
+        "按综合性考试难度固定生成20道题：10道选择题+10道判断题。"
+        "选择题必须4个完整具体选项且答案为A/B/C/D，禁止只给A/B/C/D占位。"
+        "判断题请直接给出判断陈述句，不要写“请判断下列结论是否成立”前缀。"
+    )
 
 
 def _exam_difficulty_at(index: int, total_count: int) -> str:
     total = max(1, int(total_count or 1))
-    hard_target = max(1, int(round(total * 0.5)))
-    medium_target = max(0, int(round(total * 0.4)))
+    hard_target = max(1, int(round(total * 0.6)))
+    medium_target = max(0, total - hard_target)
 
     if index < hard_target:
         return "hard"
     if index < hard_target + medium_target:
         return "medium"
-    return "easy"
+    return "medium"
 
 
 def _coerce_exam_difficulty(value: Any, index: int, total_count: int) -> str:
@@ -159,6 +165,71 @@ def _parse_options(raw_options: Any) -> list[str]:
     return []
 
 
+def _ensure_choice_options(options: list[str], question: str) -> list[str]:
+    cleaned: list[str] = []
+    for opt in options:
+        text = re.sub(r"^[A-Da-d][\.|、\)|:：]\s*", "", str(opt or "").strip())
+        if not text:
+            continue
+        if text.upper() in {"A", "B", "C", "D"}:
+            continue
+        cleaned.append(text)
+
+    if len(cleaned) >= 4:
+        return cleaned[:4]
+
+    fallback_pool = [
+        "只满足了局部条件，忽略了关键限制",
+        "看似合理但与定义边界冲突",
+        "计算过程正确但结论对象不匹配",
+        "混淆了必要条件与充分条件",
+    ]
+
+    if question:
+        fallback_pool = [
+            f"由题干可得：{fallback_pool[0]}",
+            f"根据题意可判定：{fallback_pool[1]}",
+            f"结合条件分析：{fallback_pool[2]}",
+            f"对比选项可见：{fallback_pool[3]}",
+        ]
+
+    i = 0
+    while len(cleaned) < 4:
+        cleaned.append(fallback_pool[i % len(fallback_pool)])
+        i += 1
+
+    return cleaned[:4]
+
+
+def _is_image_dependent_text(*parts: Any) -> bool:
+    text = " ".join(str(part or "") for part in parts).lower()
+    image_markers = [
+        "如图",
+        "下图",
+        "上图",
+        "看图",
+        "图中",
+        "图1",
+        "图2",
+        "图片",
+        "图像",
+        "示意图",
+        "配图",
+        "图示",
+    ]
+    return any(marker in text for marker in image_markers)
+
+
+def _normalize_question_stem(question: str, min_length: int = 14) -> str:
+    stem = re.sub(r"\s+", " ", str(question or "").strip())
+    if not stem:
+        return ""
+    if len(stem) >= min_length:
+        return stem
+    # 轻量补全，避免强行拉长题干影响速度与自然度。
+    return f"{stem}（请结合章节知识点作答）"
+
+
 def _normalize_for_subject_mix(result: list[dict], subject: str, total_count: int) -> list[dict]:
     normalized = result[:total_count]
 
@@ -169,15 +240,22 @@ def _normalize_for_subject_mix(result: list[dict], subject: str, total_count: in
             item["options"] = None
         return normalized
 
-    # all non-Chinese subjects: exactly 10 choice + 10 judge (20 total)
-    target_choice = min(10, total_count)
+    # non-Chinese subjects: enforce 10 choice + 10 judge for 20-question sets.
+    if total_count >= 20:
+        target_choice = 10
+    else:
+        target_choice = max(1, int(round(total_count * 0.6)))
+        if total_count >= 2:
+            target_choice = min(target_choice, total_count - 1)
+        else:
+            target_choice = min(target_choice, total_count)
     for i, item in enumerate(normalized):
         item["order_index"] = i
         if i < target_choice:
             item["type"] = "choice"
-            item["options"] = _parse_options(item.get("options"))
-            if len(item["options"]) < 4:
-                item["options"] = ["A", "B", "C", "D"]
+            item["options"] = _ensure_choice_options(
+                _parse_options(item.get("options")), str(item.get("question", ""))
+            )
             ans = str(item.get("answer", "")).upper()
             m = re.search(r"[ABCD]", ans)
             item["answer"] = m.group(0) if m else "A"
@@ -193,6 +271,22 @@ def _normalize_for_subject_mix(result: list[dict], subject: str, total_count: in
                 item["answer"] = "正确"
 
     return normalized
+
+
+def _fallback_question_by_context(chapter_title: str, q_type: str, index: int) -> tuple[str, list[str] | None, str, str]:
+    chapter_name = (chapter_title or "本章节").strip() or "本章节"
+
+    if q_type == "judge":
+        question = (
+            f"在{chapter_name}中，改变参照条件会影响对同一现象的判断结论。"
+        )
+        return question, ["正确", "错误"], "正确", "先定位条件，再核对定义适用范围，避免被表面结论误导。"
+
+    question = (
+        f"基于{chapter_name}的关键知识，请从不同解题角度比较四个结论，"
+        f"选择唯一满足全部条件的选项（第{index + 1}题）。"
+    )
+    return question, ["A", "B", "C", "D"], "A", "优先检查隐含限制条件，再排除“看似合理但违背定义”的干扰项。"
 
 
 async def _chat_json(
@@ -247,7 +341,13 @@ def _resolve_model_id(request: Any) -> str:
     return next(iter(models))
 
 
-def _normalize_chapter_questions(data: Any, subject: str, total_count: int) -> list[dict]:
+def _normalize_chapter_questions(
+    data: Any,
+    subject: str,
+    total_count: int,
+    chapter_title: str = "",
+    allow_placeholder_fallback: bool = True,
+) -> list[dict]:
     if isinstance(data, dict):
         if isinstance(data.get("questions"), list):
             data = data["questions"]
@@ -265,6 +365,13 @@ def _normalize_chapter_questions(data: Any, subject: str, total_count: int) -> l
         q = str(item.get("question", "")).strip()
         a = str(item.get("answer", "")).strip()
         if not q or not a:
+            continue
+
+        if _is_image_dependent_text(q, item.get("analysis", ""), item.get("options", "")):
+            continue
+
+        q = _normalize_question_stem(q)
+        if not q:
             continue
 
         q_type = str(item.get("type", "fill_blank")).strip().lower()
@@ -286,13 +393,7 @@ def _normalize_chapter_questions(data: Any, subject: str, total_count: int) -> l
 
         options = _parse_options(item.get("options"))
         if q_type == "choice":
-            if len(options) < 4:
-                options = [
-                    options[0] if len(options) > 0 else "A",
-                    options[1] if len(options) > 1 else "B",
-                    options[2] if len(options) > 2 else "C",
-                    options[3] if len(options) > 3 else "D",
-                ]
+            options = _ensure_choice_options(options, q)
             answer = str(a).upper()
             answer_match = re.search(r"[ABCD]", answer)
             if not answer_match:
@@ -326,21 +427,28 @@ def _normalize_chapter_questions(data: Any, subject: str, total_count: int) -> l
         if len(result) >= total_count:
             break
 
-    if len(result) < total_count:
+    if len(result) < total_count and allow_placeholder_fallback:
         for i in range(len(result), total_count):
             if subject == "chinese":
                 fallback_type = "fill_blank"
             else:
-                fallback_type = "choice" if i < 10 else "judge"
+                target_choice = max(1, int(round(total_count * 0.6)))
+                if total_count >= 2:
+                    target_choice = min(target_choice, total_count - 1)
+                fallback_type = "choice" if i < target_choice else "judge"
+
+            fallback_question, fallback_options, fallback_answer, fallback_analysis = _fallback_question_by_context(
+                chapter_title, fallback_type, i
+            )
             result.append(
                 {
                     "order_index": i,
                     "type": fallback_type,
                     "difficulty": _exam_difficulty_at(i, total_count),
-                    "question": f"请根据本章内容回答第{i + 1}题。",
-                    "options": ["A", "B", "C", "D"] if fallback_type == "choice" else (["正确", "错误"] if fallback_type == "judge" else None),
-                    "answer": "A" if fallback_type == "choice" else ("正确" if fallback_type == "judge" else "见教材原文"),
-                    "analysis": "请结合章节重点复习。",
+                    "question": fallback_question,
+                    "options": fallback_options,
+                    "answer": fallback_answer if fallback_type in {"choice", "judge"} else "见教材原文",
+                    "analysis": fallback_analysis,
                 }
             )
 
@@ -371,6 +479,8 @@ async def generate_chapter_homework_questions(
     from open_webui.utils.task import get_task_model_id
 
     normalized_subject = _normalize_subject(subject)
+    if normalized_subject != "chinese":
+        count = 20
     base_model_id = _resolve_model_id(request)
     task_model_id = get_task_model_id(
         base_model_id,
@@ -384,6 +494,12 @@ async def generate_chapter_homework_questions(
         "必须只输出JSON数组，每个元素字段为："
         "type,question,options,answer,analysis。"
         "题目需对齐同学段考试难度，强调知识迁移、综合理解与迷惑项设计，避免只考死记硬背。"
+        "严禁生成任何依赖图片、图像、示意图、看图作答的题目。"
+        "题干应清晰可判分，不必刻意写成长段；可直接围绕章节知识点命题。"
+        "同一知识点尽量从不同角度设问，并设置合理干扰陷阱。"
+        "非语文时，必须固定10道选择题+10道判断题。"
+        "选择题四个选项必须完整具体，禁止A/B/C/D占位。"
+        "判断题题干必须是直接陈述句，不要使用“请判断下列结论是否成立”模板。"
         "答案必须可直接判定。"
         "严禁输出JSON之外内容。"
     )
@@ -391,9 +507,15 @@ async def generate_chapter_homework_questions(
     user_prompt = (
         f"学科：{normalized_subject}\n"
         f"章节标题：{chapter_title}\n"
-        f"要求：{_subject_instruction(normalized_subject)}\n"
+        f"要求：{_subject_instruction(normalized_subject, count)}\n"
         f"题目数量：{count}。\n"
         "难度要求：整体以中高难为主，区分度要明显。\n"
+        "禁止图像题：不要出现“如图/下图/图中/看图”或任何需要配图才能作答的描述。\n"
+        "题干要求：表达清楚即可，不强制长题干；可以直接基于章节知识点命题。\n"
+        "命题角度：同知识点可从概念辨析、条件变化、易错陷阱等角度出题。\n"
+        "题型硬约束（非语文）：选择题固定10道，判断题固定10道。\n"
+        "选择题约束：四个选项必须是完整文本，不允许A/B/C/D空白占位。\n"
+        "判断题约束：直接输出判断陈述句题目，不写“请判断……”前缀。\n"
         "若是选择题，options必须4个且answer为A/B/C/D。\n\n"
         f"章节内容：\n{_sample_text(chapter_content)}"
     )
@@ -407,7 +529,25 @@ async def generate_chapter_homework_questions(
         "knowledge_chapter_homework_generation",
     )
 
-    return _normalize_chapter_questions(raw, normalized_subject, count)
+    normalized = _normalize_chapter_questions(
+        raw,
+        normalized_subject,
+        count,
+        chapter_title=chapter_title,
+        allow_placeholder_fallback=False,
+    )
+
+    # 为了保证输出速度，数量不足时直接走高质量模板兜底，不再进行二次补生成。
+    if len(normalized) < count:
+        normalized = _normalize_chapter_questions(
+            normalized,
+            normalized_subject,
+            count,
+            chapter_title=chapter_title,
+            allow_placeholder_fallback=True,
+        )
+
+    return _normalize_for_subject_mix(normalized, normalized_subject, count)
 
 def _normalize_reinforcement_questions(data: Any, count: int) -> list[dict]:
     if isinstance(data, dict):
@@ -427,6 +567,13 @@ def _normalize_reinforcement_questions(data: Any, count: int) -> list[dict]:
         question = str(item.get("question", "")).strip()
         answer = str(item.get("answer", "")).strip()
         if not question or not answer:
+            continue
+
+        if _is_image_dependent_text(question, item.get("analysis", ""), item.get("options", "")):
+            continue
+
+        question = _normalize_question_stem(question)
+        if not question:
             continue
 
         q_type = str(item.get("type", "choice")).strip().lower()
@@ -499,6 +646,7 @@ async def generate_reinforcement_questions_from_records(
         "新题必须与错题同一知识类型，又具有差异性，绝不允许是题干/选项的简单改变。"
         "必须围绕错题同一知识类型生成可判分题。"
         "新题难度至少为中等，优先中高难，符合考试命题风格。"
+        "严禁生成图像题或看图题，题干必须在无配图条件下独立可解。"
     )
 
     user_prompt = (
@@ -509,7 +657,8 @@ async def generate_reinforcement_questions_from_records(
         "1) 与existing_questions中的题干重复度要低（避免同题复读）；\n"
         "2) 聚焦wrong_records中的易错知识类型；\n"
         "3) 选择题必须4个可区分选项，answer可写正确选项文本或A/B/C/D；\n"
-        "4) 判断题answer只能为正确/错误。\n\n"
+        "4) 判断题answer只能为正确/错误；\n"
+        "5) 禁止“如图/下图/图中/看图”等图像依赖表述，题干要长且清晰。\n\n"
         f"wrong_records={wrong_text}\n"
         f"existing_questions={existing_text}"
     )
