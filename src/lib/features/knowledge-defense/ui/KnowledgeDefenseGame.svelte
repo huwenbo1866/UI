@@ -342,7 +342,12 @@
 			state.battle.qaRound += 1;
 			state.ui.rewardFeedback = `答对了：${choice.question.explanation}`;
 			state.ui.rewardFeedbackKind = 'success';
-			await markWrongNotebookCorrect(activePack.id, choice.question.id, activePack.source).catch(
+			await markWrongNotebookCorrect(
+				activePack.id,
+				choice.question.id,
+				activePack.source,
+				choice.question.prompt
+			).catch(
 				() => undefined
 			);
 			queuePersistProgress(choice.question, selected, true);

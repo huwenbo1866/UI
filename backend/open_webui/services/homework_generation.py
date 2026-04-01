@@ -101,7 +101,7 @@ def _subject_instruction(subject: str, count: int) -> str:
         return f"生成{total}道古诗词或课本原文高区分度填空题，优先考查易错字词、上下句联动与语境辨析，答案必须可核对。"
 
     return (
-        "按综合性考试难度固定生成20道题：10道选择题+10道判断题。"
+        "按综合性考试难度生成20道题，题型可在选择题/判断题间按知识点特性动态分配，但是整体以选择题为主。"
         "选择题必须4个完整具体选项且答案为A/B/C/D，禁止只给A/B/C/D占位。"
         "判断题请直接给出判断陈述句，不要写“请判断下列结论是否成立”前缀。"
     )
@@ -137,6 +137,10 @@ def _coerce_exam_difficulty(value: Any, index: int, total_count: int) -> str:
         # 强化题默认至少中等难度，避免退化为基础题。
         return "medium"
     if normalized in {"medium", "hard"}:
+        # 强化题需尽量对齐章节作业难度：默认将中等题提升为困难题，
+        # 仅在后段保留部分中等题，维持可做性与区分度。
+        if normalized == "medium" and index < max(1, int(round(max(1, total_count) * 0.6))):
+            return "hard"
         return normalized
     return _exam_difficulty_at(index, total_count)
 
@@ -230,6 +234,21 @@ def _normalize_question_stem(question: str, min_length: int = 14) -> str:
     return f"{stem}（请结合章节知识点作答）"
 
 
+def _is_judge_like_item(item: dict) -> bool:
+    raw_type = str(item.get("type", "")).strip().lower()
+    if raw_type in {"judge", "true_false", "truefalse", "判断", "判断题"}:
+        return True
+
+    options = _parse_options(item.get("options"))
+    if len(options) == 2:
+        normalized_options = {str(opt).strip().lower() for opt in options}
+        if normalized_options <= {"正确", "错误", "对", "错", "true", "false", "yes", "no"}:
+            return True
+
+    answer = str(item.get("answer", "")).strip().lower()
+    return answer in {"正确", "错误", "对", "错", "true", "false", "yes", "no"}
+
+
 def _normalize_for_subject_mix(result: list[dict], subject: str, total_count: int) -> list[dict]:
     normalized = result[:total_count]
 
@@ -240,26 +259,9 @@ def _normalize_for_subject_mix(result: list[dict], subject: str, total_count: in
             item["options"] = None
         return normalized
 
-    # non-Chinese subjects: enforce 10 choice + 10 judge for 20-question sets.
-    if total_count >= 20:
-        target_choice = 10
-    else:
-        target_choice = max(1, int(round(total_count * 0.6)))
-        if total_count >= 2:
-            target_choice = min(target_choice, total_count - 1)
-        else:
-            target_choice = min(target_choice, total_count)
     for i, item in enumerate(normalized):
         item["order_index"] = i
-        if i < target_choice:
-            item["type"] = "choice"
-            item["options"] = _ensure_choice_options(
-                _parse_options(item.get("options")), str(item.get("question", ""))
-            )
-            ans = str(item.get("answer", "")).upper()
-            m = re.search(r"[ABCD]", ans)
-            item["answer"] = m.group(0) if m else "A"
-        else:
+        if _is_judge_like_item(item):
             item["type"] = "judge"
             item["options"] = ["正确", "错误"]
             a = str(item.get("answer", "")).strip()
@@ -268,7 +270,15 @@ def _normalize_for_subject_mix(result: list[dict], subject: str, total_count: in
             elif a in {"错", "错误", "false", "False", "FALSE", "否"}:
                 item["answer"] = "错误"
             else:
-                item["answer"] = "正确"
+                item["answer"] = "正确" if a not in {"正确", "错误"} else a
+        else:
+            item["type"] = "choice"
+            item["options"] = _ensure_choice_options(
+                _parse_options(item.get("options")), str(item.get("question", ""))
+            )
+            ans = str(item.get("answer", "")).upper()
+            m = re.search(r"[ABCD]", ans)
+            item["answer"] = m.group(0) if m else "A"
 
     return normalized
 
@@ -375,7 +385,7 @@ def _normalize_chapter_questions(
             continue
 
         q_type = str(item.get("type", "fill_blank")).strip().lower()
-        if q_type in {"true_false", "truefalse", "判断", "判断题"}:
+        if _is_judge_like_item(item):
             q_type = "judge"
 
         # Infer choice when answer/options clearly indicate objective option style.
@@ -432,10 +442,14 @@ def _normalize_chapter_questions(
             if subject == "chinese":
                 fallback_type = "fill_blank"
             else:
-                target_choice = max(1, int(round(total_count * 0.6)))
-                if total_count >= 2:
-                    target_choice = min(target_choice, total_count - 1)
-                fallback_type = "choice" if i < target_choice else "judge"
+                # 根据当前已生成题型动态补齐，而不是按题号强制切分。
+                current_choices = sum(
+                    1 for existing in result if str(existing.get("type", "")).lower() == "choice"
+                )
+                current_judges = sum(
+                    1 for existing in result if str(existing.get("type", "")).lower() == "judge"
+                )
+                fallback_type = "choice" if current_choices <= current_judges else "judge"
 
             fallback_question, fallback_options, fallback_answer, fallback_analysis = _fallback_question_by_context(
                 chapter_title, fallback_type, i
@@ -497,7 +511,7 @@ async def generate_chapter_homework_questions(
         "严禁生成任何依赖图片、图像、示意图、看图作答的题目。"
         "题干应清晰可判分，不必刻意写成长段；可直接围绕章节知识点命题。"
         "同一知识点尽量从不同角度设问，并设置合理干扰陷阱。"
-        "非语文时，必须固定10道选择题+10道判断题。"
+        "非语文时，选择题与判断题应根据知识点特性动态分配，不按题号强制切分。"
         "选择题四个选项必须完整具体，禁止A/B/C/D占位。"
         "判断题题干必须是直接陈述句，不要使用“请判断下列结论是否成立”模板。"
         "答案必须可直接判定。"
@@ -513,7 +527,7 @@ async def generate_chapter_homework_questions(
         "禁止图像题：不要出现“如图/下图/图中/看图”或任何需要配图才能作答的描述。\n"
         "题干要求：表达清楚即可，不强制长题干；可以直接基于章节知识点命题。\n"
         "命题角度：同知识点可从概念辨析、条件变化、易错陷阱等角度出题。\n"
-        "题型硬约束（非语文）：选择题固定10道，判断题固定10道。\n"
+        "题型要求（非语文）：选择题与判断题按知识点特性动态分配，不要按前后题号硬切分。\n"
         "选择题约束：四个选项必须是完整文本，不允许A/B/C/D空白占位。\n"
         "判断题约束：直接输出判断陈述句题目，不写“请判断……”前缀。\n"
         "若是选择题，options必须4个且answer为A/B/C/D。\n\n"
@@ -587,11 +601,15 @@ def _normalize_reinforcement_questions(data: Any, count: int) -> list[dict]:
                 answer = "正确"
             q_type = "judge"
         else:
-            options = _parse_options(item.get("options"))
-            if len(options) < 4:
-                options = [opt for opt in options if opt][:4]
-                while len(options) < 4:
-                    options.append(f"选项{len(options) + 1}")
+            options = _ensure_choice_options(_parse_options(item.get("options")), question)
+            answer_key = str(answer or "").upper()
+            answer_match = re.search(r"[ABCD]", answer_key)
+            if answer_match:
+                answer = answer_match.group(0)
+            elif answer and answer in options:
+                answer = "ABCD"[options.index(answer)]
+            else:
+                answer = "A"
             q_type = "choice"
 
         result.append(
@@ -645,7 +663,8 @@ async def generate_reinforcement_questions_from_records(
         "必须只输出JSON数组，每项字段：type,question,options,answer,analysis,difficulty。"
         "新题必须与错题同一知识类型，又具有差异性，绝不允许是题干/选项的简单改变。"
         "必须围绕错题同一知识类型生成可判分题。"
-        "新题难度至少为中等，优先中高难，符合考试命题风格。"
+        "新题难度需对齐章节作业生成水平：至少中等，整体以中高难为主，约60%为困难题。"
+        "必须紧扣当前章节知识边界，不得跨章节漂移命题。"
         "严禁生成图像题或看图题，题干必须在无配图条件下独立可解。"
     )
 
@@ -656,9 +675,11 @@ async def generate_reinforcement_questions_from_records(
         "约束：\n"
         "1) 与existing_questions中的题干重复度要低（避免同题复读）；\n"
         "2) 聚焦wrong_records中的易错知识类型；\n"
+        "2.1) 所有题必须严格围绕本章节内容，不得引入未覆盖章节知识；\n"
         "3) 选择题必须4个可区分选项，answer可写正确选项文本或A/B/C/D；\n"
         "4) 判断题answer只能为正确/错误；\n"
-        "5) 禁止“如图/下图/图中/看图”等图像依赖表述，题干要长且清晰。\n\n"
+        "5) 禁止“如图/下图/图中/看图”等图像依赖表述，题干要长且清晰；\n"
+        "6) 难度分布按章节作业标准执行：中高难为主，约60%困难题。\n\n"
         f"wrong_records={wrong_text}\n"
         f"existing_questions={existing_text}"
     )

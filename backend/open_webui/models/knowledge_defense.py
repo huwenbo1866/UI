@@ -75,7 +75,9 @@ class WrongQuestionResolveForm(BaseModel):
     source_id: Optional[str] = None
     question_id: str
     mastery_threshold: int = 2
-
+    file_id: Optional[str] = None
+    chapter: Optional[str] = None
+    question: Optional[str] = None
 
 class WrongQuestionResolveResponse(BaseModel):
     removed: bool

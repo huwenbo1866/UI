@@ -56,13 +56,17 @@ export async function recordWrongNotebookEntry(
 export async function markWrongNotebookCorrect(
 	sourceId: string,
 	questionId: string,
-	_sourceContext?: PackSourceContext
+	sourceContext?: PackSourceContext,
+	questionText?: string
 ) {
 	return markWrongQuestionCorrectEntry({
 		source_type: SOURCE_TYPE,
 		source_id: sourceId,
 		question_id: questionId,
-		mastery_threshold: 2
+		mastery_threshold: 2,
+		file_id: sourceContext?.file_id,
+		chapter: sourceContext?.chapter,
+		question: questionText ?? null
 	});
 }
 

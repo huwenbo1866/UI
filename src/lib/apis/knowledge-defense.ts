@@ -46,6 +46,9 @@ export interface MarkWrongQuestionCorrectPayload {
 	source_id?: string | null;
 	question_id: string;
 	mastery_threshold?: number;
+	file_id?: string | null;
+	chapter?: string | null;
+	question?: string | null;
 }
 
 export interface MarkWrongQuestionCorrectResponse {

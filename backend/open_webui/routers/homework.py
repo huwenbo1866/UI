@@ -155,6 +155,13 @@ def _normalize_choice_value(value: Optional[str]) -> str:
     return key
 
 
+def _strip_choice_prefix_text(value: Optional[str]) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return re.sub(_CHOICE_PREFIX_PATTERN, "", text).strip().lower()
+
+
 def _is_image_dependent_text(*parts: Any) -> bool:
     text = " ".join(str(part or "") for part in parts).lower()
     image_markers = [
@@ -189,9 +196,13 @@ def _resolve_choice_answer_key(value: Optional[str], options: list[str]) -> str:
         return normalized
 
     raw = str(value or "").strip().lower()
+    raw_without_prefix = _strip_choice_prefix_text(value)
     for idx, option in enumerate(options):
         option_text = option.strip().lower()
+        option_without_prefix = _strip_choice_prefix_text(option)
         if raw == option_text:
+            return chr(ord("a") + idx)
+        if raw_without_prefix and raw_without_prefix == option_without_prefix:
             return chr(ord("a") + idx)
 
         option_normalized = _normalize_choice_value(option)
@@ -714,6 +725,8 @@ async def generate_homework(
         "请严格输出JSON数组，每个元素字段为: "
         "type(choice|judge|short_answer), difficulty(easy|medium|hard), question, options(数组, choice/judge必填), answer, analysis。"
         "题目应对齐考试难度，重点考查综合理解、迁移应用与干扰项辨析能力。"
+        "题目必须牢牢贴合本章节/本次给定材料，不得超纲或跨章节漂移。"
+        "在不改变题型和难度配比规则前提下，显著提升题目质量与区分度。"
         "严禁生成任何依赖图片、图像、示意图、看图作答的题目。"
         "每题题干应更长、更清楚，给出具体场景和充分条件。"
         "不要输出JSON以外的内容。"
@@ -729,6 +742,8 @@ async def generate_homework(
         f"hard: {difficulty_config['hard']}\n\n"
         f"题型要求:\n{json.dumps(question_types, ensure_ascii=False)}\n\n"
         "请确保题量与难度分布尽量匹配，并避免整套题偏基础记忆。"
+        "保持出题规则不变，但要提高题目质量和思维深度。"
+        "所有题目都必须紧贴上述材料内容，不得偏离本章节。"
         "禁止图像题：不要出现“如图/下图/图中/看图”或任何必须依赖配图的信息。"
         "题干要求：每题题干尽量写得更长、更清楚，能够在无图条件下独立理解并作答。"
     )

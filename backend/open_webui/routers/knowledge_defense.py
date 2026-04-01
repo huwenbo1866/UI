@@ -94,7 +94,19 @@ async def mark_wrong_question_correct(
             )
         except Exception:
             pass
-
+    elif form_data.file_id and form_data.chapter and form_data.question:
+        # 对于“首次即答对”的题目，虽然不会进入错题本，也需要回写章节掌握度颜色。
+        try:
+            update_chapter_mindmap_from_wrong_question(
+                file_id=form_data.file_id,
+                chapter_title=form_data.chapter,
+                question_text=form_data.question,
+                is_correct=True,
+                weight=0.7,
+                db=db,
+            )
+        except Exception:
+            pass
     return result
 
 
