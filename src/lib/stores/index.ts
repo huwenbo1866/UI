@@ -205,7 +205,10 @@ type Settings = {
 	splitLargeDeltas?: boolean;
 	chatDirection?: 'LTR' | 'RTL' | 'auto';
 	ctrlEnterToSend?: boolean;
-
+	learning_profile?: {
+		selected_capability?: string | null;
+	};
+	
 	system?: string;
 	seed?: number;
 	temperature?: string;

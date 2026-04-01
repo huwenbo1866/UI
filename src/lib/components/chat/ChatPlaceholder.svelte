@@ -2,7 +2,7 @@
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { marked } from 'marked';
 
-	import { config, user, models as _models, temporaryChatEnabled } from '$lib/stores';
+	import { config, user, models as _models, settings, temporaryChatEnabled } from '$lib/stores';
 	import { onMount, getContext } from 'svelte';
 
 	import { blur, fade } from 'svelte/transition';
@@ -11,6 +11,7 @@
 	import { sanitizeResponseContent } from '$lib/utils';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import EyeSlash from '$lib/components/icons/EyeSlash.svelte';
+	import { getCapabilitySuggestionPrompts } from '$lib/utils/learningCapability';
 
 	const i18n = getContext('i18n');
 
@@ -22,12 +23,22 @@
 
 	let mounted = false;
 	let selectedModelIdx = 0;
+	let suggestionPrompts = [];
 
 	$: if (modelIds.length > 0) {
 		selectedModelIdx = models.length - 1;
 	}
 
 	$: models = modelIds.map((id) => $_models.find((m) => m.id === id));
+	$: {
+		const baseSuggestions =
+			atSelectedModel?.info?.meta?.suggestion_prompts ??
+			models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
+			$config?.default_prompt_suggestions ??
+			[];
+		const selectedCapability = $settings?.learning_profile?.selected_capability ?? null;
+		suggestionPrompts = getCapabilitySuggestionPrompts(selectedCapability, baseSuggestions);
+	}
 
 	onMount(() => {
 		mounted = true;
@@ -67,14 +78,11 @@
 
 			<!-- A1 建议：单列 + 卡片化容器 -->
 			<div class="mt-5 a1-suggestions w-full font-primary" in:fade={{ duration: 200, delay: 300 }}>
-				<Suggestions
-					className="grid grid-cols-1 gap-3"
-					suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
-						models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
-						$config?.default_prompt_suggestions ??
-						[]}
-					{onSelect}
-				/>
+					<Suggestions
+						className="grid grid-cols-1 gap-3"
+						{suggestionPrompts}
+						{onSelect}
+					/>
 			</div>
 		</section>
 	</div>

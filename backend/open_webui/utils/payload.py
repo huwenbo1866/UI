@@ -6,6 +6,7 @@ from open_webui.utils.misc import (
 )
 from open_webui.services.learning_capabilities import (
     get_learning_capability_system_prompt,
+    get_learning_capability_response_contract,
 )
 
 from typing import Callable, Optional
@@ -42,10 +43,21 @@ def apply_system_prompt_to_body(
     replace: bool = False,
 ) -> dict:
     capability_prompt = get_learning_capability_system_prompt(user)
+    capability_contract = get_learning_capability_response_contract(user)
     existing_system = _get_existing_system_content(form_data.get("messages", []))
     if capability_prompt and capability_prompt not in (system or "") and capability_prompt not in existing_system:
         system = f"{system}\n\n{capability_prompt}".strip() if system else capability_prompt
-
+    if (
+        capability_contract
+        and capability_contract not in (system or "")
+        and capability_contract not in existing_system
+    ):
+        system = (
+            f"{system}\n\n{capability_contract}".strip()
+            if system
+            else capability_contract
+        )
+        
     if not system:
         return form_data
 

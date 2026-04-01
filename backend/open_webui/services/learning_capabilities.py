@@ -225,6 +225,32 @@ def _normalize_capability_definitions(
         prompt = capability.get("prompt")
         description = capability.get("description", "")
         signals = _normalize_string_list(capability.get("signals"), [])
+        
+        follow_up_guidance = capability.get("follow_up_guidance", "")
+        suggestion_prompts = capability.get("suggestion_prompts", [])
+
+        normalized_suggestion_prompts = []
+        if isinstance(suggestion_prompts, list):
+            for item in suggestion_prompts:
+                if not isinstance(item, dict):
+                    continue
+
+                title = item.get("title")
+                content = item.get("content")
+                if (
+                    isinstance(title, list)
+                    and len(title) == 2
+                    and all(isinstance(t, str) and t.strip() for t in title)
+                    and isinstance(content, str)
+                    and content.strip()
+                ):
+                    normalized_suggestion_prompts.append(
+                        {
+                            "title": [title[0].strip(), title[1].strip()],
+                            "content": content.strip(),
+                        }
+                    )
+
 
         if not (
             isinstance(key, str)
@@ -246,6 +272,10 @@ def _normalize_capability_definitions(
                 else "",
                 "prompt": prompt.strip(),
                 "signals": signals,
+                "follow_up_guidance": follow_up_guidance.strip()
+                if isinstance(follow_up_guidance, str)
+                else "",
+                "suggestion_prompts": normalized_suggestion_prompts,
             }
         )
 
@@ -437,6 +467,56 @@ def get_learning_capability_system_prompt(user: Any) -> Optional[str]:
 
     return capability["prompt"]
 
+def get_learning_capability_response_contract(user_or_settings: Any) -> Optional[str]:
+    capability = get_selected_learning_capability_definition(user_or_settings)
+    if not capability:
+        return None
+
+    label = capability.get("label", "").strip()
+    signals = capability.get("signals", [])
+    normalized_signals = [
+        signal.strip() for signal in signals if isinstance(signal, str) and signal.strip()
+    ][:8]
+
+    if not label:
+        return None
+
+    signal_text = "、".join(normalized_signals)
+    return (
+        f"【{label}个性化执行协议】\n"
+        f"- 每次回答必须显式体现“{label}”方向（不能只给通用讲解）。\n"
+        "- 每次回答至少包含1个方向化引导句 + 1个可执行学习动作。\n"
+        "- 当题目允许时，优先提供“另一种思路/变式条件/迁移场景”中的至少1项。\n"
+        f"- 可优先使用这些方向关键词或动作：{signal_text}。"
+    )
+
+
+def get_selected_learning_capability_definition(user_or_settings: Any) -> Optional[dict]:
+    selected_capability = get_selected_learning_capability(user_or_settings)
+    if not selected_capability:
+        return None
+    return CAPABILITY_MAP.get(selected_capability)
+
+
+def get_learning_capability_follow_up_guidance(user_or_settings: Any) -> Optional[str]:
+    capability = get_selected_learning_capability_definition(user_or_settings)
+    if not capability:
+        return None
+
+    guidance = capability.get("follow_up_guidance")
+    if isinstance(guidance, str) and guidance.strip():
+        return guidance.strip()
+
+    return None
+
+
+def get_learning_capability_suggestion_prompts(user_or_settings: Any) -> list[dict]:
+    capability = get_selected_learning_capability_definition(user_or_settings)
+    if not capability:
+        return []
+
+    suggestions = capability.get("suggestion_prompts")
+    return suggestions if isinstance(suggestions, list) else []
 
 def _compute_capability_score(texts: list[str], signals: list[str]) -> float:
     if not texts:

@@ -19,6 +19,10 @@ from open_webui.utils.task import (
 )
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.constants import TASKS
+from open_webui.services.learning_capabilities import (
+    get_learning_capability_follow_up_guidance,
+    get_selected_learning_capability_definition,
+)
 
 from open_webui.routers.pipelines import process_pipeline_inlet_filter
 
@@ -305,6 +309,27 @@ async def generate_follow_ups(
 
     content = follow_up_generation_template(template, form_data["messages"], user)
 
+    capability_guidance = get_learning_capability_follow_up_guidance(user)
+    capability_definition = get_selected_learning_capability_definition(user)
+    if capability_guidance and capability_definition:
+        capability_label = capability_definition.get("label", "")
+        capability_signals = capability_definition.get("signals", [])
+        normalized_signals = [
+            signal.strip()
+            for signal in capability_signals
+            if isinstance(signal, str) and signal.strip()
+        ][:8]
+        signal_text = "、".join(normalized_signals)
+
+        content = (
+            f"{content}\n\n### Learning Capability Focus ({capability_label}):\n"
+            f"{capability_guidance}\n"
+            "- Every follow-up question must be actionable and concrete.\n"
+            "- At least 80% of generated follow-up questions must explicitly contain this capability direction.\n"
+            f"- Prioritize using these keywords/actions when natural: {signal_text}.\n"
+            "- Avoid generic follow-ups that can fit any direction without adaptation."
+        )
+        
     payload = {
         "model": task_model_id,
         "messages": [{"role": "user", "content": content}],

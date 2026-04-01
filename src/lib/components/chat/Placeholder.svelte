@@ -17,12 +17,14 @@
 		config,
 		user,
 		models as _models,
+		settings,
 		temporaryChatEnabled,
 		selectedFolder,
 		chats,
 		currentChatPage
 	} from '$lib/stores';
 	import { sanitizeResponseContent, extractCurlyBraceWords } from '$lib/utils';
+	import { getCapabilitySuggestionPrompts } from '$lib/utils/learningCapability';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 
 	import Suggestions from './Suggestions.svelte';
@@ -65,12 +67,23 @@
 
 	let models = [];
 	let selectedModelIdx = 0;
+	let suggestionPrompts = [];
 
 	$: if (selectedModels.length > 0) {
 		selectedModelIdx = models.length - 1;
 	}
 
 	$: models = selectedModels.map((id) => $_models.find((m) => m.id === id));
+	$: {
+		const baseSuggestions =
+			atSelectedModel?.info?.meta?.suggestion_prompts ??
+			models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
+			$config?.default_prompt_suggestions ??
+			[];
+
+		const selectedCapability = $settings?.learning_profile?.selected_capability ?? null;
+		suggestionPrompts = getCapabilitySuggestionPrompts(selectedCapability, baseSuggestions);
+	}
 
 	let homepageXiaoLingState: 'idle' | 'sleep1' | 'sleep2' | 'sleep3' = 'idle';
 
@@ -205,15 +218,12 @@
 
 			<!-- 建议：用 a1-suggestions 容器 + 单列卡片 -->
 			<div class="mt-5 a1-suggestions">
-				<Suggestions
-					className="grid grid-cols-1 gap-3"
-					suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
-						models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
-						$config?.default_prompt_suggestions ??
-						[]}
-					inputValue={prompt}
-					{onSelect}
-				/>
+					<Suggestions
+						className="grid grid-cols-1 gap-3"
+						{suggestionPrompts}
+						inputValue={prompt}
+						{onSelect}
+					/>
 			</div>
 		</section>
 	{/if}
