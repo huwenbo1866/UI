@@ -30,7 +30,7 @@ export async function createOpenAITextStream(
 	splitLargeDeltas: boolean
 ): Promise<AsyncGenerator<TextStreamUpdate>> {
 	const eventStream = responseBody
-		.pipeThrough(new TextDecoderStream())
+		.pipeThrough(createUtf8DecoderTransform())
 		.pipeThrough(new EventSourceParserStream())
 		.getReader();
 	let iterator = openAIStreamToIterator(eventStream);
@@ -39,6 +39,22 @@ export async function createOpenAITextStream(
 	}
 	return iterator;
 }
+
+const createUtf8DecoderTransform = (): TransformStream<Uint8Array, string> => {
+	const decoder = new TextDecoder();
+
+	return new TransformStream<Uint8Array, string>({
+		transform(chunk, controller) {
+			controller.enqueue(decoder.decode(chunk, { stream: true }));
+		},
+		flush(controller) {
+			const remaining = decoder.decode();
+			if (remaining) {
+				controller.enqueue(remaining);
+			}
+		}
+	});
+};
 
 async function* openAIStreamToIterator(
 	reader: ReadableStreamDefaultReader<ParsedEvent>
@@ -84,13 +100,51 @@ async function* openAIStreamToIterator(
 
 			yield {
 				done: false,
-				value: parsedData.choices?.[0]?.delta?.content ?? ''
+				value: extractStreamText(parsedData)
 			};
 		} catch (e) {
 			console.error('Error extracting delta from SSE event:', e);
 		}
 	}
 }
+
+const extractStreamText = (parsedData: Record<string, unknown>): string => {
+	const firstChoice = (parsedData?.choices as Array<Record<string, unknown>> | undefined)?.[0];
+	const delta = (firstChoice?.delta as Record<string, unknown> | undefined) ?? {};
+
+	return (
+		normalizeText(delta?.content) ||
+		normalizeText(delta?.reasoning_content) ||
+		normalizeText((firstChoice?.message as Record<string, unknown> | undefined)?.content) ||
+		normalizeText(parsedData?.output_text) ||
+		''
+	);
+};
+
+const normalizeText = (value: unknown): string => {
+	if (typeof value === 'string') {
+		return value;
+	}
+
+	if (Array.isArray(value)) {
+		return value
+			.map((item) => {
+				if (typeof item === 'string') {
+					return item;
+				}
+
+				if (item && typeof item === 'object') {
+					const text = (item as Record<string, unknown>).text;
+					return typeof text === 'string' ? text : '';
+				}
+
+				return '';
+			})
+			.join('');
+	}
+
+	return '';
+};
 
 // streamLargeDeltasAsRandomChunks will chunk large deltas (length > 5) into random sized chunks between 1-3 characters
 // This is to simulate a more fluid streaming, even though some providers may send large chunks of text at once

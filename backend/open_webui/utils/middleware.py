@@ -2272,8 +2272,38 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     form_data["messages"] = process_messages_with_output(form_data.get("messages", []))
 
     global_system = os.environ.get("GLOBAL_CHAT_SYSTEM_PROMPT", "").strip()
-    system_message = get_system_message(form_data.get("messages", []))
+    
+    # 为 Mermaid mindmap 增加硬性语法约束，降低“能看懂但不可渲染”的输出概率
+    # 仅在系统提示词已涉及 mermaid / mindmap / 知识图谱时追加，避免无关对话冗长。
+    def append_strict_mermaid_mindmap_rules(prompt: str) -> str:
+        p = (prompt or "").strip()
+        if not p:
+            return p
 
+        lower = p.lower()
+        if not any(k in lower for k in ("mermaid", "mindmap", "知识图谱")):
+            return p
+
+        guardrail_marker = "[MERMAID_MINDMAP_STRICT_SYNTAX]"
+        if guardrail_marker in p:
+            return p
+
+        strict_rules = (
+            f"{guardrail_marker}\n"
+            "当你输出 `mermaid` 的 `mindmap` 代码时，必须严格遵守下列规则（否则不要输出 mermaid）：\n"
+            "1) 第一行必须是 `mindmap`。\n"
+            "2) 必须且只能有一个根节点，格式为 `root(根主题)` 或 `root((根主题))`。\n"
+            "3) 除根节点外，所有节点都必须通过“缩进”挂在父节点下（每级至少两个空格）。\n"
+            "4) mindmap 节点行前禁止使用 `->`、`-->`、`←`、`→`、`*`、`-` 等箭头或列表符号。\n"
+            "5) 只输出一个完整的 ```mermaid 代码块；代码块内不写解释文字。\n"
+            "6) 输出前先自检：是否只有一个 root、是否所有非 root 节点都有父级、缩进是否连续。\n"
+            "7) 若用户给出的内容不适合 mindmap 语法，请改为输出 markmap，而不是输出错误 mermaid。"
+        )
+        return f"{p}\n\n{strict_rules}"
+
+    system_message = get_system_message(form_data.get("messages", []))
+    global_system = append_strict_mermaid_mindmap_rules(global_system)
+    
     # 让 .env 里的全局 system 和 UI 里的 system prompt 走同一条链
     if global_system:
         if system_message and system_message.get("content"):

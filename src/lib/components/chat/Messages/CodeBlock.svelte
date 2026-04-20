@@ -112,7 +112,44 @@
 		s = s.replace(/<br\s*\/?>/gi, '\n');
 		s = s.replace(/<\/?(div|span|p|b|i|em|strong|ul|ol|li|h\d)[^>]*>/gi, '');
 		s = s.replace(/&nbsp;/gi, ' ');
-		return s;
+		return normalizeMindmapMermaid(s);
+	}
+
+	// Mermaid 的 mindmap 语法非常依赖缩进。很多 LLM 会输出“无缩进分支 + 箭头符号”的混合格式，
+	// 这会触发 "There can be only one root. No parent could be found ..." 错误。
+	// 这里做保守修复：仅当检测到 `mindmap` 图时，清理箭头前缀并补齐一级缩进。
+	function normalizeMindmapMermaid(src: string) {
+		const text = src ?? '';
+		const rawLines = text.replace(/\r/g, '').split('\n');
+		const headerIndex = rawLines.findIndex((line) => line.trim() === 'mindmap');
+		if (headerIndex < 0) return text;
+
+		const lines = [...rawLines];
+		let rootFound = false;
+
+		for (let i = headerIndex + 1; i < lines.length; i++) {
+			const line = lines[i];
+			if (!line.trim()) continue;
+
+			const leading = (line.match(/^\s*/) ?? [''])[0];
+			let body = line.slice(leading.length);
+			body = body.replace(/^(?:[-*•>]+|\u2192+|\u2190+|\u27F6+|\u27F5+|->+|<-+)\s*/, '');
+
+			if (/^root\b/i.test(body)) {
+				rootFound = true;
+				lines[i] = `  ${body}`;
+				continue;
+			}
+
+			if (!rootFound) continue;
+			if (leading.length === 0) {
+				lines[i] = `  ${body}`;
+			} else {
+				lines[i] = `${leading}${body}`;
+			}
+		}
+
+		return lines.join('\n');
 	}
 
 	// Graphviz / PlantUML 也做轻量清洗（主要处理 <br>）
