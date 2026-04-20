@@ -1,0 +1,198 @@
+{
+  "version": "v2_stacked_product",
+  "base_feature_cols": [
+    "user_msg_count",
+    "avg_user_msg_len",
+    "art_kw_count",
+    "confusion_kw_count",
+    "assistant_msg_count",
+    "avg_output_tokens",
+    "conversation_span_minutes",
+    "followup_depth_proxy",
+    "art_keyword_ratio",
+    "confusion_ratio"
+  ],
+  "stacked_score_col": "pred_art_affinity_score",
+  "regressor": {
+    "model_name": "extra_trees",
+    "cv_results": [
+      {
+        "name": "extra_trees",
+        "mean_r2": 0.7837476888159056,
+        "mean_mae": 0.07748816192477873,
+        "mean_rmse": 0.11559894182453063
+      },
+      {
+        "name": "random_forest",
+        "mean_r2": 0.7670474224172817,
+        "mean_mae": 0.08161452036975483,
+        "mean_rmse": 0.12009231006232379
+      },
+      {
+        "name": "gradient_boosting",
+        "mean_r2": 0.7607994935824588,
+        "mean_mae": 0.08341172850141224,
+        "mean_rmse": 0.1216402806286073
+      },
+      {
+        "name": "ridge",
+        "mean_r2": 0.7424259874837434,
+        "mean_mae": 0.09627600512714939,
+        "mean_rmse": 0.1261042317230792
+      }
+    ],
+    "holdout_metrics": {
+      "test_r2": 0.803569535506721,
+      "test_mae": 0.0710040747596066,
+      "test_mse": 0.011664756984054173,
+      "test_rmse": 0.10800350449894751,
+      "test_explained_variance": 0.8036652007799648
+    }
+  },
+  "classifier": {
+    "model_name": "extra_trees",
+    "cv_results": [
+      {
+        "name": "extra_trees",
+        "mean_f1": 0.895595482977205,
+        "mean_accuracy": 0.9245614035087719,
+        "mean_balanced_accuracy": 0.9316653171390014,
+        "mean_roc_auc": 0.9761052631578947
+      },
+      {
+        "name": "logistic_regression",
+        "mean_f1": 0.8887784047582736,
+        "mean_accuracy": 0.9210526315789472,
+        "mean_balanced_accuracy": 0.9238232118758434,
+        "mean_roc_auc": 0.9773220162416839
+      },
+      {
+        "name": "random_forest",
+        "mean_f1": 0.8802843253649255,
+        "mean_accuracy": 0.9140350877192983,
+        "mean_balanced_accuracy": 0.9185074224021592,
+        "mean_roc_auc": 0.9732887042166821
+      },
+      {
+        "name": "gradient_boosting",
+        "mean_f1": 0.8724820613176778,
+        "mean_accuracy": 0.9122807017543859,
+        "mean_balanced_accuracy": 0.9070053981106613,
+        "mean_roc_auc": 0.9744055212254658
+      }
+    ],
+    "holdout_metrics": {
+      "test_accuracy": 0.9370629370629371,
+      "test_balanced_accuracy": 0.9474780701754386,
+      "test_precision": 0.8545454545454545,
+      "test_recall": 0.9791666666666666,
+      "test_f1": 0.912621359223301,
+      "test_roc_auc": 0.9668859649122807
+    }
+  },
+  "routing_config": {
+    "score_bins": [
+      0.35,
+      0.6,
+      0.8
+    ],
+    "classifier_confidence_floor": 0.65,
+    "strategies": {
+      "default_path": {
+        "low": "default_light",
+        "mid": "default_guided",
+        "high": "default_support",
+        "very_high": "default_strong_support"
+      },
+      "activate_art_path": {
+        "low": "art_light",
+        "mid": "art_mid",
+        "high": "art_deep",
+        "very_high": "art_deep_plus"
+      },
+      "fallback": "default_guided"
+    }
+  },
+  "route_preview": [
+    {
+      "index": 0,
+      "predicted_score": 0.22902292627179435,
+      "predicted_path_class": 0,
+      "predicted_path_name": "default_path",
+      "path_confidence": 0.9739178299523206,
+      "strategy_id": "default_light"
+    },
+    {
+      "index": 1,
+      "predicted_score": 0.8076327381765008,
+      "predicted_path_class": 1,
+      "predicted_path_name": "activate_art_path",
+      "path_confidence": 0.9794910695850547,
+      "strategy_id": "art_deep_plus"
+    },
+    {
+      "index": 2,
+      "predicted_score": 0.35931299350973867,
+      "predicted_path_class": 0,
+      "predicted_path_name": "default_path",
+      "path_confidence": 0.6926822490100597,
+      "strategy_id": "default_guided"
+    },
+    {
+      "index": 3,
+      "predicted_score": 0.7327704007688777,
+      "predicted_path_class": 1,
+      "predicted_path_name": "activate_art_path",
+      "path_confidence": 0.9071785309748504,
+      "strategy_id": "art_deep"
+    },
+    {
+      "index": 4,
+      "predicted_score": 0.2442747295292514,
+      "predicted_path_class": 0,
+      "predicted_path_name": "default_path",
+      "path_confidence": 0.9802330229779582,
+      "strategy_id": "default_light"
+    },
+    {
+      "index": 5,
+      "predicted_score": 0.23161016261050626,
+      "predicted_path_class": 0,
+      "predicted_path_name": "default_path",
+      "path_confidence": 0.9811607577902813,
+      "strategy_id": "default_light"
+    },
+    {
+      "index": 6,
+      "predicted_score": 0.3013942460923835,
+      "predicted_path_class": 0,
+      "predicted_path_name": "default_path",
+      "path_confidence": 0.8216300244257542,
+      "strategy_id": "default_light"
+    },
+    {
+      "index": 7,
+      "predicted_score": 0.23402279630152728,
+      "predicted_path_class": 0,
+      "predicted_path_name": "default_path",
+      "path_confidence": 0.9887158220611877,
+      "strategy_id": "default_light"
+    },
+    {
+      "index": 8,
+      "predicted_score": 0.7312357425325694,
+      "predicted_path_class": 1,
+      "predicted_path_name": "activate_art_path",
+      "path_confidence": 0.9170194702238836,
+      "strategy_id": "art_deep"
+    },
+    {
+      "index": 9,
+      "predicted_score": 0.2832102110261259,
+      "predicted_path_class": 0,
+      "predicted_path_name": "default_path",
+      "path_confidence": 0.9333871844838559,
+      "strategy_id": "default_light"
+    }
+  ]
+}
