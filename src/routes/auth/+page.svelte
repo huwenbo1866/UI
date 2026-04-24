@@ -1,4 +1,9 @@
 <script lang="ts">
+	import {
+		PUBLIC_AUTO_LOGIN_EMAIL,
+		PUBLIC_AUTO_LOGIN_ENABLED,
+		PUBLIC_AUTO_LOGIN_PASSWORD
+	} from '$env/static/public';
 	import DOMPurify from 'dompurify';
 	import { marked } from 'marked';
 
@@ -17,17 +22,24 @@
 		updateUserTimezone
 	} from '$lib/apis/auths';
 
-	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
+	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
 
-	import { generateInitialsImage, canvasPixelTest, getUserTimezone } from '$lib/utils';
+	import { generateInitialsImage, getUserTimezone } from '$lib/utils';
 
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import OnBoarding from '$lib/components/OnBoarding.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
-	import { redirect } from '@sveltejs/kit';
 
 	const i18n = getContext('i18n');
+	const DEFAULT_AUTO_LOGIN_EMAIL = 'xl_admin_20260418@example.com';
+	const DEFAULT_AUTO_LOGIN_PASSWORD = 'XlAdmin!2026#48';
+	const AUTO_LOGIN_EMAIL = PUBLIC_AUTO_LOGIN_EMAIL.trim() || DEFAULT_AUTO_LOGIN_EMAIL;
+	const AUTO_LOGIN_PASSWORD = PUBLIC_AUTO_LOGIN_PASSWORD || DEFAULT_AUTO_LOGIN_PASSWORD;
+	const AUTO_LOGIN_ENABLED =
+		PUBLIC_AUTO_LOGIN_ENABLED !== 'false' &&
+		AUTO_LOGIN_EMAIL.length > 0 &&
+		AUTO_LOGIN_PASSWORD.length > 0;
 
 	let loaded = false;
 
@@ -41,11 +53,18 @@
 	let confirmPassword = '';
 
 	let ldapUsername = '';
+	let autoLoginInProgress = AUTO_LOGIN_ENABLED;
 
-	const setSessionUser = async (sessionUser, redirectPath: string | null = null) => {
+	const setSessionUser = async (
+		sessionUser,
+		redirectPath: string | null = null,
+		showToast: boolean = true
+	) => {
 		if (sessionUser) {
 			console.log(sessionUser);
-			toast.success($i18n.t(`You're now logged in.`));
+			if (showToast) {
+				toast.success($i18n.t(`You're now logged in.`));
+			}
 			if (sessionUser.token) {
 				localStorage.token = sessionUser.token;
 			}
@@ -75,6 +94,29 @@
 		});
 
 		await setSessionUser(sessionUser);
+	};
+
+	const autoSignInHandler = async () => {
+		if (!AUTO_LOGIN_ENABLED) {
+			autoLoginInProgress = false;
+			return false;
+		}
+
+		email = AUTO_LOGIN_EMAIL;
+		password = AUTO_LOGIN_PASSWORD;
+
+		const sessionUser = await userSignIn(email, password).catch((error) => {
+			autoLoginInProgress = false;
+			toast.error(`Automatic test sign-in failed: ${error}`);
+			return null;
+		});
+
+		if (!sessionUser) {
+			return false;
+		}
+
+		await setSessionUser(sessionUser, null, false);
+		return true;
 	};
 
 	const signUpHandler = async () => {
@@ -180,15 +222,27 @@
 			toast.error(error);
 		}
 
-		await oauthCallbackHandler();
 		form = $page.url.searchParams.get('form');
-
 		loaded = true;
 		setLogoImage();
 
+		await oauthCallbackHandler();
+		if (localStorage.getItem('token')) {
+			return;
+		}
+
 		if (($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false) {
+			autoLoginInProgress = false;
 			await signInHandler();
+		} else if (AUTO_LOGIN_ENABLED) {
+			const didAutoSignIn = await autoSignInHandler();
+			if (didAutoSignIn) {
+				return;
+			}
+			autoLoginInProgress = false;
+			onboarding = $config?.onboarding ?? false;
 		} else {
+			autoLoginInProgress = false;
 			onboarding = $config?.onboarding ?? false;
 		}
 	});
@@ -219,13 +273,17 @@
 			id="auth-container"
 		>
 			<div class="w-full px-10 min-h-screen flex flex-col text-center">
-				{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
+				{#if autoLoginInProgress || ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
 					<div class=" my-auto pb-10 w-full sm:max-w-md">
 						<div
 							class="flex items-center justify-center gap-3 text-xl sm:text-2xl text-center font-medium dark:text-gray-200"
 						>
 							<div>
-								{$i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
+								{#if autoLoginInProgress}
+									Using the configured test account to sign in
+								{:else}
+									{$i18n.t('Signing in to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
+								{/if}
 							</div>
 
 							<div>

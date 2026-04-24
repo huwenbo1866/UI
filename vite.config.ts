@@ -3,7 +3,40 @@ import { defineConfig } from 'vite';
 
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
+const backendTarget = process.env.BACKEND_DEV_URL || 'http://127.0.0.1:8080';
+
 export default defineConfig({
+	server: {
+		host: true,
+		allowedHosts: true,
+		proxy: {
+			'/api': {
+				target: backendTarget,
+				changeOrigin: true
+			},
+			'/ws': {
+				target: backendTarget,
+				changeOrigin: true,
+				ws: true
+			},
+			'/ollama': {
+				target: backendTarget,
+				changeOrigin: true
+			},
+			'/openai': {
+				target: backendTarget,
+				changeOrigin: true
+			},
+			'/oauth': {
+				target: backendTarget,
+				changeOrigin: true
+			},
+			'/health': {
+				target: backendTarget,
+				changeOrigin: true
+			}
+		}
+	},
 	plugins: [
 		sveltekit(),
 		viteStaticCopy({

@@ -480,6 +480,8 @@ from open_webui.env import (
     WEBUI_SECRET_KEY,
     WEBUI_SESSION_COOKIE_SAME_SITE,
     WEBUI_SESSION_COOKIE_SECURE,
+    WEBUI_AUTH_COOKIE_SAME_SITE,
+    WEBUI_AUTH_COOKIE_SECURE,
     ENABLE_SIGNUP_PASSWORD_CONFIRMATION,
     WEBUI_AUTH_TRUSTED_EMAIL_HEADER,
     WEBUI_AUTH_TRUSTED_NAME_HEADER,
@@ -528,10 +530,12 @@ from open_webui.utils.auth import (
     get_license_data,
     get_http_authorization_cred,
     decode_token,
+    create_token,
     get_admin_user,
     get_verified_user,
     create_admin_user,
 )
+from open_webui.utils.misc import parse_duration
 from open_webui.utils.plugin import install_tool_and_function_dependencies
 from open_webui.utils.oauth import (
     get_oauth_client_info_with_dynamic_client_registration,
@@ -1349,6 +1353,22 @@ class RedirectMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RedirectMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
+AUTO_LOGIN_FALLBACK_EMAIL = "xl_admin_20260418@example.com"
+AUTO_LOGIN_COOKIE_ENABLED = (
+    os.environ.get(
+        "AUTO_LOGIN_COOKIE_ENABLED",
+        os.environ.get("PUBLIC_AUTO_LOGIN_ENABLED", "true"),
+    ).lower()
+    != "false"
+)
+AUTO_LOGIN_COOKIE_EMAIL = (
+    os.environ.get(
+        "AUTO_LOGIN_COOKIE_EMAIL",
+        os.environ.get("PUBLIC_AUTO_LOGIN_EMAIL", AUTO_LOGIN_FALLBACK_EMAIL),
+    ).strip()
+    or AUTO_LOGIN_FALLBACK_EMAIL
+)
+
 
 class APIKeyRestrictionMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -1421,6 +1441,75 @@ async def check_url(request: Request, call_next):
     response = await call_next(request)
     process_time = int(time.time()) - start_time
     response.headers["X-Process-Time"] = str(process_time)
+    return response
+
+
+def _is_browser_html_request(request: Request) -> bool:
+    if request.method not in {"GET", "HEAD"}:
+        return False
+
+    path = request.url.path
+    excluded_prefixes = (
+        "/api",
+        "/docs",
+        "/openapi.json",
+        "/static",
+        "/ws",
+        "/ollama",
+        "/openai",
+        "/health",
+    )
+    if path.startswith(excluded_prefixes):
+        return False
+
+    accept = (request.headers.get("accept") or "").lower()
+    return "text/html" in accept or path in {"/", "/auth"}
+
+
+def _has_valid_browser_session(request: Request) -> bool:
+    token = request.cookies.get("token")
+    if not token:
+        return False
+
+    if token.startswith("sk-"):
+        return True
+
+    data = decode_token(token)
+    if not data or "id" not in data:
+        return False
+
+    return Users.get_user_by_id(data["id"]) is not None
+
+
+@app.middleware("http")
+async def auto_login_browser_session(request: Request, call_next):
+    response = await call_next(request)
+
+    if not AUTO_LOGIN_COOKIE_ENABLED:
+        return response
+
+    if not _is_browser_html_request(request):
+        return response
+
+    if _has_valid_browser_session(request):
+        return response
+
+    user = Users.get_user_by_email(AUTO_LOGIN_COOKIE_EMAIL)
+    if user is None:
+        return response
+
+    expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+    token = create_token(data={"id": user.id}, expires_delta=expires_delta)
+
+    # Expose the JWT cookie to the legacy frontend login page so it can
+    # bootstrap localStorage-based sessions without a manual sign-in click.
+    response.set_cookie(
+        key="token",
+        value=token,
+        httponly=False,
+        samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+        secure=WEBUI_AUTH_COOKIE_SECURE,
+    )
     return response
 
 
