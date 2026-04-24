@@ -312,6 +312,63 @@
 											{/if}
 										</div>
 
+										{#if learningProfile?.brain_profile}
+											<div
+												class="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-3 dark:border-emerald-900/70 dark:bg-emerald-950/20"
+											>
+												<div class="flex items-start justify-between gap-3">
+													<div>
+														<div class="text-xs text-emerald-700 dark:text-emerald-300">
+															{learningProfile.brain_profile.metric_label}
+														</div>
+														<div
+															class="mt-1 text-2xl font-semibold text-emerald-900 dark:text-emerald-100"
+														>
+															{#if learningProfile.brain_profile.score != null}
+																{learningProfile.brain_profile.score.toFixed(2)}
+															{:else}
+																--
+															{/if}
+														</div>
+													</div>
+
+													<div class="text-right">
+														<div class="text-xs text-emerald-700 dark:text-emerald-300">
+															当前 Prompt 策略
+														</div>
+														<div
+															class="mt-1 text-sm font-medium text-emerald-900 dark:text-emerald-100"
+														>
+															{learningProfile.brain_profile.strategy_label ?? '等待生成'}
+														</div>
+													</div>
+												</div>
+
+												<div class="mt-2 text-xs text-emerald-700/80 dark:text-emerald-300/80">
+													已同步 {learningProfile.brain_profile.total_message_count} 条聊天记录
+													{#if learningProfile.brain_profile.path_name}
+														· 分类 {learningProfile.brain_profile.path_name}
+													{/if}
+													{#if learningProfile.brain_profile.path_confidence != null}
+														· 置信度 {(learningProfile.brain_profile.path_confidence * 100).toFixed(
+															0
+														)}%
+													{/if}
+													{#if learningProfile.brain_profile.intensity_bucket}
+														· 强度 {learningProfile.brain_profile.intensity_bucket}
+													{/if}
+												</div>
+
+												{#if learningProfile.brain_profile.score == null}
+													<div class="mt-2 text-xs text-emerald-700/80 dark:text-emerald-300/80">
+														当前累计聊天记录还不足以完成回归/分类；满
+														{learningProfile.brain_profile.minimum_message_count} 条后会首次分析， 之后每新增
+														{learningProfile.brain_profile.new_message_threshold} 条会自动刷新。
+													</div>
+												{/if}
+											</div>
+										{/if}
+
 										{#if loadingLearningProfile}
 											<div class="py-4 text-xs text-gray-500">正在生成能力画像...</div>
 										{:else if learningProfile?.capabilities?.length}

@@ -8,6 +8,9 @@ from open_webui.services.learning_capabilities import (
     get_learning_capability_system_prompt,
     get_learning_capability_response_contract,
 )
+from open_webui.services.personalization_brain import (
+    get_personalization_brain_system_prompt,
+)
 
 from typing import Callable, Optional
 import copy
@@ -43,10 +46,13 @@ def apply_system_prompt_to_body(
     replace: bool = False,
 ) -> dict:
     capability_prompt = get_learning_capability_system_prompt(user)
+    brain_prompt = get_personalization_brain_system_prompt(user)
     capability_contract = get_learning_capability_response_contract(user)
     existing_system = _get_existing_system_content(form_data.get("messages", []))
     if capability_prompt and capability_prompt not in (system or "") and capability_prompt not in existing_system:
         system = f"{system}\n\n{capability_prompt}".strip() if system else capability_prompt
+    if brain_prompt and brain_prompt not in (system or "") and brain_prompt not in existing_system:
+        system = f"{system}\n\n{brain_prompt}".strip() if system else brain_prompt
     if (
         capability_contract
         and capability_contract not in (system or "")

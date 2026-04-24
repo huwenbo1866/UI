@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 
 from open_webui.env import LEARNING_CAPABILITIES_CONFIG_PATH
 from open_webui.models.chat_messages import ChatMessages
+from open_webui.services.personalization_brain import (
+    refresh_personalization_brain_profile,
+)
 
 
 CAPABILITY_SCORE_LABEL = "成长指数"
@@ -607,9 +610,12 @@ def get_learning_profile(user_id: str, settings: Optional[dict], db: Optional[Se
         )
     )
 
+    brain_profile = refresh_personalization_brain_profile(user_id, db=db)
+
     return {
         "metric_label": CAPABILITY_SCORE_LABEL,
         "sample_count": len(user_texts),
         "selected_capability": selected_capability,
         "capabilities": capabilities,
+        "brain_profile": brain_profile,
     }

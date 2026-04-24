@@ -207,8 +207,16 @@ type Settings = {
 	ctrlEnterToSend?: boolean;
 	learning_profile?: {
 		selected_capability?: string | null;
+		brain_profile?: {
+			score?: number | null;
+			strategy_id?: string | null;
+			strategy_label?: string | null;
+			path_name?: string | null;
+			path_confidence?: number | null;
+			intensity_bucket?: string | null;
+		};
 	};
-	
+
 	system?: string;
 	seed?: number;
 	temperature?: string;

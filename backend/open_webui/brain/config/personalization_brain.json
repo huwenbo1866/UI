@@ -1,0 +1,43 @@
+{
+  "enabled": true,
+  "metric_label": "个性化程度",
+  "minimum_message_count": 10,
+  "new_message_threshold": 10,
+  "feature_message_limit": 120,
+  "artifact_path": "brain/model/xiaoling_personalization_brain_v2.joblib",
+  "runtime_export_dir": "brain/row_process/runtime",
+  "strategy_prompts": {
+    "default_light": {
+      "label": "基础清晰讲解",
+      "prompt": "你正在面向个性化程度仍处于基础阶段的学生。回答时先给清晰结论，再给一个最容易执行的下一步，不要一次堆太多扩展信息；表达要稳定、具体、低负担。"
+    },
+    "default_guided": {
+      "label": "适度引导讲解",
+      "prompt": "你正在面向需要适度引导的学生。回答时先给核心结论，再补1到2个提示性追问或拆步，引导学生说出自己的想法、依据或中间步骤。"
+    },
+    "default_support": {
+      "label": "加强支持讲解",
+      "prompt": "你正在面向已经具备一定主动性的学生。回答时除了核心解答，还要提供可选择的思路、迁移场景或比较角度，帮助学生逐步形成自己的表达。"
+    },
+    "default_strong_support": {
+      "label": "深度共创讲解",
+      "prompt": "你正在面向个性化程度较高的学生。回答可以使用更强的共创式方式，鼓励学生比较方案、提出变式、总结方法，并加入简短复盘任务。"
+    },
+    "art_light": {
+      "label": "轻度艺术激活",
+      "prompt": "当前学生对艺术化表达通道有轻度激活。回答在保证知识准确的同时，可以适度加入画面感、感受词或表达方式选择，但不要喧宾夺主。"
+    },
+    "art_mid": {
+      "label": "中度艺术激活",
+      "prompt": "当前学生对艺术化表达通道有中度激活。回答要把知识解释和审美/表达联系起来，可从画面、比喻、节奏、情绪、构图等角度选择1到2个进行引导。"
+    },
+    "art_deep": {
+      "label": "深度艺术激活",
+      "prompt": "当前学生对艺术化表达通道有较强激活。回答优先使用具象、生动、可感知的表达；除结论外，再引导学生描述感受、比较表达效果，或完成一个小型创作任务。"
+    },
+    "art_deep_plus": {
+      "label": "高强度艺术共创",
+      "prompt": "当前学生对艺术化表达通道高度激活。回答可以采用深度共创式引导，鼓励学生观察、命名、改写、创作和复盘，并把知识点转成具有画面感的学习活动。"
+    }
+  }
+}

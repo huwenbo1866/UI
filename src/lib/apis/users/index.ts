@@ -335,11 +335,33 @@ export type LearningCapabilityScore = {
 	selected: boolean;
 };
 
+export type PersonalizationBrainProfile = {
+	enabled: boolean;
+	metric_label: string;
+	score?: number | null;
+	strategy_id?: string | null;
+	strategy_label?: string | null;
+	path_name?: string | null;
+	path_class?: number | null;
+	path_confidence?: number | null;
+	intensity_bucket?: string | null;
+	total_message_count: number;
+	feature_message_count?: number | null;
+	minimum_message_count: number;
+	new_message_threshold: number;
+	last_evaluated_message_count?: number | null;
+	last_evaluated_at?: number | null;
+	last_synced_message_count: number;
+	last_synced_at?: number | null;
+	runtime_messages_path?: string | null;
+};
+
 export type UserLearningProfile = {
 	metric_label: string;
 	sample_count: number;
 	selected_capability?: string | null;
 	capabilities: LearningCapabilityScore[];
+	brain_profile?: PersonalizationBrainProfile | null;
 };
 
 export const getUserLearningProfile = async (

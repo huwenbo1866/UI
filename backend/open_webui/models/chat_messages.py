@@ -246,6 +246,28 @@ class ChatMessageTable:
             )
             return [ChatMessageModel.model_validate(message) for message in messages]
 
+    def get_all_messages_by_user_id(
+        self,
+        user_id: str,
+        db: Optional[Session] = None,
+    ) -> list[ChatMessageModel]:
+        with get_db_context(db) as db:
+            messages = (
+                db.query(ChatMessage)
+                .filter_by(user_id=user_id)
+                .order_by(ChatMessage.created_at.asc(), ChatMessage.updated_at.asc())
+                .all()
+            )
+            return [ChatMessageModel.model_validate(message) for message in messages]
+
+    def count_messages_by_user_id(
+        self,
+        user_id: str,
+        db: Optional[Session] = None,
+    ) -> int:
+        with get_db_context(db) as db:
+            return db.query(ChatMessage).filter_by(user_id=user_id).count()
+
     def get_messages_by_model_id(
         self,
         model_id: str,

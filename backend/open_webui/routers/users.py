@@ -459,11 +459,33 @@ class LearningCapabilityScore(BaseModel):
     selected: bool = False
 
 
+class PersonalizationBrainProfileResponse(BaseModel):
+    enabled: bool = False
+    metric_label: str = "个性化程度"
+    score: Optional[float] = None
+    strategy_id: Optional[str] = None
+    strategy_label: Optional[str] = None
+    path_name: Optional[str] = None
+    path_class: Optional[int] = None
+    path_confidence: Optional[float] = None
+    intensity_bucket: Optional[str] = None
+    total_message_count: int = 0
+    feature_message_count: Optional[int] = None
+    minimum_message_count: int = 0
+    new_message_threshold: int = 0
+    last_evaluated_message_count: Optional[int] = None
+    last_evaluated_at: Optional[int] = None
+    last_synced_message_count: int = 0
+    last_synced_at: Optional[int] = None
+    runtime_messages_path: Optional[str] = None
+
+
 class UserLearningProfileResponse(BaseModel):
     metric_label: str
     sample_count: int = 0
     selected_capability: Optional[str] = None
     capabilities: list[LearningCapabilityScore] = []
+    brain_profile: Optional[PersonalizationBrainProfileResponse] = None
 
 
 @router.get("/{user_id}", response_model=UserActiveResponse)
