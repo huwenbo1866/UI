@@ -152,6 +152,7 @@ from open_webui.config import (
     CODE_INTERPRETER_JUPYTER_AUTH_PASSWORD,
     CODE_INTERPRETER_JUPYTER_TIMEOUT,
     ENABLE_MEMORIES,
+    ENABLE_PERSONALIZATION_SIDEBAR_ENTRY,
     # Image
     AUTOMATIC1111_API_AUTH,
     AUTOMATIC1111_BASE_URL,
@@ -1166,6 +1167,9 @@ app.state.config.IMAGE_GENERATION_ENGINE = IMAGE_GENERATION_ENGINE
 app.state.config.ENABLE_IMAGE_GENERATION = ENABLE_IMAGE_GENERATION
 app.state.config.ENABLE_IMAGE_PROMPT_GENERATION = ENABLE_IMAGE_PROMPT_GENERATION
 app.state.config.ENABLE_MEMORIES = ENABLE_MEMORIES
+app.state.config.ENABLE_PERSONALIZATION_SIDEBAR_ENTRY = (
+    ENABLE_PERSONALIZATION_SIDEBAR_ENTRY
+)
 
 app.state.config.IMAGE_GENERATION_MODEL = IMAGE_GENERATION_MODEL
 app.state.config.IMAGE_SIZE = IMAGE_SIZE
@@ -1866,6 +1870,20 @@ async def chat_completion(
                 request, form_data, user, metadata, model
             )
 
+            try:
+                from open_webui.brain.router.xiaoling_personalization_runtime import (
+                    apply_runtime_personalization,
+                )
+
+                form_data, metadata = apply_runtime_personalization(
+                    form_data,
+                    metadata,
+                    log,
+                )
+                form_data["metadata"] = metadata
+            except Exception as e:
+                log.debug(f"Brain runtime integration skipped: {e}")
+
             response = await chat_completion_handler(request, form_data, user)
             if metadata.get("chat_id") and metadata.get("message_id"):
                 try:
@@ -2126,6 +2144,7 @@ async def get_app_config(request: Request):
                     "enable_google_drive_integration": app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION,
                     "enable_onedrive_integration": app.state.config.ENABLE_ONEDRIVE_INTEGRATION,
                     "enable_memories": app.state.config.ENABLE_MEMORIES,
+                    "enable_personalization_sidebar_entry": app.state.config.ENABLE_PERSONALIZATION_SIDEBAR_ENTRY,
                     **(
                         {
                             "enable_onedrive_personal": ENABLE_ONEDRIVE_PERSONAL,

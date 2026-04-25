@@ -1,0 +1,30 @@
+{
+  "version": "v3_augmented",
+  "random_state": 42,
+  "target_per_class": 550,
+  "input_file": "D:\\ui-pdf\\UI\\backend\\open_webui\\brain\\data\\chat_training_samples.csv",
+  "output_file": "D:\\ui-pdf\\UI\\backend\\open_webui\\brain\\data\\chat_training_samples_v3_augmented.csv",
+  "pre_stats": {
+    "rows": 713,
+    "unique_users": 140,
+    "class_0_count": 472,
+    "class_1_count": 241,
+    "missing_cells": 0,
+    "duplicate_ids": 0,
+    "score_out_of_range": 0,
+    "inconsistent_label_pairs": 0
+  },
+  "post_stats": {
+    "rows": 1100,
+    "unique_users": 238,
+    "class_0_count": 550,
+    "class_1_count": 550,
+    "missing_cells": 774,
+    "duplicate_ids": 0,
+    "score_out_of_range": 0,
+    "inconsistent_label_pairs": 0
+  },
+  "added_rows": 387,
+  "synthetic_rows": 387,
+  "real_rows": 713
+}

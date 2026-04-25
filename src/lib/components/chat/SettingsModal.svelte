@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, onMount, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { config, models, settings, user } from '$lib/stores';
+	import { config, models, settings, settingsModalTargetTab, user } from '$lib/stores';
 	import { updateUserSettings } from '$lib/apis/users';
 	import { getModels as _getModels } from '$lib/apis';
 	import { goto } from '$app/navigation';
@@ -37,6 +37,19 @@
 		addScrollListener();
 	} else {
 		removeScrollListener();
+	}
+
+	$: if (
+		show &&
+		$settingsModalTargetTab &&
+		filteredSettings.includes($settingsModalTargetTab) &&
+		selectedTab !== $settingsModalTargetTab
+	) {
+		selectedTab = $settingsModalTargetTab;
+	}
+
+	$: if (!show && $settingsModalTargetTab !== 'general') {
+		settingsModalTargetTab.set('general');
 	}
 
 	interface SettingsTab {
@@ -235,7 +248,7 @@
 
 		{
 			id: 'personalization',
-			title: 'Personalization',
+			title: '成长面板',
 			keywords: [
 				'account preferences',
 				'account settings',
@@ -444,10 +457,7 @@
 			}
 
 			if (tab.id === 'personalization') {
-				return (
-					$config?.features?.enable_memories &&
-					($user?.role === 'admin' || ($user?.permissions?.features?.memories ?? true))
-				);
+				return true;
 			}
 
 			return true;
@@ -541,6 +551,7 @@
 				class="self-center"
 				on:click={() => {
 					show = false;
+					settingsModalTargetTab.set('general');
 				}}
 			>
 				<XMark className="w-5 h-5"></XMark>
@@ -697,7 +708,7 @@
 								<div class=" self-center mr-2">
 									<Face strokeWidth="2" />
 								</div>
-								<div class=" self-center">{$i18n.t('Personalization')}</div>
+								<div class=" self-center">成长面板</div>
 							</button>
 						{:else if tabId === 'audio'}
 							<button

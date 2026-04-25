@@ -1,0 +1,332 @@
+{
+  "evaluation": {
+    "strategy": "Group-aware holdout + GroupKFold CV",
+    "group_col": "source_user_id",
+    "test_size": 0.2,
+    "cv_splits": 5,
+    "random_state": 42,
+    "primary_objective": "f1",
+    "lightgbm_enabled": true,
+    "note": "baseline与optimized使用同一原始测试集，optimized仅用训练组来源的数据做扩增训练"
+  },
+  "data": {
+    "original_rows": 713,
+    "augmented_rows": 1100,
+    "origin_train_rows": 575,
+    "origin_test_rows": 138,
+    "optimized_train_rows": 897,
+    "test_unique_groups": 28
+  },
+  "baseline": {
+    "mode": "baseline_v2_architecture",
+    "regressor_model": "baseline_extra_trees",
+    "classifier_model": "baseline_extra_trees",
+    "threshold_info": {
+      "mode": "fixed_default",
+      "selected_threshold": 0.5
+    },
+    "regressor_cv": [
+      {
+        "name": "baseline_extra_trees",
+        "mean_r2": 0.7662574561757667,
+        "mean_mae": 0.07761783651131682,
+        "mean_rmse": 0.11631423288068887
+      }
+    ],
+    "classifier_cv": [
+      {
+        "name": "baseline_extra_trees",
+        "mean_f1": 0.892559434846031,
+        "mean_accuracy": 0.9232986596284223,
+        "mean_balanced_accuracy": 0.9324294229268316,
+        "mean_roc_auc": 0.9748625372856627
+      }
+    ],
+    "regressor_holdout": {
+      "test_r2": 0.7287762592470544,
+      "test_mae": 0.08456238663867022,
+      "test_mse": 0.015835218042857032,
+      "test_rmse": 0.12583806277457163,
+      "test_explained_variance": 0.7441105980273143
+    },
+    "classifier_holdout": {
+      "test_accuracy": 0.9202898550724637,
+      "test_balanced_accuracy": 0.9052224371373307,
+      "test_precision": 0.8837209302325582,
+      "test_recall": 0.8636363636363636,
+      "test_f1": 0.8735632183908046,
+      "test_roc_auc": 0.9736460348162476
+    }
+  },
+  "optimized": {
+    "mode": "optimized_v3_group_eval",
+    "regressor_model": "voting_et_gb_ridge",
+    "classifier_model": "random_forest",
+    "threshold_info": {
+      "mode": "scene_bucketed",
+      "objective": "maximize_f1",
+      "selected_threshold": 0.4400000000000001,
+      "global_threshold": 0.4400000000000001,
+      "global_oof_best_f1": 0.8917748917748918,
+      "global_oof_best_balanced_accuracy": 0.8883364820523019,
+      "bucket_thresholds": {
+        "low": 0.4400000000000001,
+        "mid": 0.34,
+        "high": 0.3,
+        "very_high": 0.3
+      },
+      "bucket_stats": {
+        "low": {
+          "samples": 224,
+          "positive": 3,
+          "negative": 221,
+          "tuned": false,
+          "fallback_to_global": true
+        },
+        "mid": {
+          "samples": 224,
+          "positive": 50,
+          "negative": 174,
+          "tuned": true,
+          "oof_best_f1": 0.49019607843137253,
+          "oof_best_balanced_accuracy": 0.6724137931034483
+        },
+        "high": {
+          "samples": 224,
+          "positive": 184,
+          "negative": 40,
+          "tuned": true,
+          "oof_best_f1": 0.9019607843137255,
+          "oof_best_balanced_accuracy": 0.5
+        },
+        "very_high": {
+          "samples": 225,
+          "positive": 215,
+          "negative": 10,
+          "tuned": true,
+          "oof_best_f1": 0.9772727272727273,
+          "oof_best_balanced_accuracy": 0.5
+        }
+      },
+      "score_bins": [
+        0.2965647109286705,
+        0.5141504453948995,
+        0.7243147792041098
+      ],
+      "bucketed_oof_f1": 0.8898216159496327,
+      "bucketed_oof_balanced_accuracy": 0.8825096947399821
+    },
+    "regressor_cv": [
+      {
+        "name": "voting_et_gb_ridge",
+        "mean_r2": 0.7586733150519885,
+        "mean_mae": 0.08789856130987689,
+        "mean_rmse": 0.1254389429367641
+      },
+      {
+        "name": "voting_et_lgbm_gb",
+        "mean_r2": 0.7538616158923205,
+        "mean_mae": 0.0886998050463447,
+        "mean_rmse": 0.12668748344351796
+      },
+      {
+        "name": "extra_trees",
+        "mean_r2": 0.7520860471663805,
+        "mean_mae": 0.08639608610429073,
+        "mean_rmse": 0.1270290604387443
+      },
+      {
+        "name": "random_forest",
+        "mean_r2": 0.748549857434152,
+        "mean_mae": 0.08758580977653393,
+        "mean_rmse": 0.1280472762201582
+      },
+      {
+        "name": "gradient_boosting",
+        "mean_r2": 0.7462181558854396,
+        "mean_mae": 0.08987645864840585,
+        "mean_rmse": 0.12870574550195416
+      },
+      {
+        "name": "hist_gradient_boosting",
+        "mean_r2": 0.7319414895546524,
+        "mean_mae": 0.09571113263643734,
+        "mean_rmse": 0.13226086911261642
+      },
+      {
+        "name": "lightgbm",
+        "mean_r2": 0.7208513739968458,
+        "mean_mae": 0.09796773052864283,
+        "mean_rmse": 0.13498604758230215
+      },
+      {
+        "name": "ridge",
+        "mean_r2": 0.6751000631864971,
+        "mean_mae": 0.11687241011338978,
+        "mean_rmse": 0.14571623854302862
+      }
+    ],
+    "classifier_cv": [
+      {
+        "name": "random_forest",
+        "mean_f1": 0.8910382260804288,
+        "mean_accuracy": 0.8896550900834221,
+        "mean_balanced_accuracy": 0.8896447580309317,
+        "mean_roc_auc": 0.943250248563875
+      },
+      {
+        "name": "extra_trees",
+        "mean_f1": 0.8887442033989801,
+        "mean_accuracy": 0.8874078990721861,
+        "mean_balanced_accuracy": 0.8876588139595146,
+        "mean_roc_auc": 0.9484601673431229
+      },
+      {
+        "name": "voting_et_lr",
+        "mean_f1": 0.8875181146109414,
+        "mean_accuracy": 0.8863029266964955,
+        "mean_balanced_accuracy": 0.8865061840834804,
+        "mean_roc_auc": 0.947676227502215
+      },
+      {
+        "name": "voting_et_lgbm_lr",
+        "mean_f1": 0.8868943263012528,
+        "mean_accuracy": 0.886308997973285,
+        "mean_balanced_accuracy": 0.8867571864530046,
+        "mean_roc_auc": 0.9490997840185607
+      },
+      {
+        "name": "gradient_boosting",
+        "mean_f1": 0.8849593284266138,
+        "mean_accuracy": 0.884006346871826,
+        "mean_balanced_accuracy": 0.8840960817349378,
+        "mean_roc_auc": 0.9352994291972092
+      },
+      {
+        "name": "logistic_regression",
+        "mean_f1": 0.880613705422013,
+        "mean_accuracy": 0.8807529611117667,
+        "mean_balanced_accuracy": 0.8815235327562541,
+        "mean_roc_auc": 0.9428984481959268
+      },
+      {
+        "name": "lightgbm",
+        "mean_f1": 0.8763423641638477,
+        "mean_accuracy": 0.8762464365357159,
+        "mean_balanced_accuracy": 0.8764472813748458,
+        "mean_roc_auc": 0.9385348534997998
+      },
+      {
+        "name": "hist_gradient_boosting",
+        "mean_f1": 0.873989780935551,
+        "mean_accuracy": 0.8718265470329534,
+        "mean_balanced_accuracy": 0.8721255759733104,
+        "mean_roc_auc": 0.9406784042713042
+      }
+    ],
+    "regressor_holdout": {
+      "test_r2": 0.7439893412632101,
+      "test_mae": 0.08774039676388376,
+      "test_mse": 0.014947012349060011,
+      "test_rmse": 0.1222579745826832,
+      "test_explained_variance": 0.7454014091531634
+    },
+    "classifier_holdout": {
+      "test_accuracy": 0.9202898550724637,
+      "test_balanced_accuracy": 0.9294003868471954,
+      "test_precision": 0.8235294117647058,
+      "test_recall": 0.9545454545454546,
+      "test_f1": 0.8842105263157894,
+      "test_roc_auc": 0.9721953578336556
+    },
+    "route_preview": [
+      {
+        "index": 0,
+        "predicted_score": 0.6890790360575804,
+        "predicted_path_class": 1,
+        "predicted_path_name": "activate_art_path",
+        "path_confidence": 0.930348059740267,
+        "strategy_id": "art_deep"
+      },
+      {
+        "index": 1,
+        "predicted_score": 0.3154721180108654,
+        "predicted_path_class": 0,
+        "predicted_path_name": "default_path",
+        "path_confidence": 0.9421318864166442,
+        "strategy_id": "default_guided"
+      },
+      {
+        "index": 2,
+        "predicted_score": 0.2534084882784927,
+        "predicted_path_class": 0,
+        "predicted_path_name": "default_path",
+        "path_confidence": 0.9978583879850081,
+        "strategy_id": "default_light"
+      },
+      {
+        "index": 3,
+        "predicted_score": 0.3374595692424062,
+        "predicted_path_class": 0,
+        "predicted_path_name": "default_path",
+        "path_confidence": 0.9143537954960543,
+        "strategy_id": "default_guided"
+      },
+      {
+        "index": 4,
+        "predicted_score": 0.4780701451153247,
+        "predicted_path_class": 1,
+        "predicted_path_name": "activate_art_path",
+        "path_confidence": 0.37624517522319434,
+        "strategy_id": "default_guided"
+      },
+      {
+        "index": 5,
+        "predicted_score": 0.5376858911036572,
+        "predicted_path_class": 1,
+        "predicted_path_name": "activate_art_path",
+        "path_confidence": 0.5841909933511762,
+        "strategy_id": "default_guided"
+      },
+      {
+        "index": 6,
+        "predicted_score": 0.5067491538112758,
+        "predicted_path_class": 1,
+        "predicted_path_name": "activate_art_path",
+        "path_confidence": 0.48829066988911213,
+        "strategy_id": "default_guided"
+      },
+      {
+        "index": 7,
+        "predicted_score": 0.2978079762132054,
+        "predicted_path_class": 0,
+        "predicted_path_name": "default_path",
+        "path_confidence": 0.9788766478391131,
+        "strategy_id": "default_guided"
+      },
+      {
+        "index": 8,
+        "predicted_score": 0.5491686585824317,
+        "predicted_path_class": 1,
+        "predicted_path_name": "activate_art_path",
+        "path_confidence": 0.6174594809538319,
+        "strategy_id": "default_guided"
+      },
+      {
+        "index": 9,
+        "predicted_score": 0.3249679623403412,
+        "predicted_path_class": 0,
+        "predicted_path_name": "default_path",
+        "path_confidence": 0.9460415614193348,
+        "strategy_id": "default_guided"
+      }
+    ]
+  },
+  "delta_optimized_minus_baseline": {
+    "reg_test_r2": 0.015213082016155788,
+    "reg_test_rmse": -0.003580088191888431,
+    "cls_test_f1": 0.010647307924984806,
+    "cls_test_accuracy": 0.0,
+    "cls_test_roc_auc": -0.0014506769825919363
+  }
+}

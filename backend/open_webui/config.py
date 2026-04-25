@@ -2198,6 +2198,12 @@ ENABLE_MEMORIES = PersistentConfig(
     os.environ.get("ENABLE_MEMORIES", "True").lower() == "true",
 )
 
+ENABLE_PERSONALIZATION_SIDEBAR_ENTRY = PersistentConfig(
+    "ENABLE_PERSONALIZATION_SIDEBAR_ENTRY",
+    "personalization.sidebar_entry.enable",
+    os.environ.get("ENABLE_PERSONALIZATION_SIDEBAR_ENTRY", "True").lower() == "true",
+)
+
 CODE_INTERPRETER_ENGINE = PersistentConfig(
     "CODE_INTERPRETER_ENGINE",
     "code_interpreter.engine",

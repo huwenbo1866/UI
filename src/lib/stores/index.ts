@@ -82,6 +82,7 @@ export const sidebarWidth = writable(260);
 export const showSidebar = writable(false);
 export const showSearch = writable(false);
 export const showSettings = writable(false);
+export const settingsModalTargetTab = writable('general');
 export const showShortcuts = writable(false);
 export const showArchivedChats = writable(false);
 export const showChangelog = writable(false);
@@ -215,6 +216,14 @@ type Settings = {
 			path_confidence?: number | null;
 			intensity_bucket?: string | null;
 		};
+		personalization_runtime_enabled?: boolean;
+		personalization_panel_enabled?: boolean;
+		personalization_growth?: {
+			current_score?: number;
+			growth_trend?: 'up' | 'down' | 'flat' | string;
+			updated_at?: number;
+			source_batch_id?: string;
+		};
 	};
 
 	system?: string;
@@ -287,6 +296,7 @@ type Config = {
 		enable_admin_chat_access: boolean;
 		enable_community_sharing: boolean;
 		enable_memories: boolean;
+		enable_personalization_sidebar_entry?: boolean;
 		enable_autocomplete_generation: boolean;
 		enable_direct_connections: boolean;
 		enable_version_update_check: boolean;

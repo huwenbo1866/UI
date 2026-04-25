@@ -7,7 +7,6 @@
 		user,
 		chats,
 		settings,
-		showSettings,
 		chatId,
 		tags,
 		folders as _folders,
@@ -57,6 +56,7 @@
 	import { getChannels, createNewChannel } from '$lib/apis/channels';
 	import ChannelModal from './Sidebar/ChannelModal.svelte';
 	import ChannelItem from './Sidebar/ChannelItem.svelte';
+	import GrowthPanelModal from './Sidebar/GrowthPanelModal.svelte';
 	import PencilSquare from '../icons/PencilSquare.svelte';
 	import PageEdit from '../icons/PageEdit.svelte';
 	
@@ -83,6 +83,7 @@
 	let allChatsLoaded = false;
 
 	let showCreateFolderModal = false;
+	let showGrowthPanelModal = false;
 
 	let pinnedModels = [];
 
@@ -646,6 +647,8 @@
 	}}
 />
 
+<GrowthPanelModal bind:show={showGrowthPanelModal} />
+
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 
 {#if $showSidebar}
@@ -763,6 +766,28 @@
 				    </a>
 				  </Tooltip>
 				{/if}
+
+					{#if $config?.features?.enable_personalization_sidebar_entry ?? true}
+					  <Tooltip content="成长面板" placement="right">
+					    <button
+					      class="cursor-pointer flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-850 transition group"
+					      on:click={async (e) => {
+					        e.stopImmediatePropagation();
+					        e.preventDefault();
+					        showGrowthPanelModal = true;
+					      }}
+					      aria-label="成长面板"
+					      type="button"
+					      draggable="false"
+					    >
+					      <div class="self-center flex items-center justify-center size-9">
+					        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="size-4.5">
+					          <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.5 7.5 0 004.023 18.724M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5.25-1.5a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+					        </svg>
+					      </div>
+					    </button>
+					  </Tooltip>
+					{/if}
 				
 				{#if ($user?.role === 'admin' || $user?.permissions?.workspace?.skills) && ($config?.features?.enable_skills_sidebar ?? false)}
 				  <Tooltip content={$i18n.t('Skills')} placement="right">
@@ -969,6 +994,29 @@
 					      </div>
 					    </a>
 					  </div>
+					{/if}
+
+					{#if $config?.features?.enable_personalization_sidebar_entry ?? true}
+						<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
+							<button
+								id="sidebar-growth-panel-button"
+								class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+								type="button"
+								on:click={() => {
+									showGrowthPanelModal = true;
+								}}
+								aria-label="成长面板"
+							>
+								<div class="self-center">
+									<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4.5">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.5 7.5 0 004.023 18.724M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5.25-1.5a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+									</svg>
+								</div>
+								<div class="flex self-center translate-y-[0.5px]">
+									<div class="self-center text-sm font-primary">成长面板</div>
+								</div>
+							</button>
+						</div>
 					{/if}
 
 					{#if $user?.role === 'admin' || $user?.role === 'user'}
