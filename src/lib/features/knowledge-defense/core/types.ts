@@ -51,6 +51,9 @@ export interface PlayerState {
 	maxHp: number;
 	contactInvulnMs: number;
 	hurtFlashMs: number;
+	moving: boolean;
+	moveDirX: number;
+	moveDirY: number;
 }
 
 export interface MonsterState {
@@ -167,6 +170,8 @@ export interface RuntimeState {
 	timeScale: number;
 	spawnCooldownMs: number;
 	attackCooldownMs: number;
+	abilityCooldownMs: number;
+	abilityPulseFxMs: number;
 }
 
 export interface GameState {

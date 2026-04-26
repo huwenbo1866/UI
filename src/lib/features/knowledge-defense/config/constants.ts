@@ -77,6 +77,15 @@ export const DRONE_ENGAGE_RANGE = 92;                       // 无人机攻击�
 export const DRONE_ORBIT_DISTANCE = 62;                     // 添加无人机时的初始环绕距离
 export const DRONE_PATROL_RADIUS = 200;                     // 无怪物时无人机的巡逻半径
 
+// ==================== 主动技能（脉冲爆发）====================
+export const ABILITY_COOLDOWN_MS = 16_000;                  // 主动技能冷却（毫秒）
+export const ABILITY_PULSE_RADIUS = 170;                    // 主动技能作用半径（像素）
+export const ABILITY_PULSE_DAMAGE = 80;                     // 主动技能基础伤害
+export const ABILITY_PULSE_KNOCKBACK = 68;                  // 主动技能击退距离（像素）
+export const ABILITY_PULSE_IFRAME_MS = 450;                 // 释放后短暂无敌（毫秒）
+export const ABILITY_PULSE_HEAL_ON_HIT = 6;                 // 命中每个怪物回复生命
+export const ABILITY_PULSE_MAX_HEAL = 36;                   // 单次释放最大回复
+
 // ==================== 音效控制（系统化开关）===================
 export const ENABLE_AUDIO = false;                           // 总音效开关（关闭后所有音效失效）
 

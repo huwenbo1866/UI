@@ -23,6 +23,12 @@ export function updatePlayer(state: GameState, input: InputState, dtSeconds: num
     }
   }
 
+  player.moving = Math.hypot(dx, dy) > 0.01;
+  if (player.moving) {
+    player.moveDirX = dx;
+    player.moveDirY = dy;
+  }
+
   player.x = clamp(player.x + dx * player.speed * dtSeconds, player.radius, state.width - player.radius);
   player.y = clamp(player.y + dy * player.speed * dtSeconds, player.radius, state.height - player.radius);
 

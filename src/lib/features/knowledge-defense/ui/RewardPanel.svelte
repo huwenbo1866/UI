@@ -21,8 +21,8 @@
   <div class="panel" on:click|stopPropagation>
     <div class="header">
       <div>
-        <h2>升级选择 · 奖励答题</h2>
-        <p>升级后不会自动打断战斗。你可以在需要的时候按空格或点击角色打开这里，答对任意一张卡即可领取对应奖励。</p>
+        <h2>战术抉择 · 奖励答题</h2>
+        <p>升级后不会自动打断战斗。你可以在需要的时候按空格或点击角色打开这里。答对可领取完整奖励，答错也会得到保底恢复，避免断节奏。</p>
       </div>
       <button class="close" on:click={() => { audioManager.playClick(); dispatch('close'); }}>关闭</button>
     </div>

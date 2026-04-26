@@ -47,6 +47,7 @@
 	import { tickDamageTexts } from '../systems/combat-feedback-system';
 	import { tickAutoAttack, tickAttackSequences } from '../systems/auto-attack-system';
 	import { updateProjectiles } from '../systems/projectile-system';
+	import { castPulseAbility, tickAbilityCooldown } from '../systems/ability-system';
 	import { applyRewardByKind } from '../systems/progression-system';
 	import { addDrone, updateDrones } from '../systems/drone-system';
 	import { openRewardPanel, closeRewardPanel } from '../systems/reward-system';
@@ -162,6 +163,9 @@
 
 	function exitToStartMenu() {
 		void persistHomeworkProgress(true);
+		if (state.ui.showRewardPanel && rewardPanelOpenedFromPending) {
+			state.progress.pendingLevelUps += 1;
+		}
 		state.runtime.running = false;
 		state.ui.showRewardPanel = false;
 		state.ui.showSettingsPanel = false;
@@ -262,6 +266,23 @@
 		}
 	}
 
+	function handleCastAbility() {
+		if (
+			showExitConfirm ||
+			state.ui.showStartMenu ||
+			state.ui.showSettingsPanel ||
+			state.ui.showPrepPanel ||
+			state.ui.showRewardPanel ||
+			!state.runtime.running ||
+			state.player.hp <= 0
+		)
+			return;
+		const casted = castPulseAbility(state);
+		if (casted) {
+			state = { ...state };
+		}
+	}
+
 	function openExitConfirm() {
 		if (state.ui.showStartMenu || showExitConfirm || state.player.hp <= 0) return;
 		showExitConfirm = true;
@@ -355,17 +376,25 @@
 			if (choice.rewardKind === 'drone') {
 				addDrone(state);
 			}
-			applyRewardByKind(state, choice.rewardKind);
+			try {
+				applyRewardByKind(state, choice.rewardKind);
+			} catch (error) {
+				console.warn('奖励发放失败，已回退并继续本局', error);
+				state.ui.rewardFeedback = '奖励发放异常，本次已自动回退，不影响继续闯关。';
+				state.ui.rewardFeedbackKind = 'error';
+			}
 			rewardPanelOpenedFromPending = false;
 		} else {
 			state.battle.wrong += 1;
 			state.battle.qaRound += 1;
-			state.ui.rewardFeedback = `答错了。正确答案：${choice.question.answer}`;
+			state.ui.rewardFeedback = `答错了。正确答案：${choice.question.answer}。${choice.question.explanation}（已触发保底恢复）`;
 			state.ui.rewardFeedbackKind = 'error';
 			await recordWrongNotebookEntry(activePack.id, choice.question, selected, activePack.source).catch(
 				() => undefined
 			);
 			queuePersistProgress(choice.question, selected, false);
+			state.player.hp = Math.min(state.player.maxHp, state.player.hp + 12);
+			state.player.contactInvulnMs = Math.max(state.player.contactInvulnMs, 260);
 			closeRewardPanel(state);
 			rewardPanelOpenedFromPending = false;
 		}
@@ -377,6 +406,7 @@
 		if (!lastFrameTs) lastFrameTs = ts;
 		const rawDtMs = Math.min(40, ts - lastFrameTs);
 		lastFrameTs = ts;
+		state.runtime.abilityPulseFxMs = Math.max(0, state.runtime.abilityPulseFxMs - rawDtMs);
 
 		const shouldSimulate =
 			state.runtime.running &&
@@ -396,6 +426,7 @@
 			updateMonsters(state, dtSeconds, dtMs);
 			tickAutoAttack(state, dtMs);
 			tickAttackSequences(state, dtMs);
+			tickAbilityCooldown(state, dtMs);
 			updateProjectiles(state, dtSeconds);
 			updateDrones(state, dtSeconds, dtMs);
 			tickDamageTexts(state, dtSeconds, dtMs);
@@ -412,6 +443,12 @@
 		void initializeKnowledgeSource();
 		teardownKeyboard = attachKeyboard(input);
 		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key.toLowerCase() === 'e') {
+				event.preventDefault();
+				handleCastAbility();
+				return;
+			}
+
 			if (event.code === 'Space') {
 				event.preventDefault();
 				handlePlayerActivate();
@@ -559,7 +596,11 @@
 		loadingKnowledgeBases = true;
 		try {
 			const res = await getKnowledgeBases(token, 1);
-			knowledgeBases = (res?.items ?? []).map((kb) => ({ id: kb.id, name: kb.name ?? kb.id }));
+			const sourceItems: Array<{ id: string; name?: string }> = res?.items ?? [];
+			knowledgeBases = sourceItems.map((kb) => ({
+				id: kb.id,
+				name: kb.name ?? kb.id
+			}));
 		} catch (e) {
 			console.warn('加载知识库失败，将继续使用 sample_pack', e);
 		} finally {
@@ -583,7 +624,9 @@
 		loadingKnowledgeFiles = true;
 		try {
 			const res = await searchKnowledgeFilesById(token, value, null, null, null, null, 1);
-			knowledgeFiles = (res?.items ?? []).map((item) => ({
+			const sourceItems: Array<{ id: string; meta?: { name?: string }; filename?: string }> =
+				res?.items ?? [];
+			knowledgeFiles = sourceItems.map((item) => ({
 				id: item.id,
 				name: item?.meta?.name || item?.filename || item.id
 			}));
@@ -608,7 +651,9 @@
 		loadingChapterHomeworks = true;
 		try {
 			const items = await getFileChapterHomeworks(token, value);
-			chapterHomeworks = (items ?? []).map((item) => ({
+			const sourceItems: Array<{ id: string; chapter_title?: string; questions?: unknown[] }> =
+				items ?? [];
+			chapterHomeworks = sourceItems.map((item) => ({
 				id: item.id,
 				chapter_title: item.chapter_title ?? '未命名章节',
 				question_count: Array.isArray(item.questions) ? item.questions.length : 0
@@ -632,7 +677,12 @@
 		loadingChapterHomeworks = true;
 		try {
 			const items = await getFileChapterHomeworks(token, selectedFileId);
-			const target = (items ?? []).find((item) => item.id === value);
+			const sourceItems: ChapterHomeworkItem[] = (items ?? []).map((item: any) => ({
+				id: String(item?.id ?? ''),
+				chapter_title: String(item?.chapter_title ?? '未命名章节'),
+				questions: Array.isArray(item?.questions) ? item.questions : []
+			}));
+			const target = sourceItems.find((item) => item.id === value);
 			if (!target) return;
 			const nextPack = normalizeChapterHomeworkToPack(target, selectedFileId);
 			if (!nextPack) return;
@@ -873,13 +923,28 @@
 				lasers={state.lasers}
 				damageTexts={state.damageTexts}
 				pendingLevelUps={state.progress.pendingLevelUps}
+				abilityPulseFxMs={state.runtime.abilityPulseFxMs}
 				onTouchStartPoint={handleSurfaceTouchStart}
 				onTouchMovePoint={handleSurfaceTouchMove}
 				onTouchEndPoint={handleSurfaceTouchEnd}
 				onPlayerActivate={handlePlayerActivate}
 			/>
 
-			<HudOverlay on:exit={openExitConfirm} />
+			<HudOverlay
+				hp={state.player.hp}
+				maxHp={state.player.maxHp}
+				level={state.progress.level}
+				kills={state.battle.kills}
+				correct={state.battle.correct}
+				wrong={state.battle.wrong}
+				pendingRewards={state.progress.pendingLevelUps}
+				attackModeLabel={state.settings.attackPreference === 'straight' ? '直线发射' : '散射'}
+				sourceLabel={usingSampleFallback ? 'Sample Pack' : chapterHomeworkPayload?.chapter_title ?? '章节作业'}
+				abilityCooldownMs={state.runtime.abilityCooldownMs}
+				on:exit={openExitConfirm}
+				on:castAbility={handleCastAbility}
+				on:openReward={tryOpenRewardPanel}
+			/>
 
 			{#if state.ui.showRewardPanel}
 				<RewardPanel

@@ -31,7 +31,10 @@ export function createInitialGameState(
       hp: PLAYER_MAX_HP,
       maxHp: PLAYER_MAX_HP,
       contactInvulnMs: 0,
-      hurtFlashMs: 0
+      hurtFlashMs: 0,
+      moving: false,
+      moveDirX: 0,
+      moveDirY: 1
     },
     monsters: [],
     projectiles: [],
@@ -69,7 +72,9 @@ export function createInitialGameState(
       running: false,
       timeScale: TIME_SCALE_NORMAL,
       spawnCooldownMs: MONSTER_SPAWN_INTERVAL_MS,
-      attackCooldownMs: AUTO_ATTACK_COOLDOWN_MS
+      attackCooldownMs: AUTO_ATTACK_COOLDOWN_MS,
+      abilityCooldownMs: 0,
+      abilityPulseFxMs: 0
     }
   };
 }

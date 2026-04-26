@@ -19,6 +19,7 @@
   export let lasers: LaserEffectState[] = [];
   export let damageTexts: DamageTextState[] = [];
   export let pendingLevelUps = 0;
+  export let abilityPulseFxMs = 0;
   export let onTouchStartPoint: ((event: TouchEvent) => void) | undefined;
   export let onTouchMovePoint: ((event: TouchEvent) => void) | undefined;
   export let onTouchEndPoint: (() => void) | undefined;
@@ -30,11 +31,16 @@
     nextLevelTotal > previousLevelTotal
       ? ((progress.exp - previousLevelTotal) / (nextLevelTotal - previousLevelTotal)) * 100
       : 0;
+  $: playerTilt = Math.max(-14, Math.min(14, player.moveDirX * 14));
+  $: playerFaceScale = player.moving ? 1.05 : 1;
+  $: pulseOpacity = Math.max(0, Math.min(1, abilityPulseFxMs / 320));
 </script>
 
 <div
   class="arena"
-  style={`--arena-height:${height}px;`}
+  role="application"
+  aria-label="知识闯关战场"
+  style={`--arena-width:${width}px; --arena-height:${height}px;`}
   on:touchstart|passive={onTouchStartPoint}
   on:touchmove|passive={onTouchMovePoint}
   on:touchend|passive={onTouchEndPoint}
@@ -44,6 +50,10 @@
   <div class="rings ring-2"></div>
   <div class="rings ring-3"></div>
   <div class="rings ring-4"></div>
+
+  {#if abilityPulseFxMs > 0}
+    <div class="ability-pulse" style={`left:${player.x}px; top:${player.y}px; opacity:${pulseOpacity};`}></div>
+  {/if}
 
   {#each lasers as laser (laser.id)}
     <div
@@ -99,12 +109,12 @@
     {#if pendingLevelUps > 0}
       <div class="reward-ready">!{pendingLevelUps > 1 ? `×${pendingLevelUps}` : ''}</div>
     {/if}
-    <div class="player-avatar"></div>
+    <div class={`player-avatar ${player.moving ? 'moving' : 'idle'}`} style={`--tilt:${playerTilt}deg; --face-scale:${playerFaceScale};`}></div>
   </button>
 </div>
 
 <style>
-  .arena { position: relative; width: 100%; min-height: var(--arena-height); height: var(--arena-height); overflow: hidden; border-radius: 0; background:
+  .arena { position: relative; width: min(100%, var(--arena-width)); min-height: var(--arena-height); height: var(--arena-height); overflow: hidden; border-radius: 0; background:
       radial-gradient(circle at 15% 18%, rgba(83, 69, 56, 0.12) 0 6%, transparent 6.2%),
       radial-gradient(circle at 70% 24%, rgba(83, 69, 56, 0.12) 0 7%, transparent 7.2%),
       radial-gradient(circle at 85% 68%, rgba(83, 69, 56, 0.12) 0 5.6%, transparent 5.9%),
@@ -116,19 +126,63 @@
   .ring-3 { width: clamp(480px, 78vw, 650px); height: clamp(480px, 78vw, 650px); }
   .ring-4 { width: clamp(620px, 106vw, 900px); height: clamp(620px, 106vw, 900px); }
   .player,.monster,.projectile,.drone,.laser { position: absolute; transform: translate(-50%, -50%); }
+  .ability-pulse {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    transform: translate(-50%, -50%);
+    border: 2px solid rgba(248, 186, 51, 0.95);
+    box-shadow: 0 0 0 0 rgba(248, 186, 51, 0.6);
+    animation: abilityPulseExpand 320ms ease-out forwards;
+    pointer-events: none;
+    z-index: 26;
+  }
   .player { border: none; padding: 0; background: transparent; box-shadow: none; display: flex; align-items: center; justify-content: center; cursor: pointer; width: 68px; height: 68px; }
   .player.hurt .player-avatar,.monster.hurt .monster-face { filter: saturate(1.6) brightness(1.1) drop-shadow(0 0 8px rgba(255, 60, 60, 0.8)); }
   .damage-text { position: absolute; transform: translate(-50%, -50%); font-size: 18px; font-weight: 800; text-shadow: 0 0 10px rgba(255, 90, 90, 0.45); pointer-events: none; z-index: 32; }
-  .player-avatar { width: 100%; height: 100%; background-image: url('/knowledge-defense/player.png'); background-size: contain; background-position: center; background-repeat: no-repeat; }
+  .player-avatar {
+    width: 100%;
+    height: 100%;
+    background-image: url('/knowledge-defense/player.png');
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    transform: rotate(var(--tilt, 0deg)) scale(var(--face-scale, 1));
+    animation: playerIdleBob 980ms ease-in-out infinite;
+  }
+
+  .player-avatar.moving {
+    animation: playerRunBob 420ms ease-in-out infinite;
+  }
+
+  .player-avatar.idle {
+    animation: playerIdleBob 980ms ease-in-out infinite;
+  }
   .monster { border: none; background: transparent; box-shadow: none; display: flex; align-items: center; justify-content: center; overflow: visible; width: 54px; height: 54px; }
-  .monster-face { width: 100%; height: 100%; background-size: contain; background-position: center; background-repeat: no-repeat; }
+  .monster-face {
+    width: 100%;
+    height: 100%;
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    animation: spriteShakePlaceholder 720ms steps(6) infinite;
+  }
   .monster.easy .monster-face { background-image: url('/knowledge-defense/monster-easy.png'); }
   .monster.medium .monster-face { background-image: url('/knowledge-defense/monster-medium.png'); }
   .monster.hard .monster-face { background-image: url('/knowledge-defense/monster-hard.png'); }
   .monster.attacking .monster-face { filter: saturate(1.4) brightness(1.05) drop-shadow(0 0 10px rgba(248, 113, 113, 0.8)); }
   .monster-attack-ring { position: absolute; left: 50%; top: 50%; width: 74px; height: 74px; border-radius: 999px; border: 2px solid rgba(248, 113, 113, 0.9); transform: translate(-50%, -50%); animation: monsterWindup 320ms ease-out infinite; pointer-events: none; }
   .drone { width: 34px; height: 34px; background: transparent; border: none; box-shadow: none; display: flex; align-items: center; justify-content: center; overflow: visible; }
-  .drone-face { width: 100%; height: 100%; background-image: url('/knowledge-defense/drone.png'); background-size: contain; background-position: center; background-repeat: no-repeat; }
+  .drone-face {
+    width: 100%;
+    height: 100%;
+    background-image: url('/knowledge-defense/drone.png');
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    animation: droneHover 620ms ease-in-out infinite;
+  }
   .player-bars { position: absolute; left: 50%; top: -42px; transform: translateX(-50%); width: 90px; display: grid; gap: 4px; }
   .player-level { color: #5a4736; font-size: 11px; text-align: center; font-weight: 700; text-shadow: 0 1px 0 rgba(255,255,255,0.7); }
   .player-exp-bar,.player-hp-bar,.monster-hp-bar { height: 8px; border-radius: 999px; background: rgba(0, 0, 0, 0.14); overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.08); }
@@ -140,6 +194,46 @@
   .projectile { width: 12px; height: 12px; border-radius: 999px; box-shadow: 0 0 10px rgba(255,255,255,0.5); }
   .laser { height: 3px; background: linear-gradient(90deg, rgba(96,165,250,0.15), rgba(96,165,250,0.95), rgba(96,165,250,0.15)); transform-origin: left center; pointer-events: none; border-radius: 999px; box-shadow: 0 0 10px rgba(96,165,250,0.7); }
   @keyframes monsterWindup { from { transform: translate(-50%, -50%) scale(0.82); opacity: 0.95; } to { transform: translate(-50%, -50%) scale(1.12); opacity: 0.15; } }
+
+  @keyframes playerIdleBob {
+    0%, 100% { transform: rotate(var(--tilt, 0deg)) scale(var(--face-scale, 1)) translateY(0px); }
+    50% { transform: rotate(var(--tilt, 0deg)) scale(calc(var(--face-scale, 1) * 1.02)) translateY(-2px); }
+  }
+
+  @keyframes playerRunBob {
+    0%, 100% { transform: rotate(var(--tilt, 0deg)) scale(var(--face-scale, 1)) translateY(0px); }
+    25% { transform: rotate(calc(var(--tilt, 0deg) - 2deg)) scale(calc(var(--face-scale, 1) * 1.04)) translateY(-2px); }
+    75% { transform: rotate(calc(var(--tilt, 0deg) + 2deg)) scale(calc(var(--face-scale, 1) * 1.04)) translateY(1px); }
+  }
+
+  @keyframes droneHover {
+    0%, 100% { transform: translateY(0px) scale(1); }
+    50% { transform: translateY(-2px) scale(1.03); }
+  }
+
+  @keyframes spriteShakePlaceholder {
+    0%, 100% { transform: translate(0px, 0px) rotate(0deg); }
+    15% { transform: translate(-0.5px, -0.4px) rotate(-0.8deg); }
+    30% { transform: translate(0.7px, -0.3px) rotate(0.6deg); }
+    45% { transform: translate(-0.4px, 0.6px) rotate(-0.5deg); }
+    60% { transform: translate(0.5px, 0.4px) rotate(0.5deg); }
+    75% { transform: translate(-0.6px, 0.2px) rotate(-0.4deg); }
+  }
+
+  @keyframes abilityPulseExpand {
+    from {
+      width: 28px;
+      height: 28px;
+      opacity: 0.98;
+      box-shadow: 0 0 0 0 rgba(248, 186, 51, 0.6);
+    }
+    to {
+      width: 340px;
+      height: 340px;
+      opacity: 0.06;
+      box-shadow: 0 0 0 40px rgba(248, 186, 51, 0);
+    }
+  }
   @media (max-width: 900px) {
     .arena {
       border-radius: 18px;
