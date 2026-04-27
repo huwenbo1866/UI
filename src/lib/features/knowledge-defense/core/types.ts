@@ -70,6 +70,8 @@ export interface MonsterState {
 	hurtFlashMs: number;
 	attackCooldownMs: number;
 	attackWindupMs: number;
+	moveDirX: number;
+	moveDirY: number;
 }
 
 export interface ProjectileState {
@@ -97,6 +99,9 @@ export interface DroneState {
 	orbitAngle: number;
 	cooldownMs: number;
 	targetMonsterId: string | null;
+	moveDirX: number;
+	moveDirY: number;
+	formationSlot: number;
 }
 
 export interface AttackSequenceState {

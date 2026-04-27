@@ -40,6 +40,10 @@ export const MONSTER_DAMAGE = {                             // 怪物对玩家�
 } as const;
 export const MONSTER_ATTACK_INTERVAL_MS = 1200;             // 怪物近战攻击间隔
 export const MONSTER_ATTACK_WINDUP_MS = 320;                // 怪物攻击前摇（给玩家反应窗口）
+export const MONSTER_SEPARATION_RADIUS = 72;                // 怪物彼此软分离半径
+export const MONSTER_SEPARATION_FORCE = 1.15;               // 怪物软分离力度
+export const MONSTER_PLAYER_STANDOFF = 24;                  // 怪物围住玩家时的额外留白
+export const MONSTER_MIN_GAP = 10;                          // 怪物之间的最小可读间距
 
 // ==================== 攻击参数 ====================
 export const AUTO_ATTACK_COOLDOWN_MS = 1000;                // 自动攻击冷却时间（毫秒）
@@ -76,6 +80,13 @@ export const DRONE_COOLDOWN_MS = 3000;                      // 无人机攻击�
 export const DRONE_ENGAGE_RANGE = 92;                       // 无人机攻击距离（像素）
 export const DRONE_ORBIT_DISTANCE = 62;                     // 添加无人机时的初始环绕距离
 export const DRONE_PATROL_RADIUS = 200;                     // 无怪物时无人机的巡逻半径
+export const DRONE_TARGET_LOAD_PENALTY = 34;                // 无人机共享目标时的负载惩罚
+export const DRONE_SEPARATION_RADIUS = 54;                  // 无人机彼此软分离半径
+export const DRONE_SEPARATION_FORCE = 1.1;                  // 无人机软分离力度
+export const DRONE_FORMATION_ARC = Math.PI * 0.82;          // 无人机围目标排布弧度
+export const DRONE_FORMATION_JITTER = 10;                   // 无人机槽位轻微抖动距离
+export const DRONE_ARRIVE_SLOW_RADIUS = 70;                 // 无人机靠近槽位时的减速半径
+export const DRONE_MIN_GAP = 14;                            // 无人机之间的最小可读间距
 
 // ==================== 主动技能（脉冲爆发）====================
 export const ABILITY_COOLDOWN_MS = 16_000;                  // 主动技能冷却（毫秒）

@@ -34,6 +34,8 @@
   $: playerTilt = Math.max(-14, Math.min(14, player.moveDirX * 14));
   $: playerFaceScale = player.moving ? 1.05 : 1;
   $: pulseOpacity = Math.max(0, Math.min(1, abilityPulseFxMs / 320));
+  $: sortedMonsters = [...monsters].sort((a, b) => a.y - b.y);
+  $: sortedDrones = [...drones].sort((a, b) => a.y - b.y);
 </script>
 
 <div
@@ -62,11 +64,12 @@
     ></div>
   {/each}
 
-  {#each monsters as monster (monster.id)}
+  {#each sortedMonsters as monster (monster.id)}
     <div
       class={`monster ${monster.difficulty} ${monster.hurtFlashMs > 0 ? "hurt" : ""} ${monster.attackWindupMs > 0 ? "attacking" : ""}`}
-      style={`left:${monster.x}px; top:${monster.y}px; width:${monster.radius * 2}px; height:${monster.radius * 2}px;`}
+      style={`left:${monster.x}px; top:${monster.y}px; width:${monster.radius * 2}px; height:${monster.radius * 2}px; z-index:${30 + Math.round(monster.y / 10)}; --monster-tilt:${Math.max(-8, Math.min(8, monster.moveDirX * 8))}deg;`}
     >
+      <div class="entity-shadow monster-shadow"></div>
       <div class="monster-hp-bar">
         <span style={`width:${(monster.hp / monster.maxHp) * 100}%`}></span>
       </div>
@@ -77,8 +80,9 @@
     </div>
   {/each}
 
-  {#each drones as drone (drone.id)}
-    <div class="drone" style={`left:${drone.x}px; top:${drone.y}px;`}>
+  {#each sortedDrones as drone (drone.id)}
+    <div class="drone" style={`left:${drone.x}px; top:${drone.y}px; z-index:${80 + Math.round(drone.y / 12)}; --drone-tilt:${Math.max(-14, Math.min(14, drone.moveDirX * 14))}deg;`}>
+      <div class="entity-shadow drone-shadow"></div>
       <div class="drone-face"></div>
     </div>
   {/each}
@@ -101,6 +105,7 @@
     on:click|stopPropagation={onPlayerActivate}
     on:touchstart|stopPropagation={onPlayerActivate}
   >
+    <div class="entity-shadow player-shadow"></div>
     <div class="player-bars">
       <div class="player-level">Lv.{progress.level}</div>
       <div class="player-exp-bar"><span style={`width:${Math.max(0, Math.min(100, levelProgress))}%`}></span></div>
@@ -139,6 +144,29 @@
     z-index: 26;
   }
   .player { border: none; padding: 0; background: transparent; box-shadow: none; display: flex; align-items: center; justify-content: center; cursor: pointer; width: 68px; height: 68px; }
+  .entity-shadow {
+    position: absolute;
+    left: 50%;
+    bottom: 2px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    pointer-events: none;
+    filter: blur(2px);
+    opacity: 0.34;
+    background: radial-gradient(circle, rgba(51, 39, 29, 0.42), rgba(51, 39, 29, 0));
+  }
+  .player-shadow {
+    width: 46px;
+    height: 12px;
+  }
+  .monster-shadow {
+    width: 34px;
+    height: 10px;
+  }
+  .drone-shadow {
+    width: 22px;
+    height: 8px;
+  }
   .player.hurt .player-avatar,.monster.hurt .monster-face { filter: saturate(1.6) brightness(1.1) drop-shadow(0 0 8px rgba(255, 60, 60, 0.8)); }
   .damage-text { position: absolute; transform: translate(-50%, -50%); font-size: 18px; font-weight: 800; text-shadow: 0 0 10px rgba(255, 90, 90, 0.45); pointer-events: none; z-index: 32; }
   .player-avatar {
@@ -166,7 +194,8 @@
     background-size: contain;
     background-position: center;
     background-repeat: no-repeat;
-    animation: spriteShakePlaceholder 720ms steps(6) infinite;
+    transform: rotate(var(--monster-tilt, 0deg)) scale(1);
+    animation: monsterPresence 620ms ease-in-out infinite;
   }
   .monster.easy .monster-face { background-image: url('/knowledge-defense/monster-easy.png'); }
   .monster.medium .monster-face { background-image: url('/knowledge-defense/monster-medium.png'); }
@@ -181,6 +210,7 @@
     background-size: contain;
     background-position: center;
     background-repeat: no-repeat;
+    transform: rotate(var(--drone-tilt, 0deg));
     animation: droneHover 620ms ease-in-out infinite;
   }
   .player-bars { position: absolute; left: 50%; top: -42px; transform: translateX(-50%); width: 90px; display: grid; gap: 4px; }
@@ -211,13 +241,9 @@
     50% { transform: translateY(-2px) scale(1.03); }
   }
 
-  @keyframes spriteShakePlaceholder {
-    0%, 100% { transform: translate(0px, 0px) rotate(0deg); }
-    15% { transform: translate(-0.5px, -0.4px) rotate(-0.8deg); }
-    30% { transform: translate(0.7px, -0.3px) rotate(0.6deg); }
-    45% { transform: translate(-0.4px, 0.6px) rotate(-0.5deg); }
-    60% { transform: translate(0.5px, 0.4px) rotate(0.5deg); }
-    75% { transform: translate(-0.6px, 0.2px) rotate(-0.4deg); }
+  @keyframes monsterPresence {
+    0%, 100% { transform: rotate(var(--monster-tilt, 0deg)) scale(1) translateY(0px); }
+    50% { transform: rotate(calc(var(--monster-tilt, 0deg) * 1.1)) scale(1.04) translateY(-1.5px); }
   }
 
   @keyframes abilityPulseExpand {

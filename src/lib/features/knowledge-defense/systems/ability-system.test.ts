@@ -22,7 +22,9 @@ describe('castPulseAbility', () => {
 				isDead: false,
 				hurtFlashMs: 0,
 				attackCooldownMs: 0,
-				attackWindupMs: 0
+				attackWindupMs: 0,
+				moveDirX: 0,
+				moveDirY: 1
 			},
 			{
 				id: 'far',
@@ -37,7 +39,9 @@ describe('castPulseAbility', () => {
 				isDead: false,
 				hurtFlashMs: 0,
 				attackCooldownMs: 0,
-				attackWindupMs: 0
+				attackWindupMs: 0,
+				moveDirX: 0,
+				moveDirY: 1
 			}
 		];
 
