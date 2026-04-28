@@ -1,15 +1,24 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import type { AttackPreference } from '../core/types';
   import { audioManager } from '../systems/audio-manager';
-  
-  export let attackPreference: AttackPreference = 'straight';
+  import {
+    KNOWLEDGE_DEFENSE_MODE_NAME,
+    type PreRunBriefing
+  } from '../systems/mode-guidance';
+
+  export let modeName = KNOWLEDGE_DEFENSE_MODE_NAME;
+  export let attackModeLabel = '直线发射';
   export let wrongCount = 0;
+  export let sourceLabel = '备用样例题源（Fallback）';
+  export let sourceDetail = '';
+  export let sourceIsFallback = true;
+  export let briefing: PreRunBriefing;
 
   const dispatch = createEventDispatcher<{
     start: void;
     settings: void;
     notebook: void;
+    help: void;
     exitHome: void;
   }>();
 </script>
@@ -29,14 +38,53 @@
 
   <div class="content">
     <div class="hero-copy">
-      <div class="eyebrow">知识防御 · 启动界面</div>
-      <h1>KNOWLEDGE<br />DEFENSE</h1>
-      <div class="splash">Start &amp; Review!</div>
-      <p class="subtitle">将启动、设置与错题复盘整合到同一个整页入口中，先准备，再开战。</p>
+      <div class="eyebrow">{modeName}</div>
+      <h1>{modeName}</h1>
+      <div class="splash">Guard what you know</div>
+      <p class="subtitle">先看懂循环、控制与题源，再决定是直接开局、调整设置，还是先去错题集复盘。</p>
 
       <div class="status-row">
-        <span class="status">当前攻击模式：{attackPreference === 'straight' ? '直线发射' : '散射'}</span>
+        <span class="status">当前攻击偏好：{attackModeLabel}</span>
         <span class="status">错题集：{wrongCount} 条</span>
+        <span class={`status ${sourceIsFallback ? 'fallback' : ''}`}>题源：{sourceLabel}</span>
+      </div>
+
+      <div class="briefing-board">
+        <article class="brief-card emphasis">
+          <h2>模式循环</h2>
+          <p>{briefing.modeLoop}</p>
+        </article>
+
+        <article class="brief-card controls-card">
+          <h2>主控操作</h2>
+          <ul>
+            {#each briefing.controls as control}
+              <li>{control}</li>
+            {/each}
+          </ul>
+        </article>
+
+        <article class="brief-card">
+          <h2>奖励时机</h2>
+          <p>{briefing.rewardTiming}</p>
+        </article>
+
+        <article class="brief-card">
+          <h2>错题 / 复盘价值</h2>
+          <p>{briefing.reviewValue}</p>
+        </article>
+
+        <article class="brief-card">
+          <h2>当前攻击偏好</h2>
+          <strong>{briefing.attackPreference}</strong>
+          <p>{briefing.attackPreferenceDetail}</p>
+        </article>
+
+        <article class={`brief-card ${sourceIsFallback ? 'fallback' : ''}`}>
+          <h2>当前题目来源</h2>
+          <strong>{sourceLabel}</strong>
+          <p>{sourceDetail}</p>
+        </article>
       </div>
     </div>
 
@@ -44,7 +92,8 @@
       <button type="button" class="main-btn primary" on:click={() => { audioManager.playClick(); dispatch('start');}}>开始闯关</button>
       <button type="button" class="main-btn" on:click={() => { audioManager.playClick(); dispatch('settings');}}>设置</button>
       <button type="button" class="main-btn" on:click={() => {audioManager.playClick(); dispatch('notebook');}}>错题集</button>
-      <p class="tip">开始闯关会进入战场；设置用于切换攻击偏好；错题集可先做复盘，不会清空你当前已有功能数据。</p>
+      <button type="button" class="main-btn secondary-btn" on:click={() => {audioManager.playClick(); dispatch('help');}}>帮助 / 图例</button>
+      <p class="tip">开始闯关会进入战场；设置里可切攻击偏好与知识库题源；帮助会解释掉落与怪物前摇；错题集只做复盘，不改你现有持久化行为。</p>
     </div>
   </div>
 </section>
@@ -142,6 +191,8 @@
   .hero-copy {
     position: relative;
     padding: 12px 0;
+    display: grid;
+    gap: 24px;
   }
 
   .eyebrow {
@@ -156,12 +207,13 @@
 
   h1 {
     position: relative;
-    margin: 18px 0 0;
-    font-size: clamp(72px, 10vw, 140px);
-    line-height: 0.9;
-    letter-spacing: 1px;
+    margin: 0;
+    max-width: min(760px, 100%);
+    font-size: clamp(42px, 6vw, 86px);
+    line-height: 1;
+    letter-spacing: 0.3px;
     color: #fffdf9;
-    -webkit-text-stroke: 6px #5c4736;
+    -webkit-text-stroke: 4px #5c4736;
     text-shadow: 0 10px 22px rgba(73, 55, 35, 0.12);
     font-weight: 900;
   }
@@ -178,10 +230,10 @@
   }
 
   .subtitle {
-    width: min(680px, 100%);
-    margin: 18px 0 0;
+    width: min(720px, 100%);
+    margin: 0;
     color: #6b5644;
-    font-size: clamp(16px, 2vw, 24px);
+    font-size: clamp(16px, 2vw, 22px);
     line-height: 1.8;
     font-weight: 700;
   }
@@ -190,7 +242,6 @@
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
-    margin-top: 24px;
   }
 
   .status {
@@ -201,6 +252,68 @@
     color: #6d5847;
     font-size: 14px;
     font-weight: 700;
+  }
+
+  .status.fallback {
+    border-color: #edc98e;
+    background: #fff8ee;
+    color: #9a5c0e;
+  }
+
+  .briefing-board {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .brief-card {
+    background: rgba(255, 251, 246, 0.84);
+    border: 1px solid #e3d5c7;
+    border-radius: 22px;
+    padding: 18px;
+    box-shadow: 0 14px 34px rgba(88, 64, 42, 0.08);
+    display: grid;
+    gap: 10px;
+    backdrop-filter: blur(8px);
+  }
+
+  .brief-card.emphasis,
+  .brief-card.fallback {
+    background: linear-gradient(180deg, rgba(255, 248, 238, 0.96), rgba(255, 251, 246, 0.84));
+  }
+
+  .brief-card.fallback {
+    border-color: #edc98e;
+  }
+
+  .brief-card h2,
+  .brief-card p,
+  .brief-card strong,
+  .controls-card li {
+    margin: 0;
+  }
+
+  .brief-card h2 {
+    font-size: 18px;
+    color: #5c4736;
+  }
+
+  .brief-card strong {
+    font-size: 24px;
+    color: #4e3c2e;
+  }
+
+  .brief-card p,
+  .controls-card li {
+    color: #6e5c4c;
+    line-height: 1.75;
+  }
+
+  .controls-card ul {
+    margin: 0;
+    padding-left: 20px;
+    display: grid;
+    gap: 8px;
   }
 
   .action-panel {
@@ -236,6 +349,12 @@
     background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%);
   }
 
+  .main-btn.secondary-btn {
+    min-height: 62px;
+    font-size: 18px;
+    background: rgba(255, 248, 239, 0.98);
+  }
+
   .main-btn:hover {
     transform: translateY(-1px);
   }
@@ -255,12 +374,12 @@
       padding: 84px 0 28px;
     }
 
-    .action-panel {
-      padding: 18px;
+    .briefing-board {
+      grid-template-columns: 1fr;
     }
 
-    h1 {
-      -webkit-text-stroke: 4px #5c4736;
+    .action-panel {
+      padding: 18px;
     }
 
     .splash {
@@ -297,6 +416,15 @@
     .subtitle {
       line-height: 1.65;
       font-size: 16px;
+    }
+
+    .brief-card {
+      border-radius: 18px;
+      padding: 16px;
+    }
+
+    .brief-card strong {
+      font-size: 20px;
     }
 
     .main-btn {

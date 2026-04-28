@@ -1,8 +1,38 @@
 import { PLAYER_CONTACT_IFRAME_MS } from '../config/constants';
-import type { GameState } from '../core/types';
+import type { GameState, PlayerDamageSource } from '../core/types';
 import { clamp } from '../core/utils';
 import type { InputState } from '../adapters/input-adapter';
 import { markPlayerHit } from './combat-feedback-system';
+
+function applyTaggedPlayerDamage(
+	state: GameState,
+	damage: number,
+	source: PlayerDamageSource,
+	contactInvulnMs: number
+) {
+	const nextHp = Math.max(0, state.player.hp - damage);
+	const actualDamage = state.player.hp - nextHp;
+
+	if (actualDamage <= 0) {
+		return;
+	}
+
+	state.player.hp = nextHp;
+	if (contactInvulnMs > 0) {
+		state.player.contactInvulnMs = contactInvulnMs;
+	}
+
+	state.runTelemetry.totalDamageTaken += actualDamage;
+	state.runTelemetry.damageBySource[source].damage += actualDamage;
+	state.runTelemetry.damageBySource[source].hits += 1;
+	state.runTelemetry.lastDamageSource = source;
+
+	if (state.player.hp <= 0 && state.runTelemetry.defeatSource === null) {
+		state.runTelemetry.defeatSource = source;
+	}
+
+	markPlayerHit(state, actualDamage);
+}
 
 export function updatePlayer(state: GameState, input: InputState, dtSeconds: number, dtMs: number) {
   const player = state.player;
@@ -38,16 +68,22 @@ export function updatePlayer(state: GameState, input: InputState, dtSeconds: num
   player.hurtFlashMs = Math.max(0, player.hurtFlashMs - dtMs);
 }
 
-export function applyPlayerContactDamage(state: GameState, damage: number) {
-  if (state.player.contactInvulnMs > 0) return;
-  state.player.hp = Math.max(0, state.player.hp - damage);
-  state.player.contactInvulnMs = PLAYER_CONTACT_IFRAME_MS;
-  markPlayerHit(state, damage);
+export function applyPlayerContactDamage(
+	state: GameState,
+	damage: number,
+	source: PlayerDamageSource = 'melee'
+) {
+	if (state.player.contactInvulnMs > 0) return;
+	applyTaggedPlayerDamage(state, damage, source, PLAYER_CONTACT_IFRAME_MS);
 }
 
-export function applyContinuousPlayerDamage(state: GameState, damagePerSecond: number, dtSeconds: number) {
-  if (state.player.contactInvulnMs > 0) return;
-  const damage = damagePerSecond * dtSeconds;
-  state.player.hp = Math.max(0, state.player.hp - damage);
-  markPlayerHit(state, damage);
+export function applyContinuousPlayerDamage(
+	state: GameState,
+	damagePerSecond: number,
+	dtSeconds: number,
+	source: PlayerDamageSource = 'melee'
+) {
+	if (state.player.contactInvulnMs > 0) return;
+	const damage = damagePerSecond * dtSeconds;
+	applyTaggedPlayerDamage(state, damage, source, 0);
 }

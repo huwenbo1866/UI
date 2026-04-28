@@ -1,51 +1,77 @@
-import type { GameState, MonsterState } from '../core/types';
+import type { GameState } from '../core/types';
 import { clamp, distance } from '../core/utils';
-import { gainExpForKill } from './progression-system';
 import { audioManager } from './audio-manager';
+import { finalizeMonsterDeath, removeDefeatedMonsters } from './battlefield-drop-system';
 import { markMonsterHit } from './combat-feedback-system';
-
-function handleMonsterKilled(state: GameState, monster: MonsterState) {
-  monster.isDead = true;
-  state.battle.kills += 1;
-  gainExpForKill(state);
-}
+import { applyPlayerContactDamage } from './player-system';
 
 export function updateProjectiles(state: GameState, dtSeconds: number) {
-  const next = [];
+	const next = [];
+	const dtMs = dtSeconds * 1000;
+	let defeatedMonster = false;
 
-  for (const projectile of state.projectiles) {
-    projectile.x += projectile.vx * dtSeconds;
-    projectile.y += projectile.vy * dtSeconds;
+	for (const projectile of state.projectiles) {
+		if (projectile.ttlMs !== undefined) {
+			projectile.ttlMs = Math.max(0, projectile.ttlMs - dtMs);
+			if (projectile.ttlMs <= 0) {
+				continue;
+			}
+		}
 
-    if (projectile.x < 0 || projectile.x > state.width || projectile.y < 0 || projectile.y > state.height) {
-      continue;
-    }
+		projectile.x += projectile.vx * dtSeconds;
+		projectile.y += projectile.vy * dtSeconds;
 
-    let hit = false;
+		if (
+			projectile.x < 0 ||
+			projectile.x > state.width ||
+			projectile.y < 0 ||
+			projectile.y > state.height
+		) {
+			continue;
+		}
 
-    for (const monster of state.monsters) {
-      if (monster.isDead) continue;
+		let hit = false;
+		const owner = projectile.owner ?? 'player';
 
-      if (distance(projectile.x, projectile.y, monster.x, monster.y) <= projectile.radius + monster.radius) {
-        monster.hp = clamp(monster.hp - projectile.damage, 0, monster.maxHp);
-        markMonsterHit(state, monster, projectile.damage);
-        hit = true;
+		if (owner === 'monster') {
+			if (
+				distance(projectile.x, projectile.y, state.player.x, state.player.y) <=
+				projectile.radius + state.player.radius
+			) {
+				applyPlayerContactDamage(state, projectile.damage, 'projectile');
+				hit = true;
+			}
+		} else {
+			for (const monster of state.monsters) {
+				if (monster.isDead) continue;
 
-        // 怪物被击中音效
-        audioManager.playHit();
+				if (
+					distance(projectile.x, projectile.y, monster.x, monster.y) <=
+					projectile.radius + monster.radius
+				) {
+					monster.hp = clamp(monster.hp - projectile.damage, 0, monster.maxHp);
+					markMonsterHit(state, monster, projectile.damage);
+					hit = true;
 
-        if (monster.hp <= 0) {
-          handleMonsterKilled(state, monster);
-          // 怪物死亡音效
-          audioManager.playDeath();
-        }
-        break;
-      }
-    }
+					// 怪物被击中音效
+					audioManager.playHit();
 
-    if (!hit) next.push(projectile);
-  }
+					if (monster.hp <= 0) {
+						finalizeMonsterDeath(state, monster);
+						defeatedMonster = true;
+						// 怪物死亡音效
+						audioManager.playDeath();
+					}
+					break;
+				}
+			}
+		}
 
-  state.projectiles = next;
-  state.monsters = state.monsters.filter((monster) => !monster.isDead);
+		if (!hit) next.push(projectile);
+	}
+
+	state.projectiles = next;
+	if (defeatedMonster) {
+		removeDefeatedMonsters(state);
+	}
 }

@@ -2,6 +2,10 @@ export type Difficulty = 'easy' | 'medium' | 'hard';
 export type AttackPattern = 'single' | 'scatter' | 'straight4' | 'scatter7';
 export type RewardKind = 'weapon' | 'xp' | 'drone';
 export type AttackPreference = 'straight' | 'scatter';
+export type MonsterAttackState = 'idle' | 'telegraph' | 'active' | 'recovery';
+export type MonsterSkillKind = 'melee' | 'dash' | 'throw';
+export type BattlefieldDropKind = 'weapon' | 'xp' | 'heal';
+export type PlayerDamageSource = 'melee' | 'dash' | 'projectile';
 
 export interface Vec2 {
 	x: number;
@@ -69,9 +73,12 @@ export interface MonsterState {
 	isDead: boolean;
 	hurtFlashMs: number;
 	attackCooldownMs: number;
+	attackState: MonsterAttackState;
 	attackWindupMs: number;
+	moving: boolean;
 	moveDirX: number;
 	moveDirY: number;
+	skill?: MonsterSkillRuntimeState;
 }
 
 export interface ProjectileState {
@@ -83,6 +90,16 @@ export interface ProjectileState {
 	radius: number;
 	damage: number;
 	color?: string;
+	owner?: 'player' | 'monster';
+	ttlMs?: number;
+}
+
+export interface MonsterSkillRuntimeState {
+	kind: MonsterSkillKind;
+	phaseMs: number;
+	committedDirX: number;
+	committedDirY: number;
+	hasAppliedDamage: boolean;
 }
 
 export interface LaserEffectState {
@@ -138,6 +155,7 @@ export interface BuffState {
 	queuedWeaponBuff: AttackPattern | null;
 	queuedWeaponBuffUses: number;
 	expBoostUntil: number;
+	pulseOverchargeStacks: number;
 }
 
 export interface GameProgressState {
@@ -159,6 +177,7 @@ export interface UiState {
 	rewardChoices: RewardChoice[];
 	rewardFeedback: string | null;
 	rewardFeedbackKind: 'success' | 'error' | null;
+	pickupFeedback: PickupFeedbackState | null;
 }
 
 export interface DamageTextState {
@@ -170,6 +189,23 @@ export interface DamageTextState {
 	ttlMs: number;
 	driftSpeed: number;
 }
+
+export interface BattlefieldDropState {
+	id: string;
+	kind: BattlefieldDropKind;
+	x: number;
+	y: number;
+	radius: number;
+	ttlMs: number;
+}
+
+export interface PickupFeedbackState {
+	kind: BattlefieldDropKind;
+	title: string;
+	detail: string;
+	ttlMs: number;
+}
+
 export interface RuntimeState {
 	running: boolean;
 	timeScale: number;
@@ -179,6 +215,34 @@ export interface RuntimeState {
 	abilityPulseFxMs: number;
 }
 
+export interface RunDamageSourceTelemetryState {
+	hits: number;
+	damage: number;
+}
+
+export interface RunTelemetryState {
+	elapsedMs: number;
+	totalDamageTaken: number;
+	damageBySource: Record<PlayerDamageSource, RunDamageSourceTelemetryState>;
+	lastDamageSource: PlayerDamageSource | null;
+	defeatSource: PlayerDamageSource | null;
+}
+
+export interface RunSummary {
+	primaryDefeatReason: string;
+	explanation: string;
+	survivalTimeMs: number;
+	survivalTimeLabel: string;
+	levelReached: number;
+	kills: number;
+	correct: number;
+	wrong: number;
+	accuracy: number;
+	accuracyLabel: string;
+	pendingRewards: number;
+	tips: string[];
+}
+
 export interface GameState {
 	width: number;
 	height: number;
@@ -186,6 +250,7 @@ export interface GameState {
 	settings: GameSettings;
 	player: PlayerState;
 	monsters: MonsterState[];
+	battlefieldDrops: BattlefieldDropState[];
 	projectiles: ProjectileState[];
 	drones: DroneState[];
 	lasers: LaserEffectState[];
@@ -196,4 +261,5 @@ export interface GameState {
 	progress: GameProgressState;
 	ui: UiState;
 	runtime: RuntimeState;
+	runTelemetry: RunTelemetryState;
 }

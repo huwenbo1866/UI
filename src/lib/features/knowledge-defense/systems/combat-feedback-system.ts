@@ -1,3 +1,4 @@
+import { MAX_ACTIVE_DAMAGE_TEXTS } from '../config/constants';
 import type { DamageTextState, GameState, MonsterState } from '../core/types';
 import { uid } from '../core/utils';
 
@@ -12,24 +13,31 @@ export function pushDamageText(
   color = '#ff4d4f'
 ) {
   const value = Math.max(1, Math.round(amount));
-  const item: DamageTextState = {
+	const item: DamageTextState = {
     id: uid('dmg'),
     x,
     y,
     value,
     color,
-    ttlMs: DAMAGE_TEXT_TTL_MS,
-    driftSpeed: 42 + Math.random() * 18
-  };
-  state.damageTexts = [...state.damageTexts, item];
+		ttlMs: DAMAGE_TEXT_TTL_MS,
+		driftSpeed: 42 + Math.random() * 18
+	};
+	state.damageTexts.push(item);
+	if (state.damageTexts.length > MAX_ACTIVE_DAMAGE_TEXTS) {
+		state.damageTexts.splice(0, state.damageTexts.length - MAX_ACTIVE_DAMAGE_TEXTS);
+	}
 }
 
 export function tickDamageTexts(state: GameState, dtSeconds: number, dtMs: number) {
-  for (const item of state.damageTexts) {
-    item.ttlMs -= dtMs;
-    item.y -= item.driftSpeed * dtSeconds;
-  }
-  state.damageTexts = state.damageTexts.filter((item) => item.ttlMs > 0);
+	const nextDamageTexts: DamageTextState[] = [];
+	for (const item of state.damageTexts) {
+		item.ttlMs -= dtMs;
+		item.y -= item.driftSpeed * dtSeconds;
+		if (item.ttlMs > 0) {
+			nextDamageTexts.push(item);
+		}
+	}
+	state.damageTexts = nextDamageTexts;
 }
 
 export function markPlayerHit(state: GameState, amount: number) {

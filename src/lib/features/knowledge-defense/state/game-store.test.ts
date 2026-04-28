@@ -13,5 +13,14 @@ describe('createInitialGameState', () => {
 		expect(state.player.moveDirX).toBe(0);
 		expect(state.player.moveDirY).toBe(1);
 		expect(state.settings.attackPreference).toBe('scatter');
+		expect(state.battlefieldDrops).toEqual([]);
+		expect(state.ui.pickupFeedback).toBeNull();
+		expect(state.runTelemetry.elapsedMs).toBe(0);
+		expect(state.runTelemetry.totalDamageTaken).toBe(0);
+		expect(state.runTelemetry.lastDamageSource).toBeNull();
+		expect(state.runTelemetry.defeatSource).toBeNull();
+		expect(state.runTelemetry.damageBySource.melee.damage).toBe(0);
+		expect(state.runTelemetry.damageBySource.dash.damage).toBe(0);
+		expect(state.runTelemetry.damageBySource.projectile.damage).toBe(0);
 	});
 });

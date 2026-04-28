@@ -53,17 +53,18 @@ function spawnStraightProjectile(state: GameState, target: MonsterState, damage:
   const dx = target.x - state.player.x;
   const dy = target.y - state.player.y;
   const len = Math.hypot(dx, dy) || 1;
-  const projectile: ProjectileState = {
-    id: uid('proj'),
-    x: state.player.x,
-    y: state.player.y,
-    vx: (dx / len) * PROJECTILE_SPEED,
-    vy: (dy / len) * PROJECTILE_SPEED,
-    radius: BASE_PROJECTILE_RADIUS,
-    damage,
-    color: '#f59e0b'
-  };
-  state.projectiles = [...state.projectiles, projectile];
+	const projectile: ProjectileState = {
+		id: uid('proj'),
+		x: state.player.x,
+		y: state.player.y,
+		vx: (dx / len) * PROJECTILE_SPEED,
+		vy: (dy / len) * PROJECTILE_SPEED,
+		radius: BASE_PROJECTILE_RADIUS,
+		damage,
+		color: '#f59e0b',
+		owner: 'player'
+	};
+	state.projectiles.push(projectile);
 }
 
 function spawnScatterProjectiles(
@@ -81,19 +82,20 @@ function spawnScatterProjectiles(
 
   for (let index = 0; index < pelletCount; index += 1) {
     const angle = start + step * index;
-    projectiles.push({
-      id: uid('proj'),
-      x: state.player.x,
-      y: state.player.y,
-      vx: Math.cos(angle) * PROJECTILE_SPEED,
-      vy: Math.sin(angle) * PROJECTILE_SPEED,
-      radius: BASE_PROJECTILE_RADIUS,
-      damage,
-      color
-    });
+		projectiles.push({
+			id: uid('proj'),
+			x: state.player.x,
+			y: state.player.y,
+			vx: Math.cos(angle) * PROJECTILE_SPEED,
+			vy: Math.sin(angle) * PROJECTILE_SPEED,
+			radius: BASE_PROJECTILE_RADIUS,
+			damage,
+			color,
+			owner: 'player'
+		});
   }
 
-  state.projectiles = [...state.projectiles, ...projectiles];
+	state.projectiles.push(...projectiles);
 }
 
 function resolvePatternForNextCycle(state: GameState): AttackPattern {
@@ -117,8 +119,8 @@ export function tickAutoAttack(state: GameState, dtMs: number) {
   state.runtime.attackCooldownMs += AUTO_ATTACK_COOLDOWN_MS;
   if (!getNearestMonster(state)) return;
 
-  const sequence = createAttackSequence(resolvePatternForNextCycle(state));
-  state.attackSequences = [...state.attackSequences, sequence];
+	const sequence = createAttackSequence(resolvePatternForNextCycle(state));
+	state.attackSequences.push(sequence);
 }
 
 export function tickAttackSequences(state: GameState, dtMs: number) {

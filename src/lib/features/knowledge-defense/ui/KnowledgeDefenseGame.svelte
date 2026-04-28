@@ -23,7 +23,7 @@
 		KD_WRONG_COOLDOWN_MIN_ROUNDS,
 		PLAYFIELD_MIN_HEIGHT
 	} from '../config/constants';
-	import type { QuestionPack, RewardChoice, WrongNotebookStats } from '../core/types';
+	import type { QuestionPack, RewardChoice, RunSummary, WrongNotebookStats } from '../core/types';
 	import { isAnswerCorrectWithOptions } from '../core/utils';
 	import { samplePack } from '../data/sample-pack';
 	import { createInitialGameState } from '../state/game-store';
@@ -47,17 +47,37 @@
 	import { tickDamageTexts } from '../systems/combat-feedback-system';
 	import { tickAutoAttack, tickAttackSequences } from '../systems/auto-attack-system';
 	import { updateProjectiles } from '../systems/projectile-system';
-	import { castPulseAbility, tickAbilityCooldown } from '../systems/ability-system';
+	import {
+		castPulseAbility,
+		grantPulseOvercharge,
+		refreshPulseAbility,
+		tickAbilityCooldown
+	} from '../systems/ability-system';
 	import { applyRewardByKind } from '../systems/progression-system';
+	import {
+		getQueuedWeaponBuffLabel,
+		updateBattlefieldDrops
+	} from '../systems/battlefield-drop-system';
 	import { addDrone, updateDrones } from '../systems/drone-system';
 	import { openRewardPanel, closeRewardPanel } from '../systems/reward-system';
+	import { deriveRunSummary } from '../systems/run-summary';
+	import {
+		KNOWLEDGE_DEFENSE_MODE_NAME,
+		KNOWLEDGE_DEFENSE_ONBOARDING_STORAGE_KEY,
+		deriveContentSourceSummary,
+		deriveInRunGuidance,
+		derivePreRunBriefing,
+		getAttackPreferenceLabel
+	} from '../systems/mode-guidance';
 	import GameCanvas from './GameCanvas.svelte';
 	import HudOverlay from './HudOverlay.svelte';
+	import ModeGuidancePanel from './ModeGuidancePanel.svelte';
 	import RewardPanel from './RewardPanel.svelte';
 	import PrepPanel from './PrepPanel.svelte';
 	import SettingsPanel from './SettingsPanel.svelte';
 	import StartMenu from './StartMenu.svelte';
 	import ExitConfirmPanel from './ExitConfirmPanel.svelte';
+	import RunSummaryPanel from './RunSummaryPanel.svelte';
 
 	export let pack: QuestionPack = samplePack;
 	type ChapterHomeworkItem = {
@@ -103,6 +123,63 @@
 	let persistTimer: ReturnType<typeof setTimeout> | null = null;
 	let pendingPersistAnswerCount = 0;
 	let gameOverPersisted = false;
+	let runSummary: RunSummary | null = null;
+	let showModeGuidancePanel = false;
+	let showFirstRunOnboarding = false;
+
+	$: expBoostRemainingMs = Math.max(0, state.buffs.expBoostUntil - Date.now());
+	$: runSummary = state.player.hp <= 0 ? deriveRunSummary(state) : null;
+	$: sourceSummary = deriveContentSourceSummary({
+		usingSampleFallback,
+		chapterTitle: chapterHomeworkPayload?.chapter_title ?? null,
+		selectedKnowledgeId,
+		selectedFileId,
+		selectedHomeworkId
+	});
+	$: preRunBriefing = derivePreRunBriefing({
+		attackPreference: state.settings.attackPreference,
+		sourceSummary
+	});
+	$: attackModeLabel = getAttackPreferenceLabel(state.settings.attackPreference);
+	$: inRunGuidance = deriveInRunGuidance({
+		kills: state.battle.kills,
+		level: state.progress.level,
+		pendingRewards: state.progress.pendingLevelUps,
+		abilityCooldownMs: state.runtime.abilityCooldownMs,
+		pulseOverchargeStacks: state.buffs.pulseOverchargeStacks,
+		hp: state.player.hp,
+		maxHp: state.player.maxHp,
+		usingSampleFallback
+	});
+	$: activePickupBuffs = [
+		...(state.buffs.pulseOverchargeStacks > 0
+			? [
+					{
+						id: 'pulse-overcharge',
+						label: '脉冲超载',
+						detail: `下次强化脉冲 ×${state.buffs.pulseOverchargeStacks}`
+					}
+				]
+			: []),
+		...(state.buffs.queuedWeaponBuff && state.buffs.queuedWeaponBuffUses > 0
+			? [
+					{
+						id: 'weapon',
+						label: '武器强化',
+						detail: `${getQueuedWeaponBuffLabel(state.buffs.queuedWeaponBuff)} · ${state.buffs.queuedWeaponBuffUses} 次`
+					}
+				]
+			: []),
+		...(expBoostRemainingMs > 0
+			? [
+					{
+						id: 'xp',
+						label: '经验增幅',
+						detail: `${Math.ceil(expBoostRemainingMs / 1000)}s`
+					}
+				]
+			: [])
+	];
 
 	const unsubscribeWrongNotebook = wrongNotebookStore.subscribe((items) => {
 		wrongNotebook = items;
@@ -129,6 +206,7 @@
 	function closeTransientPanels() {
 		state.ui.showSettingsPanel = false;
 		state.ui.showPrepPanel = false;
+		showModeGuidancePanel = false;
 		if (state.ui.showRewardPanel) {
 			closeRewardPanelKeepingPending();
 		}
@@ -154,6 +232,8 @@
 	}
 
 	function startRun() {
+		showModeGuidancePanel = false;
+		showFirstRunOnboarding = false;
 		resetRun(false);
 		state.ui.showStartMenu = false;
 		state.runtime.running = true;
@@ -186,6 +266,7 @@
 
 	function openSettings() {
 		if (showExitConfirm) return;
+		showModeGuidancePanel = false;
 		state.ui.showSettingsPanel = true;
 		state.ui.showPrepPanel = false;
 		state = { ...state };
@@ -199,6 +280,7 @@
 	// ========== 非阻塞核心：只有真正打开错题集时才异步调用 AI ==========
 	async function openPrepPanel() {
 		if (showExitConfirm) return;
+		showModeGuidancePanel = false;
 		state.ui.showPrepPanel = true;
 		state.ui.showSettingsPanel = false;
 		state = { ...state };
@@ -285,8 +367,30 @@
 
 	function openExitConfirm() {
 		if (state.ui.showStartMenu || showExitConfirm || state.player.hp <= 0) return;
+		showModeGuidancePanel = false;
 		showExitConfirm = true;
 		audioManager.pauseBGM();
+	}
+
+	function openModeGuidancePanel() {
+		showModeGuidancePanel = true;
+	}
+
+	function closeModeGuidancePanel() {
+		showModeGuidancePanel = false;
+	}
+
+	function closeFirstRunOnboarding() {
+		showFirstRunOnboarding = false;
+	}
+
+	function dismissFirstRunOnboarding() {
+		showFirstRunOnboarding = false;
+		try {
+			window.localStorage.setItem(KNOWLEDGE_DEFENSE_ONBOARDING_STORAGE_KEY, '1');
+		} catch (error) {
+			console.warn('知识防御引导持久化失败，将继续只在当前会话隐藏', error);
+		}
 	}
 
 	function closeExitConfirm() {
@@ -361,20 +465,24 @@
 		if (isCorrect) {
 			state.battle.correct += 1;
 			state.battle.qaRound += 1;
-			state.ui.rewardFeedback = `答对了：${choice.question.explanation}`;
+			state.ui.rewardFeedback = `答对了：${choice.question.explanation}（脉冲已刷新，并储存 1 层超载）`;
 			state.ui.rewardFeedbackKind = 'success';
-			await markWrongNotebookCorrect(
+			void markWrongNotebookCorrect(
 				activePack.id,
 				choice.question.id,
 				activePack.source,
 				choice.question.prompt
-			).catch(
-				() => undefined
-			);
+			).catch(() => undefined);
 			queuePersistProgress(choice.question, selected, true);
+			refreshPulseAbility(state);
+			grantPulseOvercharge(state);
 
 			if (choice.rewardKind === 'drone') {
-				addDrone(state);
+				const addedDrone = addDrone(state);
+				if (!addedDrone) {
+					grantPulseOvercharge(state);
+					state.ui.rewardFeedback = `答对了：${choice.question.explanation}（无人机已满，额外转化为 1 层脉冲超载）`;
+				}
 			}
 			try {
 				applyRewardByKind(state, choice.rewardKind);
@@ -389,9 +497,12 @@
 			state.battle.qaRound += 1;
 			state.ui.rewardFeedback = `答错了。正确答案：${choice.question.answer}。${choice.question.explanation}（已触发保底恢复）`;
 			state.ui.rewardFeedbackKind = 'error';
-			await recordWrongNotebookEntry(activePack.id, choice.question, selected, activePack.source).catch(
-				() => undefined
-			);
+			void recordWrongNotebookEntry(
+				activePack.id,
+				choice.question,
+				selected,
+				activePack.source
+			).catch(() => undefined);
 			queuePersistProgress(choice.question, selected, false);
 			state.player.hp = Math.min(state.player.maxHp, state.player.hp + 12);
 			state.player.contactInvulnMs = Math.max(state.player.contactInvulnMs, 260);
@@ -421,6 +532,7 @@
 			const dtMs = rawDtMs * state.runtime.timeScale;
 			const dtSeconds = dtMs / 1000;
 
+			state.runTelemetry.elapsedMs += dtMs;
 			maybeSpawnMonster(state, dtMs);
 			updatePlayer(state, input, dtSeconds, dtMs);
 			updateMonsters(state, dtSeconds, dtMs);
@@ -429,6 +541,7 @@
 			tickAbilityCooldown(state, dtMs);
 			updateProjectiles(state, dtSeconds);
 			updateDrones(state, dtSeconds, dtMs);
+			updateBattlefieldDrops(state, dtMs);
 			tickDamageTexts(state, dtSeconds, dtMs);
 			state = { ...state };
 		}
@@ -440,6 +553,13 @@
 		debugLog('system.ready', {
 			debugEnabled: KD_ENABLE_DEBUG_LOGS
 		});
+		try {
+			showFirstRunOnboarding =
+				window.localStorage.getItem(KNOWLEDGE_DEFENSE_ONBOARDING_STORAGE_KEY) !== '1';
+		} catch (error) {
+			console.warn('读取知识防御引导状态失败，默认继续显示首次引导', error);
+			showFirstRunOnboarding = true;
+		}
 		void initializeKnowledgeSource();
 		teardownKeyboard = attachKeyboard(input);
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -557,7 +677,9 @@
 					prompt: questionText,
 					options: getQuestionOptions(item?.options),
 					answer,
-					explanation: String(item?.analysis ?? item?.explanation ?? '请回到章节内容复盘本题。').trim(),
+					explanation: String(
+						item?.analysis ?? item?.explanation ?? '请回到章节内容复盘本题。'
+					).trim(),
 					sourceIndex: idx,
 					performance: {
 						attempts,
@@ -572,8 +694,7 @@
 							perf?.last_result === 'correct' || perf?.last_result === 'wrong'
 								? perf.last_result
 								: undefined,
-						updated_at:
-							typeof perf?.updated_at === 'number' ? perf.updated_at : undefined
+						updated_at: typeof perf?.updated_at === 'number' ? perf.updated_at : undefined
 					}
 				};
 			})
@@ -698,8 +819,13 @@
 		}
 	}
 
-	function queuePersistProgress(question: RewardChoice['question'], selected: string, isCorrect: boolean) {
-		if (usingSampleFallback || !chapterHomeworkPayload || !selectedFileId || !selectedHomeworkId) return;
+	function queuePersistProgress(
+		question: RewardChoice['question'],
+		selected: string,
+		isCorrect: boolean
+	) {
+		if (usingSampleFallback || !chapterHomeworkPayload || !selectedFileId || !selectedHomeworkId)
+			return;
 		const idx = question.sourceIndex;
 		if (typeof idx !== 'number') return;
 		const questionList = chapterHomeworkPayload.questions ?? [];
@@ -719,7 +845,10 @@
 				: KD_CORRECT_COOLDOWN_ROUNDS
 			: Math.max(
 					KD_WRONG_COOLDOWN_MIN_ROUNDS,
-					Math.min(KD_WRONG_COOLDOWN_MAX_ROUNDS, KD_WRONG_COOLDOWN_BASE + Number(previous.wrong ?? 0))
+					Math.min(
+						KD_WRONG_COOLDOWN_MAX_ROUNDS,
+						KD_WRONG_COOLDOWN_BASE + Number(previous.wrong ?? 0)
+					)
 				);
 		row.performance = {
 			attempts,
@@ -773,7 +902,13 @@
 
 		const remainingSlots = Math.max(0, KD_CHAPTER_MAX_QUESTIONS - next.length);
 		const token = getToken();
-		if (wrongSeeds.length > 0 && remainingSlots > 0 && token && selectedFileId && selectedHomeworkId) {
+		if (
+			wrongSeeds.length > 0 &&
+			remainingSlots > 0 &&
+			token &&
+			selectedFileId &&
+			selectedHomeworkId
+		) {
 			const reinforceCount = Math.min(
 				remainingSlots,
 				wrongSeeds.reduce((sum, item) => {
@@ -902,11 +1037,17 @@
 	{#if state.ui.showStartMenu}
 		<div class="start-shell">
 			<StartMenu
-				attackPreference={state.settings.attackPreference}
+				modeName={KNOWLEDGE_DEFENSE_MODE_NAME}
+				{attackModeLabel}
 				wrongCount={wrongNotebook.length}
+				sourceLabel={sourceSummary.label}
+				sourceDetail={sourceSummary.detail}
+				sourceIsFallback={sourceSummary.isFallback}
+				briefing={preRunBriefing}
 				on:start={startRun}
 				on:settings={openSettings}
 				on:notebook={openPrepPanel}
+				on:help={openModeGuidancePanel}
 				on:exitHome={exitToAppHome}
 			/>
 		</div>
@@ -918,6 +1059,7 @@
 				player={state.player}
 				progress={state.progress}
 				monsters={state.monsters}
+				battlefieldDrops={state.battlefieldDrops}
 				projectiles={state.projectiles}
 				drones={state.drones}
 				lasers={state.lasers}
@@ -938,12 +1080,22 @@
 				correct={state.battle.correct}
 				wrong={state.battle.wrong}
 				pendingRewards={state.progress.pendingLevelUps}
-				attackModeLabel={state.settings.attackPreference === 'straight' ? '直线发射' : '散射'}
-				sourceLabel={usingSampleFallback ? 'Sample Pack' : chapterHomeworkPayload?.chapter_title ?? '章节作业'}
+				modeName={KNOWLEDGE_DEFENSE_MODE_NAME}
+				{attackModeLabel}
+				sourceLabel={sourceSummary.label}
+				sourceDetail={sourceSummary.detail}
+				sourceIsFallback={sourceSummary.isFallback}
 				abilityCooldownMs={state.runtime.abilityCooldownMs}
+				pulseOverchargeStacks={state.buffs.pulseOverchargeStacks}
+				guidanceMessages={inRunGuidance}
+				{activePickupBuffs}
+				pickupFeedbackTitle={state.ui.pickupFeedback?.title ?? null}
+				pickupFeedbackDetail={state.ui.pickupFeedback?.detail ?? null}
+				pickupFeedbackKind={state.ui.pickupFeedback?.kind ?? null}
 				on:exit={openExitConfirm}
 				on:castAbility={handleCastAbility}
 				on:openReward={tryOpenRewardPanel}
+				on:openHelp={openModeGuidancePanel}
 			/>
 
 			{#if state.ui.showRewardPanel}
@@ -956,23 +1108,12 @@
 				/>
 			{/if}
 
-			{#if state.player.hp <= 0}
-				<div class="game-over">
-					<div class="game-over-card">
-						<h2>本局结束</h2>
-						<p>你被怪物突破防线了。保留下来的错题已经进入错题集，可以先复盘再开一局。</p>
-						<div class="stats-grid">
-							<div><span>等级</span><strong>Lv.{state.progress.level}</strong></div>
-							<div><span>击杀</span><strong>{state.battle.kills}</strong></div>
-							<div><span>答对</span><strong>{state.battle.correct}</strong></div>
-							<div><span>答错</span><strong>{state.battle.wrong}</strong></div>
-						</div>
-						<div class="actions">
-							<button type="button" on:click={startRun}>重新开始</button>
-							<button type="button" class="secondary" on:click={exitToStartMenu}>返回启动页</button>
-						</div>
-					</div>
-				</div>
+			{#if state.player.hp <= 0 && runSummary}
+				<RunSummaryPanel
+					summary={runSummary}
+					on:restart={startRun}
+					on:startMenu={exitToStartMenu}
+				/>
 			{/if}
 		</div>
 	{/if}
@@ -988,21 +1129,46 @@
 	<SettingsPanel
 		visible={state.ui.showSettingsPanel}
 		attackPreference={state.settings.attackPreference}
-		loadingKnowledgeBases={loadingKnowledgeBases}
-		loadingKnowledgeFiles={loadingKnowledgeFiles}
-		loadingChapterHomeworks={loadingChapterHomeworks}
-		knowledgeBases={knowledgeBases}
-		knowledgeFiles={knowledgeFiles}
-		chapterHomeworks={chapterHomeworks}
-		selectedKnowledgeId={selectedKnowledgeId}
-		selectedFileId={selectedFileId}
-		selectedHomeworkId={selectedHomeworkId}
-		usingSampleFallback={usingSampleFallback}
+		{loadingKnowledgeBases}
+		{loadingKnowledgeFiles}
+		{loadingChapterHomeworks}
+		{knowledgeBases}
+		{knowledgeFiles}
+		{chapterHomeworks}
+		{selectedKnowledgeId}
+		{selectedFileId}
+		{selectedHomeworkId}
+		{usingSampleFallback}
+		sourceLabel={sourceSummary.label}
+		sourceDetail={sourceSummary.detail}
 		on:close={closeSettings}
 		on:changePreference={(event) => changeAttackPreference(event.detail.value)}
 		on:changeKnowledge={(event) => handleKnowledgeChange(event.detail.value)}
 		on:changeFile={(event) => handleFileChange(event.detail.value)}
 		on:changeChapterHomework={(event) => handleChapterHomeworkChange(event.detail.value)}
+	/>
+
+		<ModeGuidancePanel
+			visible={showModeGuidancePanel}
+			title={state.ui.showStartMenu ? '模式帮助与图例' : '战场帮助与图例'}
+			description={state.ui.showStartMenu
+				? '开局前先确认模式循环、操作、题源与奖励节奏，也记住答对会回脉冲。'
+				: '战斗中随时回看奖励节奏、答对回脉冲、掉落含义与怪物前摇，帮助你在安全时机做决定。'}
+			briefing={preRunBriefing}
+			currentGuidance={state.ui.showStartMenu ? [] : inRunGuidance}
+			on:close={closeModeGuidancePanel}
+			on:dismiss={closeModeGuidancePanel}
+		/>
+
+	<ModeGuidancePanel
+		visible={state.ui.showStartMenu && showFirstRunOnboarding}
+		title="首次上手引导"
+		description="第一次进入时先看清什么时候答题、什么时候领奖、答对会回脉冲，以及 fallback 样例题源代表什么。"
+		briefing={preRunBriefing}
+		currentGuidance={[]}
+		onboarding={true}
+		on:close={closeFirstRunOnboarding}
+		on:dismiss={dismissFirstRunOnboarding}
 	/>
 
 	<ExitConfirmPanel
@@ -1039,93 +1205,4 @@
 		box-sizing: border-box;
 	}
 
-	.game-over {
-		position: absolute;
-		inset: 0;
-		display: grid;
-		place-items: center;
-		background: rgba(39, 28, 19, 0.38);
-		backdrop-filter: blur(4px);
-		z-index: 170;
-		padding: 20px;
-	}
-
-	.game-over-card {
-		width: min(560px, calc(100vw - 40px));
-		background: #fffaf4;
-		border: 1px solid #e6d7c7;
-		border-radius: 28px;
-		padding: 24px;
-		box-shadow: 0 24px 60px rgba(54, 41, 30, 0.18);
-	}
-
-	.game-over-card h2 {
-		margin: 0 0 10px;
-		font-size: 30px;
-		color: #5b4837;
-	}
-
-	.game-over-card p {
-		margin: 0;
-		color: #7b6756;
-		line-height: 1.7;
-	}
-
-	.stats-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 12px;
-		margin-top: 18px;
-	}
-
-	.stats-grid > div {
-		border-radius: 18px;
-		padding: 14px;
-		background: #fffdf9;
-		border: 1px solid #ecdccb;
-	}
-
-	.stats-grid span {
-		display: block;
-		color: #8b7767;
-		font-size: 12px;
-		margin-bottom: 6px;
-	}
-
-	.stats-grid strong {
-		font-size: 24px;
-		color: #4e3c2e;
-	}
-
-	.actions {
-		margin-top: 18px;
-		display: flex;
-		gap: 12px;
-		flex-wrap: wrap;
-	}
-
-	.actions button {
-		border: 1px solid #b69b7c;
-		background: #fff4e6;
-		color: #5a4736;
-		border-radius: 16px;
-		padding: 12px 16px;
-		font-weight: 700;
-		cursor: pointer;
-	}
-
-	.actions .secondary {
-		background: #fff;
-	}
-
-	@media (max-width: 900px) {
-		.game-over {
-			padding: 14px;
-		}
-
-		.game-over-card {
-			border-radius: 22px;
-			padding: 18px;
-		}
-	}
 </style>

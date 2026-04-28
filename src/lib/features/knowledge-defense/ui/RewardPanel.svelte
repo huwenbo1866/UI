@@ -12,20 +12,38 @@
     close: void;
   }>();
 
-  function answer(choice: RewardChoice, selected: string) {
-    dispatch('answer', { choice, selected });
-  }
+	function answer(choice: RewardChoice, selected: string) {
+		dispatch('answer', { choice, selected });
+	}
+
+	function close() {
+		dispatch('close');
+	}
+
+	function handleOverlayKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			close();
+		}
+	}
 </script>
 
-<div class="overlay" on:click={() => dispatch('close')}>
-  <div class="panel" on:click|stopPropagation>
-    <div class="header">
-      <div>
-        <h2>战术抉择 · 奖励答题</h2>
-        <p>升级后不会自动打断战斗。你可以在需要的时候按空格或点击角色打开这里。答对可领取完整奖励，答错也会得到保底恢复，避免断节奏。</p>
-      </div>
-      <button class="close" on:click={() => { audioManager.playClick(); dispatch('close'); }}>关闭</button>
-    </div>
+<div
+	class="overlay"
+	role="button"
+	tabindex="0"
+	aria-label="关闭奖励答题面板"
+	on:click|self={close}
+	on:keydown|self={handleOverlayKeydown}
+>
+	<div class="panel">
+		<div class="header">
+			<div>
+				<h2>战术抉择 · 奖励答题</h2>
+				<p>升级后不会自动打断战斗。你可以在需要的时候按空格或点击角色打开这里。答对可领取完整奖励、立刻回脉冲并存 1 层超载；答错也会得到保底恢复，避免断节奏。</p>
+			</div>
+			<button class="close" on:click={() => { audioManager.playClick(); close(); }}>关闭</button>
+		</div>
 
     {#if feedback}
       <div class={`feedback ${feedbackKind ?? ''}`}>{feedback}</div>
@@ -63,14 +81,14 @@
 
 <style>
   .overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
     display: grid;
     place-items: center;
     padding: 24px;
     background: rgba(39, 28, 19, 0.34);
     backdrop-filter: blur(4px);
-    z-index: 50;
+    z-index: 180;
   }
   .panel {
     width: min(1180px, calc(100vw - 48px));

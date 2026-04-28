@@ -1,14 +1,23 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import type { AttackPreference } from '../core/types';
+  import { KNOWLEDGE_DEFENSE_MODE_NAME } from '../systems/mode-guidance';
 
-  export type KnowledgeBaseOption = { id: string; name: string };
-  export type KnowledgeFileOption = { id: string; name: string };
-  export type ChapterHomeworkOption = {
+  interface KnowledgeBaseOption {
+    id: string;
+    name: string;
+  }
+
+  interface KnowledgeFileOption {
+    id: string;
+    name: string;
+  }
+
+  interface ChapterHomeworkOption {
     id: string;
     chapter_title: string;
     question_count: number;
-  };
+  }
 
   export let visible = false;
   export let attackPreference: AttackPreference = 'straight';
@@ -25,6 +34,8 @@
   export let selectedFileId = '';
   export let selectedHomeworkId = '';
   export let usingSampleFallback = true;
+  export let sourceLabel = '备用样例题源（Fallback）';
+  export let sourceDetail = '';
 
   const dispatch = createEventDispatcher<{
     close: void;
@@ -37,17 +48,31 @@
   function close() {
     dispatch('close');
   }
+
+  function handleOverlayKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      close();
+    }
+  }
 </script>
 
 {#if visible}
-  <div class="overlay" on:click={close}>
-    <div class="panel" on:click|stopPropagation>
+  <div
+    class="overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭设置面板"
+    on:click|self={close}
+    on:keydown|self={handleOverlayKeydown}
+  >
+    <div class="panel">
       <div class="header">
         <div>
-          <h2>设置</h2>
-          <p>可切换攻击模式，并选择知识库文件章节作业作为闯关题源；加载失败时自动回退 sample_pack。</p>
+          <h2>{KNOWLEDGE_DEFENSE_MODE_NAME} · 设置</h2>
+          <p>可切换攻击偏好，并选择知识库文件章节作业作为题源；如果章节不可用，会明确回退到 fallback 样例题源。</p>
         </div>
-        <button class="close" on:click={close}>关闭</button>
+        <button type="button" class="close" on:click={close}>关闭</button>
       </div>
 
       <div class="section">
@@ -129,13 +154,10 @@
           </label>
         </div>
 
-        <p class="source-tip" class:fallback={usingSampleFallback}>
-          {#if usingSampleFallback}
-            当前使用 sample_pack（知识库题源不可用时自动回退）
-          {:else}
-            当前使用知识库章节作业题源
-          {/if}
-        </p>
+        <div class="source-tip" class:fallback={usingSampleFallback}>
+          <strong>{sourceLabel}</strong>
+          <span>{sourceDetail}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -223,9 +245,24 @@
     margin: 10px 0 0;
     color: #5a4736;
     font-size: 13px;
+    border-radius: 14px;
+    border: 1px solid #eadfce;
+    background: #fffdf9;
+    padding: 12px 14px;
+    display: grid;
+    gap: 6px;
+  }
+  .source-tip strong {
+    color: #4f3d2f;
+    font-size: 15px;
+  }
+  .source-tip span {
+    line-height: 1.6;
   }
   .source-tip.fallback {
     color: #a16207;
+    border-color: #edc98e;
+    background: #fff8ee;
   }
   
   @media (max-width: 900px) {
