@@ -4,7 +4,7 @@ import { render } from 'svelte/server';
 import StartMenu from './StartMenu.svelte';
 
 describe('StartMenu', () => {
-	it('renders the unified shell briefing with controls, attack preference, and explicit fallback source messaging', () => {
+	it('keeps the action buttons while showing the new homepage hero title without restoring bulky briefing content', () => {
 		const { body } = render(StartMenu, {
 			props: {
 				modeName: 'Knowledge Defense / 知识防御',
@@ -33,13 +33,15 @@ describe('StartMenu', () => {
 			}
 		});
 
-		expect(body).toContain('Knowledge Defense / 知识防御');
-		expect(body).toContain('模式循环');
-		expect(body).toContain('主控操作');
-		expect(body).toContain('奖励时机');
-		expect(body).toContain('错题 / 复盘价值');
-		expect(body).toContain('当前攻击偏好：直线发射');
-		expect(body).toContain('备用样例题源（Fallback）');
+		expect(body).toContain('Knowledge Defence');
+		expect(body).toContain('知识闯关');
+		expect(body).not.toContain('模式循环');
+		expect(body).not.toContain('主控操作');
+		expect(body).not.toContain('奖励时机');
+		expect(body).not.toContain('错题 / 复盘价值');
 		expect(body).toContain('帮助 / 图例');
+		expect(body).toContain('开始闯关');
+		expect(body).toContain('设置');
+		expect(body).toContain('错题集');
 	});
 });

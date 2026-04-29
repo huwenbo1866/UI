@@ -63,7 +63,6 @@
 	import { deriveRunSummary } from '../systems/run-summary';
 	import {
 		KNOWLEDGE_DEFENSE_MODE_NAME,
-		KNOWLEDGE_DEFENSE_ONBOARDING_STORAGE_KEY,
 		deriveContentSourceSummary,
 		deriveInRunGuidance,
 		derivePreRunBriefing,
@@ -125,7 +124,6 @@
 	let gameOverPersisted = false;
 	let runSummary: RunSummary | null = null;
 	let showModeGuidancePanel = false;
-	let showFirstRunOnboarding = false;
 
 	$: expBoostRemainingMs = Math.max(0, state.buffs.expBoostUntil - Date.now());
 	$: runSummary = state.player.hp <= 0 ? deriveRunSummary(state) : null;
@@ -233,7 +231,6 @@
 
 	function startRun() {
 		showModeGuidancePanel = false;
-		showFirstRunOnboarding = false;
 		resetRun(false);
 		state.ui.showStartMenu = false;
 		state.runtime.running = true;
@@ -378,19 +375,6 @@
 
 	function closeModeGuidancePanel() {
 		showModeGuidancePanel = false;
-	}
-
-	function closeFirstRunOnboarding() {
-		showFirstRunOnboarding = false;
-	}
-
-	function dismissFirstRunOnboarding() {
-		showFirstRunOnboarding = false;
-		try {
-			window.localStorage.setItem(KNOWLEDGE_DEFENSE_ONBOARDING_STORAGE_KEY, '1');
-		} catch (error) {
-			console.warn('知识防御引导持久化失败，将继续只在当前会话隐藏', error);
-		}
 	}
 
 	function closeExitConfirm() {
@@ -553,13 +537,6 @@
 		debugLog('system.ready', {
 			debugEnabled: KD_ENABLE_DEBUG_LOGS
 		});
-		try {
-			showFirstRunOnboarding =
-				window.localStorage.getItem(KNOWLEDGE_DEFENSE_ONBOARDING_STORAGE_KEY) !== '1';
-		} catch (error) {
-			console.warn('读取知识防御引导状态失败，默认继续显示首次引导', error);
-			showFirstRunOnboarding = true;
-		}
 		void initializeKnowledgeSource();
 		teardownKeyboard = attachKeyboard(input);
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -1037,13 +1014,6 @@
 	{#if state.ui.showStartMenu}
 		<div class="start-shell">
 			<StartMenu
-				modeName={KNOWLEDGE_DEFENSE_MODE_NAME}
-				{attackModeLabel}
-				wrongCount={wrongNotebook.length}
-				sourceLabel={sourceSummary.label}
-				sourceDetail={sourceSummary.detail}
-				sourceIsFallback={sourceSummary.isFallback}
-				briefing={preRunBriefing}
 				on:start={startRun}
 				on:settings={openSettings}
 				on:notebook={openPrepPanel}
@@ -1075,27 +1045,13 @@
 			<HudOverlay
 				hp={state.player.hp}
 				maxHp={state.player.maxHp}
-				level={state.progress.level}
 				kills={state.battle.kills}
 				correct={state.battle.correct}
 				wrong={state.battle.wrong}
-				pendingRewards={state.progress.pendingLevelUps}
-				modeName={KNOWLEDGE_DEFENSE_MODE_NAME}
-				{attackModeLabel}
-				sourceLabel={sourceSummary.label}
-				sourceDetail={sourceSummary.detail}
-				sourceIsFallback={sourceSummary.isFallback}
 				abilityCooldownMs={state.runtime.abilityCooldownMs}
 				pulseOverchargeStacks={state.buffs.pulseOverchargeStacks}
-				guidanceMessages={inRunGuidance}
-				{activePickupBuffs}
-				pickupFeedbackTitle={state.ui.pickupFeedback?.title ?? null}
-				pickupFeedbackDetail={state.ui.pickupFeedback?.detail ?? null}
-				pickupFeedbackKind={state.ui.pickupFeedback?.kind ?? null}
 				on:exit={openExitConfirm}
 				on:castAbility={handleCastAbility}
-				on:openReward={tryOpenRewardPanel}
-				on:openHelp={openModeGuidancePanel}
 			/>
 
 			{#if state.ui.showRewardPanel}
@@ -1159,17 +1115,6 @@
 			on:close={closeModeGuidancePanel}
 			on:dismiss={closeModeGuidancePanel}
 		/>
-
-	<ModeGuidancePanel
-		visible={state.ui.showStartMenu && showFirstRunOnboarding}
-		title="首次上手引导"
-		description="第一次进入时先看清什么时候答题、什么时候领奖、答对会回脉冲，以及 fallback 样例题源代表什么。"
-		briefing={preRunBriefing}
-		currentGuidance={[]}
-		onboarding={true}
-		on:close={closeFirstRunOnboarding}
-		on:dismiss={dismissFirstRunOnboarding}
-	/>
 
 	<ExitConfirmPanel
 		visible={showExitConfirm}

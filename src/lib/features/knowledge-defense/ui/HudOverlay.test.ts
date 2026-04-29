@@ -4,7 +4,7 @@ import { render } from 'svelte/server';
 import HudOverlay from './HudOverlay.svelte';
 
 describe('HudOverlay', () => {
-	it('renders the unified mode shell name, fallback source messaging, help entry, and contextual guidance', () => {
+	it('keeps only the requested top HUD cards and the pulse card on the right', () => {
 		const { body } = render(HudOverlay, {
 			props: {
 				hp: 58,
@@ -36,14 +36,16 @@ describe('HudOverlay', () => {
 			}
 		});
 
-		expect(body).toContain('Knowledge Defense / 知识防御');
-		expect(body).toContain('攻击偏好');
-		expect(body).toContain('备用样例题源（Fallback）');
-		expect(body).toContain('帮助 / 图例');
-		expect(body).toContain('有奖励待领');
-		expect(body).toContain('×1');
-		expect(body).toContain('奖励待领 · 答对回脉冲');
+		expect(body).toContain('HP');
+		expect(body).toContain('战绩');
+		expect(body).toContain('答题');
 		expect(body).toContain('脉冲 · 超载×1');
 		expect(body).toContain('可释放');
+		expect(body).not.toContain('Knowledge Defense / 知识防御');
+		expect(body).not.toContain('攻击偏好');
+		expect(body).not.toContain('备用样例题源（Fallback）');
+		expect(body).not.toContain('帮助 / 图例');
+		expect(body).not.toContain('有奖励待领');
+		expect(body).not.toContain('奖励待领 · 答对回脉冲');
 	});
 });
