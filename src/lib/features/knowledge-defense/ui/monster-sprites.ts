@@ -1,3 +1,4 @@
+import { KD_MONSTER_SPRITE_SEQUENCES } from '../config/constants';
 import type { Difficulty, MonsterState } from '../core/types';
 
 export type MonsterVisualState = 'idle' | 'move' | 'telegraph' | 'hurt';
@@ -14,89 +15,8 @@ export interface MonsterSpriteResolverInput {
 	animationOffsetMs?: number;
 }
 
-export const MONSTER_SPRITE_SEQUENCES = {
-	easy: {
-		idle: {
-			frames: [
-				'/knowledge-defense/monsters/easy/idle-1.svg',
-				'/knowledge-defense/monsters/easy/idle-2.svg'
-			],
-			frameDurationMs: 420
-		},
-		move: {
-			frames: [
-				'/knowledge-defense/monsters/easy/move-1.svg',
-				'/knowledge-defense/monsters/easy/move-2.svg'
-			],
-			frameDurationMs: 150
-		},
-		telegraph: {
-			frames: [
-				'/knowledge-defense/monsters/easy/telegraph-1.svg',
-				'/knowledge-defense/monsters/easy/telegraph-2.svg'
-			],
-			frameDurationMs: 120
-		},
-		hurt: {
-			frames: ['/knowledge-defense/monsters/easy/hurt-1.svg'],
-			frameDurationMs: 160
-		}
-	},
-	medium: {
-		idle: {
-			frames: [
-				'/knowledge-defense/monsters/medium/idle-1.svg',
-				'/knowledge-defense/monsters/medium/idle-2.svg'
-			],
-			frameDurationMs: 400
-		},
-		move: {
-			frames: [
-				'/knowledge-defense/monsters/medium/move-1.svg',
-				'/knowledge-defense/monsters/medium/move-2.svg'
-			],
-			frameDurationMs: 140
-		},
-		telegraph: {
-			frames: [
-				'/knowledge-defense/monsters/medium/telegraph-1.svg',
-				'/knowledge-defense/monsters/medium/telegraph-2.svg'
-			],
-			frameDurationMs: 110
-		},
-		hurt: {
-			frames: ['/knowledge-defense/monsters/medium/hurt-1.svg'],
-			frameDurationMs: 160
-		}
-	},
-	hard: {
-		idle: {
-			frames: [
-				'/knowledge-defense/monsters/hard/idle-1.svg',
-				'/knowledge-defense/monsters/hard/idle-2.svg'
-			],
-			frameDurationMs: 380
-		},
-		move: {
-			frames: [
-				'/knowledge-defense/monsters/hard/move-1.svg',
-				'/knowledge-defense/monsters/hard/move-2.svg'
-			],
-			frameDurationMs: 130
-		},
-		telegraph: {
-			frames: [
-				'/knowledge-defense/monsters/hard/telegraph-1.svg',
-				'/knowledge-defense/monsters/hard/telegraph-2.svg'
-			],
-			frameDurationMs: 100
-		},
-		hurt: {
-			frames: ['/knowledge-defense/monsters/hard/hurt-1.svg'],
-			frameDurationMs: 160
-		}
-	}
-} as const satisfies Record<Difficulty, Record<MonsterVisualState, MonsterSpriteSequence>>;
+export const MONSTER_SPRITE_SEQUENCES =
+	KD_MONSTER_SPRITE_SEQUENCES as Record<Difficulty, Record<MonsterVisualState, MonsterSpriteSequence>>;
 
 export function getMonsterVisualState(
 	monster: Pick<MonsterState, 'attackState' | 'hurtFlashMs' | 'moving'>

@@ -6,7 +6,8 @@ import {
   ENABLE_CLICK_SOUND,
   ENABLE_HIT_SOUND,
   ENABLE_DEATH_SOUND,
-  ENABLE_PANEL_SOUND
+  ENABLE_PANEL_SOUND,
+	KD_AUDIO_ASSETS
 } from '../config/constants';
 
 class AudioManager {
@@ -16,18 +17,18 @@ class AudioManager {
   constructor() {
     if (!ENABLE_AUDIO) return;
 
-    // 背景音乐
-    if (ENABLE_BGM) {
-      this.bgm = new Audio('/sounds/bgm.mp3');
-      this.bgm.loop = true;
-      this.bgm.volume = 0.35;
-    }
+	// 背景音乐
+	if (ENABLE_BGM) {
+	  this.bgm = new Audio(KD_AUDIO_ASSETS.bgm);
+	  this.bgm.loop = true;
+	  this.bgm.volume = 0.35;
+	}
 
-    // 音效
-    if (ENABLE_CLICK_SOUND) this.sounds.click = new Audio('/sounds/click.mp3');
-    if (ENABLE_HIT_SOUND) this.sounds.hit = new Audio('/sounds/hit.mp3');
-    if (ENABLE_DEATH_SOUND) this.sounds.death = new Audio('/sounds/death.mp3');
-    if (ENABLE_PANEL_SOUND) this.sounds.panel = new Audio('/sounds/panel.mp3');
+	// 音效
+	if (ENABLE_CLICK_SOUND) this.sounds.click = new Audio(KD_AUDIO_ASSETS.click);
+	if (ENABLE_HIT_SOUND) this.sounds.hit = new Audio(KD_AUDIO_ASSETS.hit);
+	if (ENABLE_DEATH_SOUND) this.sounds.death = new Audio(KD_AUDIO_ASSETS.death);
+	if (ENABLE_PANEL_SOUND) this.sounds.panel = new Audio(KD_AUDIO_ASSETS.panel);
   }
 
   playBGM() {

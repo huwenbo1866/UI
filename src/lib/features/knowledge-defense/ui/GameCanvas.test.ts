@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 
+import { KD_ASSET_PATHS } from '../config/constants';
 import GameCanvas from './GameCanvas.svelte';
 import type { BattlefieldDropState, DroneState, LaserEffectState, MonsterState, ProjectileState } from '../core/types';
 import { getMonsterAnimationOffset, resolveMonsterSpriteFrame } from './monster-sprites';
@@ -286,11 +287,12 @@ describe('GameCanvas monster sprite rendering', () => {
 				id: 'drone-1',
 				x: 660,
 				y: 390,
+				orbitAngle: 0,
+				cooldownMs: 0,
 				targetMonsterId: null,
-				attackCooldownMs: 0,
-				orbitingDistance: 62,
-				angle: 0,
-				level: 2
+				moveDirX: 0,
+				moveDirY: -1,
+				formationSlot: 0
 			}
 		];
 		const lasers: LaserEffectState[] = [
@@ -351,7 +353,7 @@ describe('GameCanvas monster sprite rendering', () => {
 		});
 
 		expect(body).toContain('class="drone ');
-		expect(body).toContain('data-drone-level="2"');
+		expect(body).toContain(`src="${KD_ASSET_PATHS.droneSprite}"`);
 		expect(body).toContain('left:600px; top:410px; width:160px; transform:translateY(-50%) rotate(0rad);');
 	});
 });

@@ -23,7 +23,8 @@ import {
 	MONSTER_THROW_PROJECTILE_SPEED,
 	MONSTER_THROW_PROJECTILE_TTL_MS,
 	MONSTER_THROW_TELEGRAPH_MS,
-	MONSTER_THROW_TRIGGER_RANGE
+	MONSTER_THROW_TRIGGER_RANGE,
+	KD_MONSTER_TUNING
 } from '../config/constants';
 import type {
 	Difficulty,
@@ -297,8 +298,16 @@ function tickMonsterThrowTelegraph(state: GameState, monster: MonsterState, dtMs
 }
 
 function pickDifficulty(level: number): Difficulty {
-	if (level >= 6 && Math.random() > 0.55) return 'hard';
-	if (level >= 3 && Math.random() > 0.45) return 'medium';
+	if (
+		level >= KD_MONSTER_TUNING.spawnDifficulty.hardMinimumLevel &&
+		Math.random() > KD_MONSTER_TUNING.spawnDifficulty.hardRollThreshold
+	)
+		return 'hard';
+	if (
+		level >= KD_MONSTER_TUNING.spawnDifficulty.mediumMinimumLevel &&
+		Math.random() > KD_MONSTER_TUNING.spawnDifficulty.mediumRollThreshold
+	)
+		return 'medium';
 	return 'easy';
 }
 
@@ -336,11 +345,13 @@ export function maybeSpawnMonster(state: GameState, dtMs: number) {
 		hp: MONSTER_HP[difficulty],
 		maxHp: MONSTER_HP[difficulty],
 		radius: MONSTER_RADIUS[difficulty],
-		speed: MONSTER_BASE_SPEED[difficulty] + state.progress.level * 1.5,
+		speed:
+			MONSTER_BASE_SPEED[difficulty] +
+			state.progress.level * KD_MONSTER_TUNING.spawnDifficulty.levelSpeedStep,
 		damage: MONSTER_DAMAGE[difficulty],
 		isDead: false,
 		hurtFlashMs: 0,
-		attackCooldownMs: 280,
+		attackCooldownMs: KD_MONSTER_TUNING.spawnDifficulty.initialAttackCooldownMs,
 		attackState: 'idle',
 		attackWindupMs: 0,
 		moving: false,

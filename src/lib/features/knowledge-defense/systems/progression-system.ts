@@ -7,6 +7,9 @@ import {
 	EXP_BOOST_DURATION_MS,
 	EXP_BOOST_MULTIPLIER,
 	EXP_PER_KILL,
+	KD_ABILITY_TUNING,
+	KD_DRONE_TUNING,
+	KD_WEAPON_TUNING,
 	MISSILE_BURST_INTERVAL_MS,
 	MOVE_SPEED_REWARD_DURATION_MS,
 	MOVE_SPEED_REWARD_MULTIPLIER,
@@ -28,6 +31,7 @@ import type {
 	WeaponDefinitionId
 } from '../core/types';
 import { resetRewardPanelState } from './reward-system';
+import { addDrone } from './drone-system';
 
 export function gainExpForKill(state: GameState) {
 	const now = Date.now();
@@ -94,8 +98,9 @@ function queueMainWeaponUpgrade(state: GameState, weaponDefinitionId: WeaponDefi
 	}
 
 	if (weaponDefinitionId === 'weapon_main_laser') {
-		state.build.mods.laserRangeMultiplier = (state.build.mods.laserRangeMultiplier || 1) * 1.5;
-		state.build.mods.laserWidthMultiplier *= 1.5;
+		state.build.mods.laserRangeMultiplier =
+			(state.build.mods.laserRangeMultiplier || 1) * KD_WEAPON_TUNING.laser.upgradePermanentRangeMultiplier;
+		state.build.mods.laserWidthMultiplier *= KD_WEAPON_TUNING.laser.upgradePermanentWidthMultiplier;
 		return;
 	}
 
@@ -104,7 +109,7 @@ function queueMainWeaponUpgrade(state: GameState, weaponDefinitionId: WeaponDefi
 			id: uid('seq'),
 			weaponDefinitionId: 'weapon_main_missile',
 			pattern: 'missileBurst',
-			shotsRemaining: 10,
+			shotsRemaining: KD_WEAPON_TUNING.missile.upgradeVolleyShots,
 			shotIntervalMs: MISSILE_BURST_INTERVAL_MS,
 			timeUntilNextMs: 0
 		});
@@ -113,7 +118,7 @@ function queueMainWeaponUpgrade(state: GameState, weaponDefinitionId: WeaponDefi
 
 	if (weaponDefinitionId === 'weapon_main_karate') {
 		state.build.mods.karateRangeMultiplier =
-			(state.build.mods.karateRangeMultiplier || 1) * 1.5;
+			(state.build.mods.karateRangeMultiplier || 1) * KD_ABILITY_TUNING.karate.upgradePermanentRangeMultiplier;
 	}
 }
 
@@ -284,44 +289,71 @@ export function applyRewardByDefinitionId(state: GameState, rewardDefinitionId: 
 			equipMainWeapon(state, 'weapon_main_laser');
 			break;
 		case 'reward_upgrade_straight_burst':
-			state.build.mods.straightBurstExtra = Math.min(2, state.build.mods.straightBurstExtra + 1);
+			state.build.mods.straightBurstExtra = Math.min(
+				KD_WEAPON_TUNING.straight.upgradeMaxBurstExtra,
+				state.build.mods.straightBurstExtra + 1
+			);
 			break;
 		case 'reward_upgrade_straight_trajectory':
-			state.build.mods.straightTrajectories = Math.min(2, state.build.mods.straightTrajectories + 1);
+			state.build.mods.straightTrajectories = Math.min(
+				KD_WEAPON_TUNING.straight.upgradeMaxTrajectories,
+				state.build.mods.straightTrajectories + 1
+			);
 			break;
 		case 'reward_upgrade_straight_freeze':
-			state.build.mods.straightFreezeChance = Math.max(state.build.mods.straightFreezeChance, 0.25);
+			state.build.mods.straightFreezeChance = Math.max(
+				state.build.mods.straightFreezeChance,
+				KD_WEAPON_TUNING.straight.freezeChance
+			);
 			break;
 		case 'reward_upgrade_straight_pierce':
-			state.build.mods.straightPierce = Math.min(2, state.build.mods.straightPierce + 1);
+			state.build.mods.straightPierce = Math.min(
+				KD_WEAPON_TUNING.straight.pierceMax,
+				state.build.mods.straightPierce + 1
+			);
 			break;
 		case 'reward_upgrade_scatter_pellets':
-			state.build.mods.scatterExtraPellets = Math.min(3, state.build.mods.scatterExtraPellets + 1);
+			state.build.mods.scatterExtraPellets = Math.min(
+				KD_WEAPON_TUNING.scatter.upgradeMaxExtraPellets,
+				state.build.mods.scatterExtraPellets + 1
+			);
 			break;
 		case 'reward_upgrade_scatter_knockback':
 			state.build.mods.scatterCloseKnockbackChance = Math.max(
 				state.build.mods.scatterCloseKnockbackChance,
-				0.5
+				KD_WEAPON_TUNING.scatter.knockbackChance
 			);
 			break;
 		case 'reward_upgrade_scatter_bleed':
-			state.build.mods.scatterBleedDps = Math.max(state.build.mods.scatterBleedDps, 10);
-			state.build.mods.scatterBleedMs = Math.max(state.build.mods.scatterBleedMs, 2000);
+			state.build.mods.scatterBleedDps = Math.max(
+				state.build.mods.scatterBleedDps,
+				KD_WEAPON_TUNING.scatter.bleedDps
+			);
+			state.build.mods.scatterBleedMs = Math.max(
+				state.build.mods.scatterBleedMs,
+				KD_WEAPON_TUNING.scatter.bleedMs
+			);
 			break;
 		case 'reward_upgrade_missile_radius':
 			state.build.mods.missileExplosionRadiusBonus = Math.min(
-				66,
-				state.build.mods.missileExplosionRadiusBonus + 22
+				KD_WEAPON_TUNING.missile.upgradeRadiusCap,
+				state.build.mods.missileExplosionRadiusBonus + KD_WEAPON_TUNING.missile.upgradeRadiusStep
 			);
 			break;
 		case 'reward_upgrade_missile_burn':
-			state.build.mods.missileBurningMs = Math.max(state.build.mods.missileBurningMs, 2000);
-			state.build.mods.missileBurningDps = Math.max(state.build.mods.missileBurningDps, 10);
+			state.build.mods.missileBurningMs = Math.max(
+				state.build.mods.missileBurningMs,
+				KD_WEAPON_TUNING.missile.burningMs
+			);
+			state.build.mods.missileBurningDps = Math.max(
+				state.build.mods.missileBurningDps,
+				KD_WEAPON_TUNING.missile.burningDps
+			);
 			break;
 		case 'reward_upgrade_laser_width':
 			state.build.mods.laserWidthMultiplier = Math.min(
-				1.55,
-				(state.build.mods.laserWidthMultiplier || 1) * 1.3
+				KD_WEAPON_TUNING.laser.upgradeWidthCap,
+				(state.build.mods.laserWidthMultiplier || 1) * KD_WEAPON_TUNING.laser.upgradeWidthStepMultiplier
 			);
 			break;
 		case 'reward_xp_boost':
@@ -349,39 +381,25 @@ export function applyRewardByDefinitionId(state: GameState, rewardDefinitionId: 
 			grantShieldBlock(state);
 			break;
 		case 'reward_drone_acquire':
-			state.drones.push({
-				id: uid('drone'),
-				x: state.player.x,
-				y: state.player.y,
-				targetMonsterId: null,
-				attackCooldownMs: 0,
-				orbitingDistance: 62,
-				angle: Math.random() * Math.PI * 2,
-				level: 0
-			});
+			addDrone(state);
 			break;
 		case 'reward_upgrade_drone_count':
-			if (state.drones.length < 3) {
-				state.drones.push({
-					id: uid('drone'),
-					x: state.player.x,
-					y: state.player.y,
-					targetMonsterId: null,
-					attackCooldownMs: 0,
-					orbitingDistance: 62,
-					angle: Math.random() * Math.PI * 2,
-					level: 0
-				});
-			}
+			addDrone(state);
 			break;
 		case 'reward_upgrade_drone_attack_speed':
 			state.drones.forEach((d) => {
-				d.level = Math.min(3, d.level + 1);
+				d.attackSpeedMultiplier = Math.min(
+					KD_DRONE_TUNING.attackSpeedUpgradeCap,
+					(d.attackSpeedMultiplier ?? 1) + KD_DRONE_TUNING.attackSpeedUpgradeStep
+				);
 			});
 			break;
 		case 'reward_upgrade_drone_move_speed':
 			state.drones.forEach((d) => {
-				d.level = Math.min(3, d.level + 1);
+				d.moveSpeedMultiplier = Math.min(
+					KD_DRONE_TUNING.moveSpeedUpgradeCap,
+					(d.moveSpeedMultiplier ?? 1) + KD_DRONE_TUNING.moveSpeedUpgradeStep
+				);
 			});
 			break;
 		default:

@@ -2,6 +2,7 @@ import {
 	AUTO_ATTACK_COOLDOWN_MS,
 	DEFAULT_REWARD_REROLLS,
 	DEFAULT_ATTACK_PREFERENCE,
+	KD_BUILD_DEFAULTS,
 	MONSTER_SPAWN_INTERVAL_MS,
 	PLAYER_MAX_HP,
 	PLAYER_RADIUS,
@@ -90,41 +91,9 @@ export function createInitialGameState(
 			damageMitigation: null
 		},
 		build: {
-			skillLevels: {
-				skill_pulse: 1,
-				skill_dash: 0,
-				skill_karate: 0
-			},
-			weaponLevels: {
-				weapon_main_straight: 1,
-				weapon_main_scatter: 1,
-				weapon_buff_straight4: 0,
-				weapon_buff_scatter7: 0,
-				weapon_main_missile: 0,
-				weapon_main_laser: 0,
-				weapon_main_karate: 0
-			},
-			mods: {
-				straightBurstExtra: 0,
-				straightTrajectories: 0,
-				straightFreezeChance: 0,
-				straightFreezeSlowMultiplier: 0.6,
-				straightFreezeMs: 1600,
-				straightPierce: 0,
-
-				scatterExtraPellets: 0,
-				scatterBleedDps: 0,
-				scatterBleedMs: 0,
-				scatterCloseKnockbackChance: 0,
-				scatterCloseKnockback: 42,
-
-				missileExplosionRadiusBonus: 0,
-				missileBurningMs: 0,
-				missileBurningDps: 0,
-
-				laserRangeMultiplier: 1,
-				laserWidthMultiplier: 1
-			}
+			skillLevels: { ...KD_BUILD_DEFAULTS.skillLevels },
+			weaponLevels: { ...KD_BUILD_DEFAULTS.weaponLevels },
+			mods: { ...KD_BUILD_DEFAULTS.mods }
 		},
 		progress: {
 			level: 1,

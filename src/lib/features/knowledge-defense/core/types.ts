@@ -410,11 +410,14 @@ export interface DroneState {
 	id: string;
 	x: number;
 	y: number;
+	orbitAngle: number;
+	cooldownMs: number;
 	targetMonsterId: string | null;
-	attackCooldownMs: number;
-	orbitingDistance: number;
-	angle: number;
-	level: number;
+	moveDirX: number;
+	moveDirY: number;
+	formationSlot: number;
+	attackSpeedMultiplier?: number;
+	moveSpeedMultiplier?: number;
 }
 
 export interface GameState {

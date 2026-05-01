@@ -1,3 +1,4 @@
+import { KD_WEAPON_CONFIGS } from '../config/constants';
 import type { AttackPattern, AttackPreference, WeaponDefinitionId } from '../core/types';
 
 export interface WeaponDefinition {
@@ -8,57 +9,7 @@ export interface WeaponDefinition {
 	isTemporaryBuff: boolean;
 }
 
-const WEAPON_DEFINITIONS: Record<WeaponDefinitionId, WeaponDefinition> = {
-	weapon_main_straight: {
-		id: 'weapon_main_straight',
-		attackPattern: 'single',
-		attackPreference: 'straight',
-		title: '直射主武器',
-		isTemporaryBuff: false
-	},
-	weapon_main_scatter: {
-		id: 'weapon_main_scatter',
-		attackPattern: 'scatter',
-		attackPreference: 'scatter',
-		title: '散射主武器',
-		isTemporaryBuff: false
-	},
-	weapon_buff_straight4: {
-		id: 'weapon_buff_straight4',
-		attackPattern: 'straight4',
-		attackPreference: 'straight',
-		title: '4 连发直射',
-		isTemporaryBuff: true
-	},
-	weapon_buff_scatter7: {
-		id: 'weapon_buff_scatter7',
-		attackPattern: 'scatter7',
-		attackPreference: 'scatter',
-		title: '7 发散射',
-		isTemporaryBuff: true
-	},
-	weapon_main_missile: {
-		id: 'weapon_main_missile',
-		attackPattern: 'missileBurst',
-		attackPreference: 'straight',
-		title: '导弹发射器',
-		isTemporaryBuff: false
-	},
-	weapon_main_laser: {
-		id: 'weapon_main_laser',
-		attackPattern: 'laserLine',
-		attackPreference: 'straight',
-		title: '激光教鞭',
-		isTemporaryBuff: false
-	},
-	weapon_main_karate: {
-		id: 'weapon_main_karate',
-		attackPattern: 'karateStrike',
-		attackPreference: 'straight',
-		title: '空手道',
-		isTemporaryBuff: false
-	}
-};
+const WEAPON_DEFINITIONS: Record<WeaponDefinitionId, WeaponDefinition> = KD_WEAPON_CONFIGS;
 
 export function getWeaponDefinition(id: WeaponDefinitionId): WeaponDefinition {
 	return WEAPON_DEFINITIONS[id];

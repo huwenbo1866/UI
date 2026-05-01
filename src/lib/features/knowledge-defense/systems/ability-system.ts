@@ -22,7 +22,8 @@ import {
 	ABILITY_PULSE_IFRAME_MS,
 	ABILITY_PULSE_KNOCKBACK,
 	ABILITY_PULSE_MAX_HEAL,
-	ABILITY_PULSE_RADIUS
+	ABILITY_PULSE_RADIUS,
+	KD_ABILITY_TUNING
 } from '../config/constants';
 import type { ActionSlotKey, GameState, MonsterState, ProjectileState, SkillDefinitionId } from '../core/types';
 import { clamp, distance, distanceToSegment, normalizeVector, uid } from '../core/utils';
@@ -76,7 +77,7 @@ function applyAbilityHit(state: GameState, monster: MonsterState, damage: number
 function castPulse(state: GameState, level: number) {
 	// upgrades: Lv2 radius +30%, Lv3 cooldown -40% (handled by caller)
 	const overcharged = state.buffs.pulseOverchargeStacks > 0;
-	const radiusMultiplier = level >= 2 ? 1.3 : 1;
+	const radiusMultiplier = level >= 2 ? KD_ABILITY_TUNING.pulse.levelTwoRadiusMultiplier : 1;
 	const pulseRadius =
 		ABILITY_PULSE_RADIUS * radiusMultiplier + (overcharged ? ABILITY_PULSE_OVERCHARGE_RADIUS_BONUS : 0);
 	const pulseDamage = scalePlayerDamage(
@@ -127,7 +128,7 @@ function castPulse(state: GameState, level: number) {
 
 function castDash(state: GameState, level: number) {
 	const direction = resolveAbilityDirection(state);
-	const distanceMultiplier = level >= 2 ? 1.1 : 1;
+	const distanceMultiplier = level >= 2 ? KD_ABILITY_TUNING.dash.levelTwoDistanceMultiplier : 1;
 	const dashDistance = ABILITY_DASH_DISTANCE * distanceMultiplier;
 	const startX = state.player.x;
 	const startY = state.player.y;
@@ -160,7 +161,10 @@ function castDash(state: GameState, level: number) {
 
 	// upgrades: Lv3 grants a short damage reduction window (not invincible)
 	if (level >= 3) {
-		state.buffs.damageMitigation = { until: Date.now() + 900, multiplier: 0.8 };
+		state.buffs.damageMitigation = {
+			until: Date.now() + KD_ABILITY_TUNING.dash.levelThreeMitigationWindowMs,
+			multiplier: KD_ABILITY_TUNING.dash.levelThreeMitigationMultiplier
+		};
 	}
 
 	if (hitCount > 0 && defeatedMonster) {
@@ -214,7 +218,7 @@ function castKarate(state: GameState, level: number) {
 		}
 
 		// 100% destroy projectile; 60% reflect back
-		if (Math.random() < 0.6) {
+		if (Math.random() < KD_ABILITY_TUNING.karate.reflectChance) {
 			const target = state.monsters.find((monster) => !monster.isDead);
 			if (target) {
 				const dx = target.x - state.player.x;
@@ -224,14 +228,20 @@ function castKarate(state: GameState, level: number) {
 					id: uid('proj'),
 					x: state.player.x,
 					y: state.player.y,
-					vx: (dx / len) * 760,
-					vy: (dy / len) * 760,
-					radius: 8,
-					damage: Math.max(1, Math.round(projectile.damage * (level >= 2 ? 1.3 : 1))),
+					vx: (dx / len) * KD_ABILITY_TUNING.karate.reflectedProjectileSpeed,
+					vy: (dy / len) * KD_ABILITY_TUNING.karate.reflectedProjectileSpeed,
+					radius: KD_ABILITY_TUNING.karate.reflectedProjectileRadius,
+					damage: Math.max(
+						1,
+						Math.round(
+							projectile.damage *
+								(level >= 2 ? KD_ABILITY_TUNING.karate.reflectedProjectileLevelTwoDamageMultiplier : 1)
+						)
+					),
 					color: '#22c55e',
 					owner: 'player',
 					kind: 'reflected',
-					ttlMs: 1200
+					ttlMs: KD_ABILITY_TUNING.karate.reflectedProjectileTtlMs
 				});
 			}
 		}
@@ -247,13 +257,16 @@ function castKarate(state: GameState, level: number) {
 function resolveCooldownMs(skillId: SkillDefinitionId, level: number) {
 	if (skillId === 'skill_pulse') {
 		// base 16s; Lv3 cooldown -40%
-		return Math.round(16_000 * (level >= 3 ? 0.6 : 1));
+		return Math.round(
+			KD_ABILITY_TUNING.pulse.cooldownMs *
+				(level >= 3 ? KD_ABILITY_TUNING.pulse.levelThreeCooldownMultiplier : 1)
+		);
 	}
 	if (skillId === 'skill_dash') {
-		return 5000;
+		return KD_ABILITY_TUNING.dash.cooldownMs;
 	}
 	if (skillId === 'skill_karate') {
-		return 5200;
+		return KD_ABILITY_TUNING.karate.cooldownMs;
 	}
 	return 8000;
 }

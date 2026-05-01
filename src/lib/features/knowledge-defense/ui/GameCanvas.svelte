@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import {
 		BATTLEFIELD_DROP_EXPIRING_TTL_MS,
+		KD_ASSET_PATHS,
+		KD_DRONE_TUNING,
 		MONSTER_ATTACK_WINDUP_MS,
 		MONSTER_DASH_TELEGRAPH_MS,
 		MONSTER_THROW_TELEGRAPH_MS
@@ -235,12 +237,16 @@
 	{#each renderedDrones as drone (drone.id)}
 		<div
 			class="drone"
-			style={`left:${drone.x}px; top:${drone.y}px; width:28px; height:28px; z-index:${26 + Math.round(drone.y / 12)};`}
+			style={`left:${drone.x}px; top:${drone.y}px; width:${KD_DRONE_TUNING.spriteSize}px; height:${KD_DRONE_TUNING.spriteSize}px; z-index:${26 + Math.round(drone.y / 12)};`}
 		>
 			<div class="entity-shadow drone-shadow"></div>
-			<div class="drone-shell" data-drone-level={drone.level}>
-				<div class="drone-core"></div>
-			</div>
+			<img
+				class="drone-face"
+				src={KD_ASSET_PATHS.droneSprite}
+				alt=""
+				aria-hidden="true"
+				draggable="false"
+			/>
 		</div>
 	{/each}
 
@@ -479,33 +485,13 @@
 		height: 8px;
 		opacity: 0.26;
 	}
-	.drone-shell {
+	.drone-face {
 		width: 100%;
 		height: 100%;
-		border-radius: 999px;
-		border: 1px solid rgba(148, 163, 184, 0.88);
-		background:
-			radial-gradient(circle at 36% 32%, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0) 38%),
-			linear-gradient(180deg, rgba(226, 232, 240, 0.96), rgba(148, 163, 184, 0.92));
-		box-shadow:
-			0 0 0 1px rgba(255, 255, 255, 0.42),
-			0 8px 18px rgba(59, 130, 246, 0.16);
-		display: grid;
-		place-items: center;
-	}
-	.drone-shell[data-drone-level='1'],
-	.drone-shell[data-drone-level='2'],
-	.drone-shell[data-drone-level='3'] {
-		box-shadow:
-			0 0 0 1px rgba(255, 255, 255, 0.42),
-			0 8px 18px rgba(37, 99, 235, 0.24);
-	}
-	.drone-core {
-		width: 9px;
-		height: 9px;
-		border-radius: 999px;
-		background: radial-gradient(circle, rgba(248, 250, 252, 1), rgba(59, 130, 246, 0.96));
-		box-shadow: 0 0 10px rgba(59, 130, 246, 0.58);
+		display: block;
+		object-fit: contain;
+		pointer-events: none;
+		user-select: none;
 	}
 	.player.hurt .player-avatar,
 	.monster.hurt .monster-face {
@@ -526,7 +512,7 @@
 	.player-avatar {
 		width: 100%;
 		height: 100%;
-		background-image: url('/knowledge-defense/player.png');
+		background-image: url(${KD_ASSET_PATHS.playerSprite});
 		background-size: contain;
 		background-position: center;
 		background-repeat: no-repeat;

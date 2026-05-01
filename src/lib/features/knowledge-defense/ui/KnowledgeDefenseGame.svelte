@@ -604,7 +604,7 @@
 			maybeSpawnMonster(state, dtMs);
 			updatePlayer(state, input, dtSeconds, dtMs);
 			updateMonsters(state, dtSeconds, dtMs);
-			updateDrones(state, dtSeconds);
+			updateDrones(state, dtSeconds, dtMs);
 			tickAutoAttack(state, dtMs);
 			tickAttackSequences(state, dtMs);
 			tickLasers(state, dtMs);
