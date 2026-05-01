@@ -34,8 +34,9 @@ describe('mode-guidance', () => {
 		expect(getAttackPreferenceLabel('scatter')).toBe('散射');
 		expect(briefing.attackPreference).toBe('散射');
 		expect(briefing.rewardTiming).toContain('奖励不会自动弹出');
-		expect(briefing.rewardTiming).toContain('存一层强化脉冲');
-		expect(briefing.controls[2]).toContain('存 1 层超载');
+		expect(briefing.rewardTiming).toContain('临时增益');
+		expect(briefing.controls[2]).toContain('H / J / K / L');
+		expect(briefing.controls[2]).toContain('R');
 		expect(briefing.reviewValue).toContain('错题集');
 		expect(briefing.contentSource).toContain('细胞结构');
 		expect(briefing.contentSourceDetail).toContain('知识库章节作业');
@@ -46,8 +47,9 @@ describe('mode-guidance', () => {
 			kills: 0,
 			level: 1,
 			pendingRewards: 2,
-			abilityCooldownMs: 0,
-			pulseOverchargeStacks: 1,
+			pulseCooldownMs: 0,
+			shieldBlockCharges: 1,
+			activeBuffLabels: ['攻击提速'],
 			hp: 42,
 			maxHp: 200,
 			usingSampleFallback: true
@@ -56,16 +58,16 @@ describe('mode-guidance', () => {
 		expect(guidance.map((item) => item.id)).toEqual([
 			'low-hp',
 			'pending-reward',
+			'active-buffs',
 			'ability-ready',
 			'sample-fallback',
 			'early-run'
 		]);
 		expect(guidance[0]?.detail).toContain('治疗掉落');
 		expect(guidance[1]?.detail).toContain('空格或点击角色');
-		expect(guidance[1]?.detail).toContain('存 1 层超载');
-		expect(guidance[2]?.title).toContain('超载');
-		expect(guidance[2]?.detail).toContain('按 E');
-		expect(guidance[3]?.title).toContain('fallback');
-		expect(guidance[4]?.detail).toContain('第一只怪');
+		expect(guidance[2]?.detail).toContain('格挡护盾');
+		expect(guidance[3]?.detail).toContain('按 H');
+		expect(guidance[4]?.title).toContain('fallback');
+		expect(guidance[5]?.detail).toContain('第一只怪');
 	});
 });

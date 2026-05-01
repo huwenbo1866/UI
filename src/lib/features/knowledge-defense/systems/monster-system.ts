@@ -34,6 +34,8 @@ import type {
 	ProjectileState
 } from '../core/types';
 import { clamp, distance, uid } from '../core/utils';
+import { finalizeMonsterDeath, removeDefeatedMonsters } from './battlefield-drop-system';
+import { markMonsterHit } from './combat-feedback-system';
 import { applyPlayerContactDamage } from './player-system';
 import {
 	addVectors,
@@ -357,6 +359,7 @@ export function maybeSpawnMonster(state: GameState, dtMs: number) {
 }
 
 export function updateMonsters(state: GameState, dtSeconds: number, dtMs: number) {
+	const now = Date.now();
 	const { player } = state;
 	const alive = state.monsters.filter((monster) => !monster.isDead);
 	const spacingCandidates: MonsterState[] = [];
@@ -364,6 +367,21 @@ export function updateMonsters(state: GameState, dtSeconds: number, dtMs: number
 	for (let monsterIndex = 0; monsterIndex < alive.length; monsterIndex += 1) {
 		const monster = alive[monsterIndex];
 		if (monster.isDead) continue;
+
+		// debuffs
+		if ((monster.bleedUntil ?? 0) > now && (monster.bleedDps ?? 0) > 0) {
+			const bleedDamage = (monster.bleedDps ?? 0) * dtSeconds;
+			monster.hp = Math.max(0, monster.hp - bleedDamage);
+			markMonsterHit(state, monster, bleedDamage);
+			if (monster.hp <= 0) {
+				finalizeMonsterDeath(state, monster);
+				continue;
+			}
+		}
+		if ((monster.slowUntil ?? 0) <= now) {
+			monster.slowUntil = undefined;
+			monster.slowMultiplier = undefined;
+		}
 
 		const skill = ensureMonsterSkillRuntime(monster);
 		monster.hurtFlashMs = Math.max(0, monster.hurtFlashMs - dtMs);
@@ -411,12 +429,13 @@ export function updateMonsters(state: GameState, dtSeconds: number, dtMs: number
 
 		const desired = addVectors(seek, separation, standOffPush);
 		const desiredDir = normalize(desired.x, desired.y);
+		const speedMultiplier = (monster.slowUntil ?? 0) > now ? monster.slowMultiplier ?? 1 : 1;
 		const next = moveToward(
 			monster.x,
 			monster.y,
 			monster.x + desiredDir.x * 60,
 			monster.y + desiredDir.y * 60,
-			monster.speed,
+			monster.speed * speedMultiplier,
 			dtSeconds
 		);
 		const movedDistance = distance(monster.x, monster.y, next.x, next.y);
@@ -468,4 +487,5 @@ export function updateMonsters(state: GameState, dtSeconds: number, dtMs: number
 	resolveMinimumSpacing(spacingCandidates.filter((monster) => monster.attackState !== 'active'), MONSTER_MIN_GAP, 2);
 
 	state.monsters = alive;
+	removeDefeatedMonsters(state);
 }

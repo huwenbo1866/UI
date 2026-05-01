@@ -8,16 +8,30 @@
   export let cancelText = '继续游戏';
 
   const dispatch = createEventDispatcher<{ confirm: void; cancel: void }>();
+
+  function handleOverlayKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      dispatch('cancel');
+    }
+  }
 </script>
 
 {#if visible}
-  <div class="overlay" on:click={() => dispatch('cancel')}>
-    <div class="panel" on:click|stopPropagation>
+  <div
+    class="overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭退出确认面板"
+    on:click|self={() => dispatch('cancel')}
+    on:keydown|self={handleOverlayKeydown}
+  >
+    <div class="panel">
       <h2>{title}</h2>
       <p>{description}</p>
       <div class="actions">
-        <button class="secondary" on:click={() => dispatch('cancel')}>{cancelText}</button>
-        <button class="primary" on:click={() => dispatch('confirm')}>{confirmText}</button>
+        <button type="button" class="secondary" on:click={() => dispatch('cancel')}>{cancelText}</button>
+        <button type="button" class="primary" on:click={() => dispatch('confirm')}>{confirmText}</button>
       </div>
     </div>
   </div>

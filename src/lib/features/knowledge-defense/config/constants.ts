@@ -76,10 +76,30 @@ export const BASE_SCATTER_SPREAD_RADIANS = (Math.PI / 180) * 18; // 普通散射
 
 export const STRAIGHT4_SHOT_INTERVAL_MS = 160; // 4连发直线攻击间隔（毫秒）
 export const STRAIGHT4_DAMAGE = [24, 28, 34, 42]; // 4连发每发伤害
+export const STRAIGHT_BURST_INTERVAL_MS = 110; // 直线连发额外子弹间隔
 
 export const SCATTER7_PELLET_COUNT = 7; // 7发散射子弹数量
 export const SCATTER7_SPREAD_RADIANS = (Math.PI / 180) * 36; // 7发散射角度
 export const SCATTER7_PELLET_DAMAGE = 16; // 7发散射子弹伤害
+
+export const MISSILE_BURST_COUNT = 2; // 导弹武器每轮发射数
+export const MISSILE_BURST_INTERVAL_MS = 140; // 导弹武器连发间隔
+export const MISSILE_PROJECTILE_SPEED = 700; // 导弹飞行速度
+export const MISSILE_PROJECTILE_RADIUS = 10; // 导弹碰撞半径
+export const MISSILE_PROJECTILE_DAMAGE = 52; // 导弹单发伤害
+export const MISSILE_LAUNCH_ANGLE_OFFSET_RADIANS = (Math.PI / 180) * 28; // 导弹起飞偏角
+export const MISSILE_LAUNCH_LATERAL_OFFSET = 16; // 导弹左右发射间距
+export const MISSILE_LAUNCH_VERTICAL_OFFSET = 34; // 导弹从人物头顶发射
+
+export const MISSILE_EXPLOSION_RADIUS = 92; // 导弹爆炸半径
+export const MISSILE_HOMING_STEER = 0.08; // 导弹轻微追踪强度（0-1）
+export const MISSILE_BURNING_MS = 2000; // 导弹灼烧区域持续时间（用于升级）
+export const MISSILE_BURNING_DPS = 10; // 灼烧每秒伤害（用于升级）
+
+export const LASER_RANGE = 340; // 激光武器最远射程
+export const LASER_WIDTH = 20; // 激光判定宽度
+export const LASER_DAMAGE = 64; // 激光命中伤害
+export const LASER_TTL_MS = 160; // 激光特效持续时间
 
 // ==================== 奖励 & 无人机 ====================
 export const EXP_PER_KILL = 10; // 击杀怪物获得的基础经验
@@ -88,6 +108,19 @@ export const EXP_BOOST_DURATION_MS = 60_000; // 经验增幅持续时间（毫�
 export const BATTLEFIELD_DROP_EXP_BOOST_DURATION_MS = 20_000; // 战场经验掉落持续时间
 export const BATTLEFIELD_DROP_HEAL_AMOUNT = 28; // 战场治疗掉落回复量
 export const BATTLEFIELD_DROP_WEAPON_USES = 2; // 战场武器掉落强化次数
+export const MOVE_SPEED_REWARD_DURATION_MS = 20_000; // 奖励移速增幅持续时间
+export const MOVE_SPEED_REWARD_MULTIPLIER = 1.35; // 奖励移速倍率
+export const MOVE_SPEED_DROP_DURATION_MS = 12_000; // 战场移速掉落持续时间
+export const MOVE_SPEED_DROP_MULTIPLIER = 1.22; // 战场移速掉落倍率
+export const ATTACK_SPEED_REWARD_DURATION_MS = 18_000; // 奖励攻速增幅持续时间
+export const ATTACK_SPEED_REWARD_MULTIPLIER = 1.35; // 奖励攻速倍率
+export const ATTACK_SPEED_DROP_DURATION_MS = 12_000; // 战场攻速掉落持续时间
+export const ATTACK_SPEED_DROP_MULTIPLIER = 1.18; // 战场攻速掉落倍率
+export const DAMAGE_BOOST_REWARD_DURATION_MS = 16_000; // 奖励伤害增幅持续时间
+export const DAMAGE_BOOST_REWARD_MULTIPLIER = 1.4; // 奖励伤害倍率
+export const DAMAGE_BOOST_DROP_DURATION_MS = 10_000; // 战场伤害掉落持续时间
+export const DAMAGE_BOOST_DROP_MULTIPLIER = 1.25; // 战场伤害掉落倍率
+export const SHIELD_BLOCK_MAX_CHARGES = 1; // 护盾最多储存一次格挡
 export const BATTLEFIELD_DROP_TTL_MS = 12_000; // 战场掉落存在时间
 export const BATTLEFIELD_DROP_RADIUS = 20; // 战场掉落碰撞半径
 export const BATTLEFIELD_DROP_FEEDBACK_TTL_MS = 2_400; // 掉落提示在 HUD 中保留时间
@@ -100,6 +133,9 @@ export const BATTLEFIELD_DROP_CHANCE = {
 
 export const TIME_SCALE_NORMAL = 1; // 正常游戏速度倍率
 export const TIME_SCALE_REWARD_PANEL = 1 / 12; // 奖励面板打开时游戏速度倍率（暂停效果）
+
+// ==================== 奖励重随机（Reroll）====================
+export const DEFAULT_REWARD_REROLLS = 3; // 每局默认重随机次数
 
 export const WEAPON_REWARD_USES = 3; // 武器强化奖励可使用次数
 
@@ -135,6 +171,20 @@ export const ABILITY_PULSE_OVERCHARGE_MAX_HEAL_BONUS = 18; // 超载脉冲额外
 export const ABILITY_PULSE_OVERCHARGE_IFRAME_BONUS_MS = 180; // 超载脉冲额外无敌时间
 export const ABILITY_PULSE_OVERCHARGE_MAX_STACKS = 2; // 脉冲超载最多可存储层数
 
+export const ABILITY_DASH_DISTANCE = 180; // 冲刺位移距离
+export const ABILITY_DASH_DAMAGE = 70; // 冲刺穿行伤害
+export const ABILITY_DASH_STRIKE_RADIUS = 46; // 冲刺命中宽度
+export const ABILITY_DASH_IFRAME_MS = 600; // 冲刺无敌时间
+export const ABILITY_DASH_KNOCKBACK = 54; // 冲刺命中击退
+export const ABILITY_DASH_DURATION_MS = 130; // 冲刺持续时间
+export const ABILITY_DASH_FX_MS = 180; // 冲刺视觉反馈时间
+
+export const ABILITY_KARATE_RANGE = 96; // 空手短打判定范围
+export const ABILITY_KARATE_DAMAGE = 88; // 空手短打伤害
+export const ABILITY_KARATE_MAX_TARGETS = 3; // 空手短打最多命中目标数
+export const ABILITY_KARATE_KNOCKBACK = 56; // 空手短打击退距离
+export const ABILITY_KARATE_FX_MS = 180; // 空手道拳风特效持续时间
+
 // ==================== 音效控制（系统化开关）===================
 export const ENABLE_AUDIO = false; // 总音效开关（关闭后所有音效失效）
 
@@ -145,12 +195,14 @@ export const ENABLE_DEATH_SOUND = true; // 怪物死亡音效开关
 export const ENABLE_PANEL_SOUND = true; // 面板打开/关闭音效开关
 
 // ==================== 错题分析 AI 配置 ====================
-export const ENABLE_AI_WRONG_QUESTION_ANALYSIS = true; // 是否开启 AI 分析（总开关）
+// 安全约束：仓库内不允许硬编码任何第三方 API Key。
+// 错题分析默认走本地降级逻辑；如需启用外部模型，请在部署侧自行实现安全的服务端代理。
+export const ENABLE_AI_WRONG_QUESTION_ANALYSIS = false; // 是否开启 AI 分析（总开关）
 
 // ==================== 自定义大模型配置 ====================
-export const AI_BASE_URL = 'https://api.siliconflow.cn/v1';
-export const AI_API_KEY = 'sk-viymlevjwnpccmttywzsafqigacubewqnqouzgcbroijzycl';
-export const AI_MODEL = 'deepseek-ai/DeepSeek-V3.2';
+export const AI_BASE_URL = ''; // 留空：避免在前端直连外部模型
+export const AI_API_KEY = ''; // 留空：禁止在仓库/前端内保存密钥
+export const AI_MODEL = ''; // 留空：外部模型由部署侧提供
 
 export const AI_ANALYSIS_PROMPT = `
 你是一个专业的教育AI助手。请对以下结构化的错题记录进行分析。

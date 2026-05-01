@@ -8,8 +8,8 @@
 	} from '../config/constants';
 	import type {
 		BattlefieldDropState,
-		DroneState,
 		DamageTextState,
+		DroneState,
 		GameProgressState,
 		LaserEffectState,
 		MonsterSkillKind,
@@ -29,13 +29,22 @@
 	export let player: PlayerState;
 	export let progress: GameProgressState;
 	export let monsters: MonsterState[] = [];
+	export let drones: DroneState[] = [];
 	export let battlefieldDrops: BattlefieldDropState[] = [];
 	export let projectiles: ProjectileState[] = [];
-	export let drones: DroneState[] = [];
+
 	export let lasers: LaserEffectState[] = [];
 	export let damageTexts: DamageTextState[] = [];
 	export let pendingLevelUps = 0;
 	export let abilityPulseFxMs = 0;
+	export let abilityDashFxMs = 0;
+	export let abilityKarateFxMs = 0;
+	export let dashRemainingMs = 0;
+	export let dashDirectionX = 0;
+	export let dashDirectionY = 1;
+	export let karateDirectionX = 0;
+	export let karateDirectionY = 1;
+	export let karateRangeMultiplier = 1;
 	export let animationTimeMs: number | undefined = undefined;
 	export let onTouchStartPoint: ((event: TouchEvent) => void) | undefined;
 	export let onTouchMovePoint: ((event: TouchEvent) => void) | undefined;
@@ -63,15 +72,16 @@
 		};
 	});
 
-	$: previousLevelTotal = progress.level <= 1 ? 0 : 10 * (2 ** (progress.level - 2) - 1);
-	$: nextLevelTotal = progress.nextLevelTotalExp;
-	$: levelProgress =
-		nextLevelTotal > previousLevelTotal
-			? ((progress.exp - previousLevelTotal) / (nextLevelTotal - previousLevelTotal)) * 100
-			: 0;
+
 	$: playerTilt = Math.max(-14, Math.min(14, player.moveDirX * 14));
 	$: playerFaceScale = player.moving ? 1.05 : 1;
 	$: pulseOpacity = Math.max(0, Math.min(1, abilityPulseFxMs / 320));
+	$: dashOpacity = Math.max(0, Math.min(1, abilityDashFxMs / 180));
+	$: karateOpacity = Math.max(0, Math.min(1, abilityKarateFxMs / 180));
+	$: dashAngle = Math.atan2(dashDirectionY, dashDirectionX || 0.0001);
+	$: karateAngle = Math.atan2(karateDirectionY, karateDirectionX || 0.0001);
+	$: karateFxOffset = 34 * Math.max(1, karateRangeMultiplier);
+	$: karateFxScale = Math.max(1, karateRangeMultiplier);
 	$: effectiveAnimationTimeMs = animationTimeMs ?? liveAnimationTimeMs;
 	$: renderedDrops = sortByYIfNeeded(battlefieldDrops).map((drop) => ({
 		drop,
@@ -96,6 +106,7 @@
 		};
 	});
 	$: renderedDrones = sortByYIfNeeded(drones);
+
 
 	function sortByYIfNeeded<T extends { y: number }>(items: T[]) {
 		if (items.length <= 1) {
@@ -183,6 +194,26 @@
 		></div>
 	{/if}
 
+	{#if abilityDashFxMs > 0}
+		<div
+			class="ability-dash-streak"
+			style={`left:${player.x}px; top:${player.y}px; opacity:${dashOpacity}; --dash-angle:${dashAngle}rad;`}
+		></div>
+		<div
+			class="ability-dash-bars"
+			style={`left:${player.x}px; top:${player.y}px; opacity:${dashOpacity}; --dash-angle:${dashAngle}rad;`}
+		>
+			<span></span><span></span><span></span>
+		</div>
+	{/if}
+
+	{#if abilityKarateFxMs > 0}
+		<div
+			class="ability-karate"
+			style={`left:${player.x + karateDirectionX * karateFxOffset}px; top:${player.y + karateDirectionY * karateFxOffset}px; opacity:${karateOpacity}; --karate-angle:${karateAngle}rad; --karate-scale:${karateFxScale};`}
+		></div>
+	{/if}
+
 	{#each renderedDrops as renderedDrop (renderedDrop.drop.id)}
 		<div
 			class={`battlefield-drop ${renderedDrop.drop.kind} ${renderedDrop.expiring ? 'expiring' : ''}`}
@@ -197,8 +228,20 @@
 	{#each lasers as laser (laser.id)}
 		<div
 			class="laser"
-			style={`left:${laser.from.x}px; top:${laser.from.y}px; width:${Math.hypot(laser.to.x - laser.from.x, laser.to.y - laser.from.y)}px; transform:translate(-50%,-50%) rotate(${Math.atan2(laser.to.y - laser.from.y, laser.to.x - laser.from.x)}rad);`}
+			style={`left:${laser.from.x}px; top:${laser.from.y}px; width:${Math.hypot(laser.to.x - laser.from.x, laser.to.y - laser.from.y)}px; transform:translateY(-50%) rotate(${Math.atan2(laser.to.y - laser.from.y, laser.to.x - laser.from.x)}rad); --laser-width-multiplier:${laser.widthMultiplier || 1}; opacity:${Math.max(0, Math.min(1, laser.ttlMs / 160))};`}
 		></div>
+	{/each}
+
+	{#each renderedDrones as drone (drone.id)}
+		<div
+			class="drone"
+			style={`left:${drone.x}px; top:${drone.y}px; width:28px; height:28px; z-index:${26 + Math.round(drone.y / 12)};`}
+		>
+			<div class="entity-shadow drone-shadow"></div>
+			<div class="drone-shell" data-drone-level={drone.level}>
+				<div class="drone-core"></div>
+			</div>
+		</div>
 	{/each}
 
 	{#each renderedMonsters as renderedMonster (renderedMonster.monster.id)}
@@ -237,16 +280,6 @@
 		</div>
 	{/each}
 
-	{#each renderedDrones as drone (drone.id)}
-		<div
-			class="drone"
-			style={`left:${drone.x}px; top:${drone.y}px; z-index:${80 + Math.round(drone.y / 12)}; --drone-tilt:${Math.max(-14, Math.min(14, drone.moveDirX * 14))}deg;`}
-		>
-			<div class="entity-shadow drone-shadow"></div>
-			<div class="drone-face"></div>
-		</div>
-	{/each}
-
 	{#each damageTexts as damage (damage.id)}
 		<div
 			class="damage-text"
@@ -260,25 +293,23 @@
 		<div
 			class={`projectile ${(projectile.owner ?? 'player') === 'monster' ? 'hostile' : 'friendly'}`}
 			data-owner={projectile.owner ?? 'player'}
-			style={`left:${projectile.x}px; top:${projectile.y}px; background:${projectile.color ?? '#f59e0b'};`}
+			data-kind={projectile.kind ?? 'bullet'}
+			style={`left:${projectile.x}px; top:${projectile.y}px; background:${projectile.color ?? '#f59e0b'}; --projectile-angle:${Math.atan2(projectile.vy, projectile.vx || 0.0001)}rad;`}
 		></div>
 	{/each}
 
 	<button
 		type="button"
-		class={`player ${player.hurtFlashMs > 0 ? 'hurt' : ''}`}
+		class={`player ${player.hurtFlashMs > 0 ? 'hurt' : ''} ${dashRemainingMs > 0 ? 'dashing' : ''}`}
 		style={`left:${player.x}px; top:${player.y}px; width:${player.radius * 2}px; height:${player.radius * 2}px;`}
 		on:click|stopPropagation={onPlayerActivate}
 		on:touchstart|stopPropagation={onPlayerActivate}
 	>
 		<div class="entity-shadow player-shadow"></div>
 		<div class="player-bars">
-			<div class="player-level">Lv.{progress.level}</div>
-			<div class="player-exp-bar">
-				<span style={`width:${Math.max(0, Math.min(100, levelProgress))}%`}></span>
-			</div>
 			<div class="player-hp-bar">
 				<span style={`width:${(player.hp / player.maxHp) * 100}%`}></span>
+				<small class="hp-text">{Math.max(0, Math.round(player.hp))}/{player.maxHp}</small>
 			</div>
 		</div>
 		{#if pendingLevelUps > 0}
@@ -345,9 +376,9 @@
 	}
 	.player,
 	.monster,
+	.drone,
 	.battlefield-drop,
 	.projectile,
-	.drone,
 	.laser {
 		position: absolute;
 		transform: translate(-50%, -50%);
@@ -363,6 +394,49 @@
 		animation: abilityPulseExpand 320ms ease-out forwards;
 		pointer-events: none;
 		z-index: 26;
+	}
+	.ability-dash-streak,
+	.ability-dash-bars,
+	.ability-karate {
+		position: absolute;
+		transform: translate(-50%, -50%);
+		pointer-events: none;
+	}
+	.ability-dash-streak {
+		width: 116px;
+		height: 34px;
+		border-radius: 999px;
+		transform: translate(-50%, -50%) rotate(var(--dash-angle, 0rad));
+		background: linear-gradient(90deg, rgba(255, 247, 196, 0), rgba(252, 211, 77, 0.92), rgba(255, 247, 196, 0));
+		filter: blur(4px);
+		z-index: 27;
+	}
+	.ability-dash-bars {
+		display: grid;
+		gap: 6px;
+		z-index: 28;
+		transform: translate(-50%, -50%) rotate(var(--dash-angle, 0rad));
+	}
+	.ability-dash-bars span {
+		display: block;
+		width: 72px;
+		height: 4px;
+		border-radius: 999px;
+		background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 245, 157, 0.94), rgba(255, 255, 255, 0));
+		box-shadow: 0 0 12px rgba(250, 204, 21, 0.42);
+	}
+	.ability-dash-bars span:nth-child(2) {
+		width: 92px;
+	}
+	.ability-karate {
+		width: calc(98px * var(--karate-scale, 1));
+		height: calc(98px * var(--karate-scale, 1));
+		border-radius: 999px;
+		transform: translate(-50%, -50%) rotate(var(--karate-angle, 0rad));
+		background: conic-gradient(from 190deg, rgba(255, 255, 255, 0), rgba(248, 250, 252, 0.98), rgba(251, 191, 36, 0.74), rgba(255, 255, 255, 0));
+		mask-image: radial-gradient(circle, transparent 0 44%, rgba(0, 0, 0, 0.94) 60%, transparent 78%);
+		filter: drop-shadow(0 0 12px rgba(251, 191, 36, 0.38));
+		z-index: 28;
 	}
 	.player {
 		border: none;
@@ -395,18 +469,50 @@
 		width: 34px;
 		height: 10px;
 	}
-	.drone-shadow {
-		width: 22px;
-		height: 8px;
-	}
 	.drop-shadow {
 		width: 28px;
 		height: 9px;
 		opacity: 0.28;
 	}
+	.drone-shadow {
+		width: 22px;
+		height: 8px;
+		opacity: 0.26;
+	}
+	.drone-shell {
+		width: 100%;
+		height: 100%;
+		border-radius: 999px;
+		border: 1px solid rgba(148, 163, 184, 0.88);
+		background:
+			radial-gradient(circle at 36% 32%, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0) 38%),
+			linear-gradient(180deg, rgba(226, 232, 240, 0.96), rgba(148, 163, 184, 0.92));
+		box-shadow:
+			0 0 0 1px rgba(255, 255, 255, 0.42),
+			0 8px 18px rgba(59, 130, 246, 0.16);
+		display: grid;
+		place-items: center;
+	}
+	.drone-shell[data-drone-level='1'],
+	.drone-shell[data-drone-level='2'],
+	.drone-shell[data-drone-level='3'] {
+		box-shadow:
+			0 0 0 1px rgba(255, 255, 255, 0.42),
+			0 8px 18px rgba(37, 99, 235, 0.24);
+	}
+	.drone-core {
+		width: 9px;
+		height: 9px;
+		border-radius: 999px;
+		background: radial-gradient(circle, rgba(248, 250, 252, 1), rgba(59, 130, 246, 0.96));
+		box-shadow: 0 0 10px rgba(59, 130, 246, 0.58);
+	}
 	.player.hurt .player-avatar,
 	.monster.hurt .monster-face {
 		filter: saturate(1.6) brightness(1.1) drop-shadow(0 0 8px rgba(255, 60, 60, 0.8));
+	}
+	.player.dashing .player-avatar {
+		filter: saturate(1.12) brightness(1.08) drop-shadow(0 0 12px rgba(252, 211, 77, 0.72));
 	}
 	.damage-text {
 		position: absolute;
@@ -585,27 +691,6 @@
 		animation: monsterWindup 320ms ease-out infinite;
 		pointer-events: none;
 	}
-	.drone {
-		width: 34px;
-		height: 34px;
-		background: transparent;
-		border: none;
-		box-shadow: none;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		overflow: visible;
-	}
-	.drone-face {
-		width: 100%;
-		height: 100%;
-		background-image: url('/knowledge-defense/drone.png');
-		background-size: contain;
-		background-position: center;
-		background-repeat: no-repeat;
-		transform: rotate(var(--drone-tilt, 0deg));
-		animation: droneHover 620ms ease-in-out infinite;
-	}
 	.player-bars {
 		position: absolute;
 		left: 50%;
@@ -615,14 +700,6 @@
 		display: grid;
 		gap: 4px;
 	}
-	.player-level {
-		color: #5a4736;
-		font-size: 11px;
-		text-align: center;
-		font-weight: 700;
-		text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
-	}
-	.player-exp-bar,
 	.player-hp-bar,
 	.monster-hp-bar {
 		height: 8px;
@@ -638,19 +715,30 @@
 		transform: translateX(-50%);
 		width: 74px;
 	}
-	.player-exp-bar span,
 	.player-hp-bar span,
 	.monster-hp-bar span {
 		display: block;
 		height: 100%;
 		border-radius: 999px;
 	}
-	.player-exp-bar span {
-		background: linear-gradient(90deg, #f59e0b, #f97316);
+	.hp-text {
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		transform: translate(-50%, -50%);
+		font-size: 10px;
+		font-weight: 800;
+		color: rgba(255, 255, 255, 0.92);
+		text-shadow: 0 2px 6px rgba(39, 28, 19, 0.35);
+		pointer-events: none;
 	}
 	.player-hp-bar span,
 	.monster-hp-bar span {
 		background: linear-gradient(90deg, #34d399, #22c55e);
+	}
+
+	.player-hp-bar {
+		position: relative;
 	}
 	.reward-ready {
 		position: absolute;
@@ -733,7 +821,28 @@
 		box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
 	}
 	.projectile.friendly {
+		transform: translate(-50%, -50%) rotate(var(--projectile-angle, 0rad));
 		box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+	}
+	.projectile.friendly[data-kind='missile'] {
+		width: 24px;
+		height: 12px;
+		border-radius: 999px 40% 40% 999px;
+		box-shadow:
+			0 0 0 1px rgba(255, 247, 237, 0.48),
+			0 0 14px rgba(251, 146, 60, 0.5);
+	}
+	.projectile.friendly[data-kind='missile']::after {
+		content: '';
+		position: absolute;
+		right: -6px;
+		top: 50%;
+		width: 12px;
+		height: 6px;
+		border-radius: 999px;
+		background: linear-gradient(90deg, rgba(255, 237, 213, 0.95), rgba(251, 146, 60, 0));
+		transform: translateY(-50%);
+		filter: blur(1px);
 	}
 	.projectile.hostile {
 		width: 14px;
@@ -824,15 +933,6 @@
 		}
 	}
 
-	@keyframes droneHover {
-		0%,
-		100% {
-			transform: translateY(0px) scale(1);
-		}
-		50% {
-			transform: translateY(-2px) scale(1.03);
-		}
-	}
 
 	@keyframes monsterPresence {
 		0%,

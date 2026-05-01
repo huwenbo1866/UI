@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 
 import GameCanvas from './GameCanvas.svelte';
-import type { BattlefieldDropState, MonsterState, ProjectileState } from '../core/types';
+import type { BattlefieldDropState, DroneState, LaserEffectState, MonsterState, ProjectileState } from '../core/types';
 import { getMonsterAnimationOffset, resolveMonsterSpriteFrame } from './monster-sprites';
 
 function createMonster(overrides: Partial<MonsterState> = {}): MonsterState {
@@ -60,11 +60,17 @@ function renderCanvas(
 			monsters,
 			battlefieldDrops,
 			projectiles,
-			drones: [],
 			lasers: [],
 			damageTexts: [],
 			pendingLevelUps: 0,
 			abilityPulseFxMs: 0,
+			abilityDashFxMs: 0,
+			abilityKarateFxMs: 0,
+			dashRemainingMs: 0,
+			dashDirectionX: 0,
+			dashDirectionY: 1,
+			karateDirectionX: 0,
+			karateDirectionY: 1,
 			animationTimeMs,
 			onTouchStartPoint: undefined,
 			onTouchMovePoint: undefined,
@@ -206,5 +212,146 @@ describe('GameCanvas monster sprite rendering', () => {
 		expect(body).toContain('投掷');
 		expect(body).toContain('projectile hostile');
 		expect(body).toContain('data-owner="monster"');
+	});
+
+	it('renders dash, karate, and missile-specific player feedback', () => {
+		const { body } = render(GameCanvas, {
+			props: {
+				width: 1200,
+				height: 820,
+				player: {
+					x: 600,
+					y: 410,
+					radius: 34,
+					speed: 80,
+					hp: 200,
+					maxHp: 200,
+					contactInvulnMs: 0,
+					hurtFlashMs: 0,
+					moving: true,
+					moveDirX: 1,
+					moveDirY: 0
+				},
+				progress: {
+					level: 1,
+					exp: 0,
+					nextLevelTotalExp: 10,
+					pendingLevelUps: 0
+				},
+				monsters: [],
+				battlefieldDrops: [],
+				projectiles: [
+					{
+						id: 'missile-1',
+						x: 640,
+						y: 360,
+						vx: 200,
+						vy: -40,
+						radius: 10,
+						damage: 52,
+						owner: 'player',
+						kind: 'missile',
+						color: '#fb923c'
+					}
+				],
+				lasers: [],
+				damageTexts: [],
+				pendingLevelUps: 0,
+				abilityPulseFxMs: 0,
+				abilityDashFxMs: 180,
+				abilityKarateFxMs: 180,
+				dashRemainingMs: 80,
+				dashDirectionX: 1,
+				dashDirectionY: 0,
+				karateDirectionX: 1,
+				karateDirectionY: 0,
+				animationTimeMs: 0,
+				onTouchStartPoint: undefined,
+				onTouchMovePoint: undefined,
+				onTouchEndPoint: undefined,
+				onPlayerActivate: undefined
+			}
+		});
+
+		expect(body).toContain('ability-dash-streak');
+		expect(body).toContain('ability-dash-bars');
+		expect(body).toContain('ability-karate');
+		expect(body).toContain('data-kind="missile"');
+		expect(body).toContain('dashing');
+	});
+
+	it('anchors lasers from the player origin and renders drones when acquired', () => {
+		const drones: DroneState[] = [
+			{
+				id: 'drone-1',
+				x: 660,
+				y: 390,
+				targetMonsterId: null,
+				attackCooldownMs: 0,
+				orbitingDistance: 62,
+				angle: 0,
+				level: 2
+			}
+		];
+		const lasers: LaserEffectState[] = [
+			{
+				id: 'laser-1',
+				from: { x: 600, y: 410 },
+				to: { x: 760, y: 410 },
+				ttlMs: 120,
+				widthMultiplier: 1.5
+			}
+		];
+
+		const { body } = render(GameCanvas, {
+			props: {
+				width: 1200,
+				height: 820,
+				player: {
+					x: 600,
+					y: 410,
+					radius: 34,
+					speed: 80,
+					hp: 200,
+					maxHp: 200,
+					contactInvulnMs: 0,
+					hurtFlashMs: 0,
+					moving: false,
+					moveDirX: 0,
+					moveDirY: 1
+				},
+				progress: {
+					level: 1,
+					exp: 0,
+					nextLevelTotalExp: 10,
+					pendingLevelUps: 0
+				},
+				monsters: [],
+				drones,
+				battlefieldDrops: [],
+				projectiles: [],
+				lasers,
+				damageTexts: [],
+				pendingLevelUps: 0,
+				abilityPulseFxMs: 0,
+				abilityDashFxMs: 0,
+				abilityKarateFxMs: 0,
+				dashRemainingMs: 0,
+				dashDirectionX: 0,
+				dashDirectionY: 1,
+				karateDirectionX: 0,
+				karateDirectionY: 1,
+				karateRangeMultiplier: 1,
+				animationTimeMs: 0,
+				onTouchStartPoint: undefined,
+				onTouchMovePoint: undefined,
+				onTouchEndPoint: undefined,
+				onPlayerActivate: undefined
+			}
+		});
+
+		expect(body).toContain('class="drone ');
+		expect(body).toContain('data-drone-level="2"');
+		expect(body).toContain('left:600px; top:410px; width:160px; transform:translateY(-50%) rotate(0rad);');
 	});
 });

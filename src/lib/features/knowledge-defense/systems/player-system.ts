@@ -1,8 +1,27 @@
-import { PLAYER_CONTACT_IFRAME_MS } from '../config/constants';
+import { BATTLEFIELD_DROP_FEEDBACK_TTL_MS, PLAYER_CONTACT_IFRAME_MS } from '../config/constants';
+import { getBattlefieldDropDefinitionById } from '../data/drop-definitions';
 import type { GameState, PlayerDamageSource } from '../core/types';
 import { clamp } from '../core/utils';
 import type { InputState } from '../adapters/input-adapter';
 import { markPlayerHit } from './combat-feedback-system';
+import { consumeShieldBlock, resolveMoveSpeedMultiplier } from './progression-system';
+
+function consumeShieldAndShowFeedback(state: GameState) {
+	if (!consumeShieldBlock(state)) {
+		return false;
+	}
+
+	const definition = getBattlefieldDropDefinitionById('drop_guard_shield');
+	state.player.contactInvulnMs = Math.max(state.player.contactInvulnMs, 260);
+	state.ui.pickupFeedback = {
+		kind: definition.kind,
+		definitionId: definition.id,
+		title: '护盾触发',
+		detail: '已抵挡这次伤害',
+		ttlMs: BATTLEFIELD_DROP_FEEDBACK_TTL_MS
+	};
+	return true;
+}
 
 function applyTaggedPlayerDamage(
 	state: GameState,
@@ -10,7 +29,11 @@ function applyTaggedPlayerDamage(
 	source: PlayerDamageSource,
 	contactInvulnMs: number
 ) {
-	const nextHp = Math.max(0, state.player.hp - damage);
+	const now = Date.now();
+	const mitigation = state.buffs.damageMitigation;
+	const multiplier = mitigation && mitigation.until > now ? mitigation.multiplier : 1;
+	const mitigatedDamage = damage * multiplier;
+	const nextHp = Math.max(0, state.player.hp - mitigatedDamage);
 	const actualDamage = state.player.hp - nextHp;
 
 	if (actualDamage <= 0) {
@@ -37,6 +60,31 @@ function applyTaggedPlayerDamage(
 export function updatePlayer(state: GameState, input: InputState, dtSeconds: number, dtMs: number) {
   const player = state.player;
 
+  if (state.runtime.dashRemainingMs > 0) {
+    const dashDtMs = Math.min(dtMs, state.runtime.dashRemainingMs);
+    const dashDtSeconds = dashDtMs / 1000;
+    player.moving = true;
+    player.moveDirX = state.runtime.dashDirectionX;
+    player.moveDirY = state.runtime.dashDirectionY;
+    player.x = clamp(
+      player.x + state.runtime.dashDirectionX * state.runtime.dashSpeed * dashDtSeconds,
+      player.radius,
+      state.width - player.radius
+    );
+    player.y = clamp(
+      player.y + state.runtime.dashDirectionY * state.runtime.dashSpeed * dashDtSeconds,
+      player.radius,
+      state.height - player.radius
+    );
+    state.runtime.dashRemainingMs = Math.max(0, state.runtime.dashRemainingMs - dtMs);
+
+    if (player.contactInvulnMs > 0) {
+      player.contactInvulnMs = Math.max(0, player.contactInvulnMs - dtMs);
+    }
+    player.hurtFlashMs = Math.max(0, player.hurtFlashMs - dtMs);
+    return;
+  }
+
   let dx = 0;
   let dy = 0;
 
@@ -59,8 +107,17 @@ export function updatePlayer(state: GameState, input: InputState, dtSeconds: num
     player.moveDirY = dy;
   }
 
-  player.x = clamp(player.x + dx * player.speed * dtSeconds, player.radius, state.width - player.radius);
-  player.y = clamp(player.y + dy * player.speed * dtSeconds, player.radius, state.height - player.radius);
+	const effectiveSpeed = player.speed * resolveMoveSpeedMultiplier(state);
+	player.x = clamp(
+		player.x + dx * effectiveSpeed * dtSeconds,
+		player.radius,
+		state.width - player.radius
+	);
+	player.y = clamp(
+		player.y + dy * effectiveSpeed * dtSeconds,
+		player.radius,
+		state.height - player.radius
+	);
 
   if (player.contactInvulnMs > 0) {
     player.contactInvulnMs = Math.max(0, player.contactInvulnMs - dtMs);
@@ -74,6 +131,7 @@ export function applyPlayerContactDamage(
 	source: PlayerDamageSource = 'melee'
 ) {
 	if (state.player.contactInvulnMs > 0) return;
+	if (consumeShieldAndShowFeedback(state)) return;
 	applyTaggedPlayerDamage(state, damage, source, PLAYER_CONTACT_IFRAME_MS);
 }
 
@@ -84,6 +142,7 @@ export function applyContinuousPlayerDamage(
 	source: PlayerDamageSource = 'melee'
 ) {
 	if (state.player.contactInvulnMs > 0) return;
+	if (consumeShieldAndShowFeedback(state)) return;
 	const damage = damagePerSecond * dtSeconds;
 	applyTaggedPlayerDamage(state, damage, source, 0);
 }

@@ -36,11 +36,23 @@ describe('battlefield drop system', () => {
 		const drop = finalizeMonsterDeath(state, monster, {
 			random: () => values.shift() ?? 0
 		});
+		const validKinds = new Set(['weapon', 'xp', 'heal', 'speed', 'attackSpeed', 'damage', 'shield', 'reroll']);
+		const validDefinitionIds = new Set([
+			'drop_weapon_supply',
+			'drop_xp_crystal',
+			'drop_heal_pack',
+			'drop_speed_tonic',
+			'drop_attack_manual',
+			'drop_damage_core',
+			'drop_guard_shield',
+			'drop_reroll_coupon'
+		]);
 
 		expect(monster.isDead).toBe(true);
 		expect(state.battle.kills).toBe(1);
 		expect(state.progress.exp).toBeGreaterThan(0);
-		expect(drop?.kind).toBe('weapon');
+		expect(validKinds.has(drop?.kind ?? '')).toBe(true);
+		expect(validDefinitionIds.has(drop?.definitionId ?? '')).toBe(true);
 		expect(state.battlefieldDrops).toHaveLength(1);
 	});
 
@@ -67,6 +79,7 @@ describe('battlefield drop system', () => {
 		state.player.hp = 120;
 		const healDrop = {
 			id: 'drop-heal',
+			definitionId: 'drop_heal_pack' as const,
 			kind: 'heal' as const,
 			x: state.player.x,
 			y: state.player.y,
@@ -81,11 +94,40 @@ describe('battlefield drop system', () => {
 		expect(state.ui.pickupFeedback?.detail).toContain('恢复');
 	});
 
+	it('grants shield and reroll coupon through additive pickup handlers', () => {
+		const state = createInitialGameState(samplePack, 1200, 820, 'straight');
+
+		applyBattlefieldDropPickup(state, {
+			id: 'drop-shield',
+			definitionId: 'drop_guard_shield',
+			kind: 'shield',
+			x: state.player.x,
+			y: state.player.y,
+			radius: 20,
+			ttlMs: 5000
+		});
+		const beforeRerolls = state.ui.rewardRerollsRemaining;
+		applyBattlefieldDropPickup(state, {
+			id: 'drop-reroll',
+			definitionId: 'drop_reroll_coupon',
+			kind: 'reroll',
+			x: state.player.x,
+			y: state.player.y,
+			radius: 20,
+			ttlMs: 5000
+		});
+
+		expect(state.buffs.shieldBlockCharges).toBe(1);
+		expect(state.ui.rewardRerollsRemaining).toBe(beforeRerolls + 1);
+		expect(state.ui.pickupFeedback?.detail).toContain('重随机会');
+	});
+
 	it('picks up overlapping drops during battlefield updates', () => {
 		const state = createInitialGameState(samplePack, 1200, 820, 'scatter');
 		state.battlefieldDrops = [
 			{
 				id: 'drop-weapon',
+				definitionId: 'drop_weapon_supply',
 				kind: 'weapon',
 				x: state.player.x,
 				y: state.player.y,

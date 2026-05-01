@@ -8,6 +8,29 @@ export function distance(ax: number, ay: number, bx: number, by: number) {
   return Math.hypot(ax - bx, ay - by);
 }
 
+export function distanceToSegment(
+	pointX: number,
+	pointY: number,
+	startX: number,
+	startY: number,
+	endX: number,
+	endY: number
+) {
+	const segmentX = endX - startX;
+	const segmentY = endY - startY;
+	const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+	if (segmentLengthSquared <= 0) {
+		return distance(pointX, pointY, startX, startY);
+	}
+
+	const projection =
+		((pointX - startX) * segmentX + (pointY - startY) * segmentY) / segmentLengthSquared;
+	const clampedProjection = clamp(projection, 0, 1);
+	const closestX = startX + segmentX * clampedProjection;
+	const closestY = startY + segmentY * clampedProjection;
+	return distance(pointX, pointY, closestX, closestY);
+}
+
 export function uid(prefix = 'id') {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }

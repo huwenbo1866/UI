@@ -1,0 +1,46 @@
+- generic [ref=e124]:
+  - application "Knowledge Defense / 知识防御 战场" [ref=e125]:
+    - generic [ref=e126]:
+      - img
+    - button "200/200" [ref=e130] [cursor=pointer]:
+      - generic [ref=e132]:
+        - generic: 200/200
+  - generic "战斗 HUD":
+    - generic "底部技能栏" [ref=e135]:
+      - generic "主武器：直射主武器" [ref=e136]:
+        - generic [ref=e137]: Ⅰ
+        - generic [ref=e138]:
+          - generic [ref=e139]: 主武器
+          - strong [ref=e140]: 直射主武器
+      - button "H：脉冲" [ref=e141] [cursor=pointer]:
+        - generic [ref=e142]:
+          - generic [ref=e143]: H
+          - generic [ref=e144]: Lv.1
+        - generic [ref=e145]:
+          - generic [ref=e146]: 脉冲
+          - strong [ref=e147]: 就绪
+          - generic [ref=e148]: 按 H 释放范围脉冲，适合解围与小回复
+      - button "J：空槽" [disabled] [ref=e149]:
+        - generic [ref=e151]: J
+        - generic [ref=e152]:
+          - generic [ref=e153]: 空槽
+          - strong [ref=e154]: 未获得
+          - generic [ref=e155]: 升级奖励可解锁并挂入槽位
+      - button "K：空槽" [disabled] [ref=e156]:
+        - generic [ref=e158]: K
+        - generic [ref=e159]:
+          - generic [ref=e160]: 空槽
+          - strong [ref=e161]: 未获得
+          - generic [ref=e162]: 升级奖励可解锁并挂入槽位
+      - button "L：空槽" [disabled] [ref=e163]:
+        - generic [ref=e165]: L
+        - generic [ref=e166]:
+          - generic [ref=e167]: 空槽
+          - strong [ref=e168]: 未获得
+          - generic [ref=e169]: 升级奖励可解锁并挂入槽位
+      - button "退出/暂停" [ref=e170] [cursor=pointer]:
+        - generic [ref=e171]: ≡
+        - generic [ref=e172]:
+          - generic [ref=e173]: 菜单
+          - strong [ref=e174]: Esc
+          - generic [ref=e175]: 退出确认 / 帮助 / 面板关闭

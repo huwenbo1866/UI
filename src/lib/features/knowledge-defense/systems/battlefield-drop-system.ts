@@ -1,14 +1,26 @@
 import {
+	ATTACK_SPEED_DROP_DURATION_MS,
+	ATTACK_SPEED_DROP_MULTIPLIER,
+	DAMAGE_BOOST_DROP_DURATION_MS,
+	DAMAGE_BOOST_DROP_MULTIPLIER,
 	BATTLEFIELD_DROP_CHANCE,
 	BATTLEFIELD_DROP_EXP_BOOST_DURATION_MS,
 	BATTLEFIELD_DROP_FEEDBACK_TTL_MS,
 	BATTLEFIELD_DROP_HEAL_AMOUNT,
 	BATTLEFIELD_DROP_RADIUS,
 	BATTLEFIELD_DROP_TTL_MS,
+	MOVE_SPEED_DROP_DURATION_MS,
+	MOVE_SPEED_DROP_MULTIPLIER,
 	BATTLEFIELD_DROP_WEAPON_USES
 } from '../config/constants';
+import {
+	getBattlefieldDropDefinitionById,
+	getBattlefieldDropDefinitionIdByKind,
+	listBattlefieldDropDefinitions
+} from '../data/drop-definitions';
 import type {
 	AttackPattern,
+	BattlefieldDropDefinitionId,
 	BattlefieldDropKind,
 	BattlefieldDropState,
 	GameState,
@@ -17,58 +29,50 @@ import type {
 import { distance, uid } from '../core/utils';
 import {
 	gainExpForKill,
+	grantAttackSpeedBoost,
+	grantDamageBoost,
 	grantExpBoost,
+	grantMoveSpeedBoost,
 	grantQueuedWeaponBuff,
+	grantShieldBlock,
 	restorePlayerHealth
 } from './progression-system';
 
-export interface BattlefieldDropDefinition {
-	kind: BattlefieldDropKind;
-	title: string;
-	shortLabel: string;
-	arenaGlyph: string;
-	pickupDetail: string;
-}
 
-const DROP_DEFINITIONS: Record<BattlefieldDropKind, BattlefieldDropDefinition> = {
-	weapon: {
-		kind: 'weapon',
-		title: '武备补给',
-		shortLabel: '武器',
-		arenaGlyph: '✦',
-		pickupDetail: `下 ${BATTLEFIELD_DROP_WEAPON_USES} 次攻击强化`
-	},
-	xp: {
-		kind: 'xp',
-		title: '经验结晶',
-		shortLabel: '经验',
-		arenaGlyph: '◎',
-		pickupDetail: `${Math.round(BATTLEFIELD_DROP_EXP_BOOST_DURATION_MS / 1000)} 秒经验增幅`
-	},
-	heal: {
-		kind: 'heal',
-		title: '急救包',
-		shortLabel: '治疗',
-		arenaGlyph: '+',
-		pickupDetail: `恢复 ${BATTLEFIELD_DROP_HEAL_AMOUNT} 点生命`
+function rollBattlefieldDropDefinitionId(random: () => number): BattlefieldDropDefinitionId {
+	const definitions = listBattlefieldDropDefinitions();
+	const totalWeight = definitions.reduce((sum, definition) => sum + Math.max(0, definition.rollWeight), 0);
+
+	if (definitions.length === 0) {
+		return 'drop_weapon_supply';
 	}
-};
 
-function rollBattlefieldDropKind(random: () => number): BattlefieldDropKind {
-	const roll = random();
-	if (roll < 0.34) return 'weapon';
-	if (roll < 0.68) return 'xp';
-	return 'heal';
+	if (totalWeight <= 0) {
+		return definitions[0].id;
+	}
+
+	let cursor = random() * totalWeight;
+	for (const definition of definitions) {
+		cursor -= Math.max(0, definition.rollWeight);
+		if (cursor <= 0) {
+			return definition.id;
+		}
+	}
+
+	return definitions[definitions.length - 1].id;
 }
 
 function spawnBattlefieldDrop(
 	state: GameState,
-	kind: BattlefieldDropKind,
+	definitionId: BattlefieldDropState['definitionId'],
 	monster: MonsterState
 ): BattlefieldDropState {
+	const resolvedDefinitionId = definitionId ?? 'drop_weapon_supply';
+	const definition = getBattlefieldDropDefinitionById(resolvedDefinitionId);
 	const drop: BattlefieldDropState = {
 		id: uid('drop'),
-		kind,
+		definitionId: resolvedDefinitionId,
+		kind: definition.kind,
 		x: monster.x,
 		y: monster.y,
 		radius: BATTLEFIELD_DROP_RADIUS,
@@ -84,20 +88,28 @@ function maybeSpawnBattlefieldDrop(state: GameState, monster: MonsterState, rand
 		return null;
 	}
 
-	return spawnBattlefieldDrop(state, rollBattlefieldDropKind(random), monster);
+	return spawnBattlefieldDrop(state, rollBattlefieldDropDefinitionId(random), monster);
 }
 
-function setPickupFeedback(state: GameState, kind: BattlefieldDropKind, detail: string) {
+
+function setPickupFeedback(
+	state: GameState,
+	definitionId: BattlefieldDropState['definitionId'],
+	detail: string
+) {
+	const resolvedDefinitionId = definitionId ?? 'drop_weapon_supply';
+	const definition = getBattlefieldDropDefinitionById(resolvedDefinitionId);
 	state.ui.pickupFeedback = {
-		kind,
-		title: DROP_DEFINITIONS[kind].title,
+		kind: definition.kind,
+		definitionId: resolvedDefinitionId,
+		title: definition.title,
 		detail,
 		ttlMs: BATTLEFIELD_DROP_FEEDBACK_TTL_MS
 	};
 }
 
 export function getBattlefieldDropDefinition(kind: BattlefieldDropKind) {
-	return DROP_DEFINITIONS[kind];
+	return getBattlefieldDropDefinitionById(getBattlefieldDropDefinitionIdByKind(kind));
 }
 
 export function getQueuedWeaponBuffLabel(pattern: AttackPattern | null) {
@@ -129,20 +141,36 @@ export function applyBattlefieldDropPickup(
 	drop: BattlefieldDropState,
 	now = Date.now()
 ) {
-	if (drop.kind === 'weapon') {
-		grantQueuedWeaponBuff(state, BATTLEFIELD_DROP_WEAPON_USES);
-		setPickupFeedback(state, drop.kind, DROP_DEFINITIONS.weapon.pickupDetail);
-		return;
+	const definitionId = drop.definitionId ?? getBattlefieldDropDefinitionIdByKind(drop.kind);
+	const definition = getBattlefieldDropDefinitionById(definitionId);
+		const pickupHandlers: Record<BattlefieldDropDefinitionId, () => void> = {
+			drop_weapon_supply: () => grantQueuedWeaponBuff(state, BATTLEFIELD_DROP_WEAPON_USES),
+			drop_xp_crystal: () => grantExpBoost(state, BATTLEFIELD_DROP_EXP_BOOST_DURATION_MS, now),
+			drop_heal_pack: () => restorePlayerHealth(state, BATTLEFIELD_DROP_HEAL_AMOUNT),
+			drop_speed_tonic: () =>
+			grantMoveSpeedBoost(state, MOVE_SPEED_DROP_DURATION_MS, MOVE_SPEED_DROP_MULTIPLIER, now),
+			drop_attack_manual: () =>
+			grantAttackSpeedBoost(
+				state,
+				ATTACK_SPEED_DROP_DURATION_MS,
+				ATTACK_SPEED_DROP_MULTIPLIER,
+				now
+			),
+			drop_damage_core: () =>
+			grantDamageBoost(state, DAMAGE_BOOST_DROP_DURATION_MS, DAMAGE_BOOST_DROP_MULTIPLIER, now),
+			drop_guard_shield: () => grantShieldBlock(state),
+			drop_reroll_coupon: () => {
+				state.ui.rewardRerollsRemaining += 1;
+			}
+		};
+
+	const applyPickup = pickupHandlers[definitionId];
+	if (!applyPickup) {
+		throw new Error(`Unknown battlefield drop definition: ${definitionId}`);
 	}
 
-	if (drop.kind === 'xp') {
-		grantExpBoost(state, BATTLEFIELD_DROP_EXP_BOOST_DURATION_MS, now);
-		setPickupFeedback(state, drop.kind, DROP_DEFINITIONS.xp.pickupDetail);
-		return;
-	}
-
-	restorePlayerHealth(state, BATTLEFIELD_DROP_HEAL_AMOUNT);
-	setPickupFeedback(state, drop.kind, DROP_DEFINITIONS.heal.pickupDetail);
+	applyPickup();
+	setPickupFeedback(state, definitionId, definition.pickupDetail);
 }
 
 export function updateBattlefieldDrops(state: GameState, dtMs: number, now = Date.now()) {

@@ -4,48 +4,38 @@ import { render } from 'svelte/server';
 import HudOverlay from './HudOverlay.svelte';
 
 describe('HudOverlay', () => {
-	it('keeps only the requested top HUD cards and the pulse card on the right', () => {
+	it('renders a compact 5-slot action bar', () => {
 		const { body } = render(HudOverlay, {
 			props: {
-				hp: 58,
-				maxHp: 200,
-				level: 2,
-				kills: 3,
-				correct: 1,
-				wrong: 1,
 				pendingRewards: 1,
-				modeName: 'Knowledge Defense / 知识防御',
-				attackModeLabel: '散射',
-				sourceLabel: '备用样例题源（Fallback）',
-				sourceDetail: '当前还没选择知识库章节，系统先用备用样例题源帮助你熟悉玩法与操作。',
-				sourceIsFallback: true,
-				abilityCooldownMs: 0,
-				pulseOverchargeStacks: 1,
-				guidanceMessages: [
+				rewardRerollsRemaining: 2,
+				equippedWeaponTitle: '直射主武器',
+				actionCooldownMs: { H: 0, J: 0, K: 3200, L: 0 },
+				actionSlots: {
+					H: { title: '脉冲', hint: '范围清场', level: 2, maxLevel: 3 },
+					J: null,
+					K: { title: '空手道', hint: '近战短打', level: 1, maxLevel: 4 },
+					L: null
+				},
+				activeBuffs: [
 					{
-						id: 'pending-reward',
-						title: '有奖励待领',
-						detail: '奖励不会自动弹出；看准空档后按空格或点击角色，答题后再继续推进。',
-						tone: 'accent'
+						id: 'shield',
+						label: '格挡护盾',
+						detail: '剩余 1 次',
+						tone: 'shield'
 					}
-				],
-				activePickupBuffs: [],
-				pickupFeedbackTitle: null,
-				pickupFeedbackDetail: null,
-				pickupFeedbackKind: null
+				]
 			}
 		});
 
-		expect(body).toContain('HP');
-		expect(body).toContain('战绩');
-		expect(body).toContain('答题');
-		expect(body).toContain('脉冲 · 超载×1');
-		expect(body).toContain('可释放');
-		expect(body).not.toContain('Knowledge Defense / 知识防御');
-		expect(body).not.toContain('攻击偏好');
-		expect(body).not.toContain('备用样例题源（Fallback）');
-		expect(body).not.toContain('帮助 / 图例');
-		expect(body).not.toContain('有奖励待领');
-		expect(body).not.toContain('奖励待领 · 答对回脉冲');
+		expect(body).toContain('主武器');
+		expect(body).toContain('直射主武器');
+		expect(body).toContain('H');
+		expect(body).toContain('脉冲');
+		expect(body).toContain('K');
+		expect(body).toContain('空手道');
+		expect(body).toContain('奖励待领');
+		expect(body).toContain('重随机会 2');
+		expect(body).toContain('格挡护盾');
 	});
 });

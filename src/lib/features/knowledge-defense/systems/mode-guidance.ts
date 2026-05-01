@@ -1,6 +1,9 @@
 import {
+	ATTACK_SPEED_DROP_DURATION_MS,
 	BATTLEFIELD_DROP_EXP_BOOST_DURATION_MS,
 	BATTLEFIELD_DROP_HEAL_AMOUNT,
+	DAMAGE_BOOST_DROP_DURATION_MS,
+	MOVE_SPEED_DROP_DURATION_MS,
 	BATTLEFIELD_DROP_WEAPON_USES
 } from '../config/constants';
 import type { AttackPreference } from '../core/types';
@@ -29,7 +32,15 @@ export interface PreRunBriefing {
 }
 
 export interface ModeGuidanceMessage {
-	id: 'early-run' | 'pending-reward' | 'ability-ready' | 'low-hp' | 'sample-fallback' | 'steady';
+	id:
+		| 'early-run'
+		| 'pending-reward'
+		| 'ability-ready'
+		| 'low-hp'
+		| 'sample-fallback'
+		| 'steady'
+		| 'active-buffs'
+		;
 	title: string;
 	detail: string;
 	tone: GuidanceTone;
@@ -129,10 +140,10 @@ export function derivePreRunBriefing({
 		controls: [
 			'W / A / S / D 移动；触屏可朝按下方向拖动。',
 			'空格或点击角色：有待领奖励时打开奖励答题。',
-			'E 释放脉冲；答对奖励题会立即回满脉冲并存 1 层超载，留给你自己挑时机放强化脉冲；Esc 关闭面板或退出当前局。'
+			'H / J / K / L 释放对应槽位技能；R 在奖励面板中重随机；Esc 关闭面板或退出当前局。'
 		],
 		rewardTiming:
-			'升级后奖励不会自动弹出，而是先挂在 HUD 的“奖励待领”里，等你觉得安全再答题领取；答对还能立刻回脉冲并存一层强化脉冲。',
+			'升级后奖励不会自动弹出，而是先挂在“奖励待领”里，等你觉得安全再答题领取；临时增益与护盾会持续显示，方便你判断节奏窗口。',
 		reviewValue:
 			'答错会进入错题集；先复盘再开局，能更快抓住薄弱点，也不会改变现有错题与章节持久化流程。',
 		attackPreference: getAttackPreferenceLabel(attackPreference),
@@ -146,8 +157,9 @@ export function deriveInRunGuidance({
 	kills,
 	level,
 	pendingRewards,
-	abilityCooldownMs,
-	pulseOverchargeStacks,
+	pulseCooldownMs,
+	shieldBlockCharges,
+	activeBuffLabels,
 	hp,
 	maxHp,
 	usingSampleFallback
@@ -155,8 +167,9 @@ export function deriveInRunGuidance({
 	kills: number;
 	level: number;
 	pendingRewards: number;
-	abilityCooldownMs: number;
-	pulseOverchargeStacks: number;
+	pulseCooldownMs: number;
+	shieldBlockCharges: number;
+	activeBuffLabels: string[];
 	hp: number;
 	maxHp: number;
 	usingSampleFallback: boolean;
@@ -177,26 +190,29 @@ export function deriveInRunGuidance({
 		messages.push({
 			id: 'pending-reward',
 			title: '有奖励待领',
-			detail:
-				'奖励不会自动弹出；看准空档后按空格或点击角色，答对会立刻回脉冲并存 1 层超载，再继续推进。',
+				detail:
+				'奖励不会自动弹出；看准空档后按空格或点击角色，答对即可领取完整奖励，再继续推进。',
 			tone: 'accent'
 		});
 	}
 
-	if (pulseOverchargeStacks > 0) {
+	if (activeBuffLabels.length > 0 || shieldBlockCharges > 0) {
 		messages.push({
-			id: 'ability-ready',
-			title: '脉冲已超载',
-			detail: `你存着 ${pulseOverchargeStacks} 层强化脉冲；等怪物贴脸或准备抢节奏时再按 E，会比普通脉冲更赚。`,
+			id: 'active-buffs',
+			title: '临时增益正在生效',
+			detail:
+				shieldBlockCharges > 0
+					? `当前增益：${[...activeBuffLabels, '单次格挡护盾'].join('、')}；趁窗口还在，优先拿节奏。`
+					: `当前增益：${activeBuffLabels.join('、')}；趁效果还在，把怪潮和战场掉落一起处理掉。`,
 			tone: 'accent'
 		});
 	}
 
-	if (abilityCooldownMs <= 0 && pulseOverchargeStacks <= 0) {
+	if (pulseCooldownMs <= 0) {
 		messages.push({
 			id: 'ability-ready',
 			title: '脉冲已就绪',
-			detail: '怪物贴身或需要抢一口恢复时按 E，脉冲能清近身怪并顺手回血。',
+			detail: '怪物贴身或需要抢一口恢复时按 H，脉冲能清近身怪并顺手回血。',
 			tone: 'accent'
 		});
 	}
@@ -252,6 +268,41 @@ export const KNOWLEDGE_DEFENSE_DROP_LEGEND: ModeLegendItem[] = [
 		label: '急救包',
 		detail: `恢复 ${BATTLEFIELD_DROP_HEAL_AMOUNT} 点生命；低血时优先让它帮你续命，而不是继续硬换。`,
 		tone: 'warning'
+	},
+	{
+		id: 'speed',
+		badge: '移速',
+		label: '疾行补剂',
+		detail: `${Math.round(MOVE_SPEED_DROP_DURATION_MS / 1000)} 秒移速提升，适合绕开压力、补吃其他掉落。`,
+		tone: 'info'
+	},
+	{
+		id: 'attack-speed',
+		badge: '攻速',
+		label: '速射手册',
+		detail: `${Math.round(ATTACK_SPEED_DROP_DURATION_MS / 1000)} 秒攻击提速，适合在怪潮前多打一轮输出。`,
+		tone: 'accent'
+	},
+	{
+		id: 'damage',
+		badge: '火力',
+		label: '火力核心',
+		detail: `${Math.round(DAMAGE_BOOST_DROP_DURATION_MS / 1000)} 秒伤害提高，适合斩掉中高压怪。`,
+		tone: 'accent'
+	},
+	{
+		id: 'shield',
+		badge: '护盾',
+		label: '格挡护盾',
+		detail: '会替你挡掉下一次伤害；拿到后可以更从容地穿一次危险身位。',
+		tone: 'warning'
+	},
+	{
+		id: 'reroll',
+		badge: '改签',
+		label: '重随机会',
+		detail: '拾取后本局重随机会 +1；留给关键升级节点再用更赚。',
+		tone: 'info'
 	}
 ];
 

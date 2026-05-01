@@ -1,0 +1,104 @@
+- generic [ref=e5]:
+  - generic [ref=e9]:
+    - button "退出到首页" [ref=e10] [cursor=pointer]:
+      - img [ref=e12]
+    - generic [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - generic [ref=e17]: Knowledge Defense / 知识防御
+          - heading "知识闯关" [level=1] [ref=e18]
+          - paragraph [ref=e19]: 从暖启动题源进入，先定主武器，再确认右侧信息后直接开局。
+        - generic "开局概览" [ref=e20]:
+          - article [ref=e21]:
+            - generic [ref=e22]: 题源
+            - strong [ref=e23]: 备用样例题源（Fallback）
+            - paragraph [ref=e24]: 当前还没选择知识库章节，系统先用备用样例题源帮助你熟悉玩法与操作。
+          - generic [ref=e25]:
+            - article [ref=e26]:
+              - generic [ref=e27]: 错题
+              - strong [ref=e28]: "0"
+              - paragraph [ref=e29]: 当前错题本记录
+            - article [ref=e30]:
+              - generic [ref=e31]: 主武器
+              - strong [ref=e32]: 激光教鞭
+              - paragraph [ref=e33]: 点击任一可用条目即可切换
+      - complementary "启动页导航" [ref=e34]:
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e37]: Quick Desk
+            - strong [ref=e38]: 战前整理
+          - paragraph [ref=e39]: 设置、错题集与帮助集中在这里，主武器选择放到中间面板，开始按钮收束在右侧。
+          - generic [ref=e40]:
+            - generic [ref=e41]: Fallback
+            - generic [ref=e42]: 0 wrong
+        - group "启动页动作" [ref=e43]:
+          - button "设置 题源路径与当前回退状态" [ref=e44] [cursor=pointer]:
+            - img [ref=e46]
+            - generic [ref=e49]:
+              - strong [ref=e50]: 设置
+              - generic [ref=e51]: 题源路径与当前回退状态
+          - button "错题集 查看近期错题与复盘建议" [ref=e52] [cursor=pointer]:
+            - img [ref=e54]
+            - generic [ref=e57]:
+              - strong [ref=e58]: 错题集
+              - generic [ref=e59]: 查看近期错题与复盘建议
+          - button "帮助 / 图例 模式说明、掉落图例与战前提示" [ref=e60] [cursor=pointer]:
+            - img [ref=e62]
+            - generic [ref=e66]:
+              - strong [ref=e67]: 帮助 / 图例
+              - generic [ref=e68]: 模式说明、掉落图例与战前提示
+      - region "主武器选择讲台" [ref=e69]:
+        - generic [ref=e70]:
+          - generic [ref=e71]:
+            - generic [ref=e72]: Main Weapon
+            - heading "选择主武器" [level=2] [ref=e73]
+          - paragraph [ref=e74]: 点击可用条目即可切换主武器；进入战斗时会沿用这里的当前选择。
+        - generic "主武器列表" [ref=e75]:
+          - button "直线主武器，点击选择" [ref=e76] [cursor=pointer]:
+            - generic [ref=e77]: I
+            - generic [ref=e78]:
+              - strong [ref=e79]: 直线主武器
+              - generic [ref=e80]: 稳定单线输出，适合边走位边观察怪物前摇与资源线路。
+            - generic [ref=e81]: 可选
+          - button "散射主武器，点击选择" [ref=e82] [cursor=pointer]:
+            - generic [ref=e83]: V
+            - generic [ref=e84]:
+              - strong [ref=e85]: 散射主武器
+              - generic [ref=e86]: 扇面覆盖更宽，适合贴近清场与处理中近距包围。
+            - generic [ref=e87]: 可选
+          - button "激光教鞭，点击选择" [active] [pressed] [ref=e88] [cursor=pointer]:
+            - generic [ref=e89]: ┃
+            - generic [ref=e90]:
+              - strong [ref=e91]: 激光教鞭
+              - generic [ref=e92]: 持续压线的高温束流，适合拉扯中稳定维持火力。
+            - generic [ref=e93]: 已选
+          - button "导弹发射器，点击选择" [ref=e94] [cursor=pointer]:
+            - generic [ref=e95]: ⟡
+            - generic [ref=e96]:
+              - strong [ref=e97]: 导弹发射器
+              - generic [ref=e98]: 带爆发感的远程主武器，适合打断节奏和清理密集目标。
+            - generic [ref=e99]: 可选
+          - button "空手道，点击选择" [ref=e100] [cursor=pointer]:
+            - generic [ref=e101]: K
+            - generic [ref=e102]:
+              - strong [ref=e103]: 空手道
+              - generic [ref=e104]: 近距离连续打击与击退，适合贴脸拆火与处理飞行物。
+            - generic [ref=e105]: 可选
+      - complementary [ref=e106]:
+        - generic [ref=e107]:
+          - generic [ref=e108]:
+            - generic [ref=e109]:
+              - generic [ref=e110]: ┃
+              - generic [ref=e111]:
+                - generic [ref=e112]: Selected Loadout
+                - heading "激光教鞭" [level=2] [ref=e124]
+                - generic "武器标签" [ref=e114]:
+                  - generic [ref=e115]: 主武器
+                  - generic [ref=e116]: Fallback
+            - paragraph [ref=e117]: 持续压线的高温束流，适合拉扯中稳定维持火力。
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - generic [ref=e120]: Ready to run
+              - paragraph [ref=e121]: 确认后直接开局，保留当前题源与已有战前配置。
+            - button "开始闯关" [ref=e122] [cursor=pointer]
+  - generic [ref=e123]: Open WebUI

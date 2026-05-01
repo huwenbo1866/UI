@@ -15,38 +15,114 @@
     onClose?.();
     dispatch('close');
   }
+
+  function handleOverlayKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      close();
+    }
+  }
+
+  function getItemTone(item: WrongQuestionRecord) {
+    if (item.wrong_count >= 3) return 'danger';
+    if (item.wrong_count >= 2) return 'warning';
+    return 'calm';
+  }
+
+  function getSourceLabel(item: WrongQuestionRecord) {
+    if (item.chapter) return item.chapter;
+    if (item.source_type === 'knowledge') return '知识库题源';
+    if (item.source_type === 'chat') return '对话题源';
+    return '训练题包';
+  }
 </script>
 
 {#if visible}
-  <div class="overlay" on:click={close}>
-    <div class="panel" on:click|stopPropagation>
+  <div
+    class="overlay"
+    role="button"
+    tabindex="0"
+    aria-label="关闭错题回看面板"
+    on:click|self={close}
+    on:keydown|self={handleOverlayKeydown}
+  >
+    <div class="panel">
       <div class="header">
-        <div>
+        <div class="header-copy">
+          <div class="eyebrow">Prep Room</div>
           <h2>备战区 · 错题回看</h2>
-          <p>这里保留你近期错题、错误次数与解析，并根据错题情况给出针对性建议。</p>
+          <p>这里保留你近期错题、错误次数与解析，并根据错题情况给出针对性建议。先看反复失手点，再决定是否马上回战场。</p>
         </div>
+
         <div class="actions">
           {#if onClear}
-            <button class="secondary" on:click={onClear}>清空记录</button>
+            <button type="button" class="secondary" on:click={onClear}>清空记录</button>
           {/if}
-          <button class="primary" on:click={close}>关闭</button>
+          <button type="button" class="primary" on:click={close}>关闭</button>
         </div>
+      </div>
+
+      <div class="top-strip">
+        <section class="stat-banner">
+          <span class="banner-tag">Wrong Count</span>
+          <strong>{stats.total}</strong>
+          <p>仍在错题本中的题目总量</p>
+        </section>
+
+        <section class="stat-banner accent">
+          <span class="banner-tag">Repeat Mistakes</span>
+          <strong>{stats.repeated}</strong>
+          <p>需要优先复盘的反复失误题</p>
+        </section>
+
+        <section class="stat-banner compact">
+          <span class="banner-tag">Advice</span>
+          <strong>{stats.advice.length}</strong>
+          <p>右侧已生成针对性建议</p>
+        </section>
       </div>
 
       <div class="layout">
         <div class="cards">
           {#if items.length === 0}
-            <div class="empty">当前还没有错题记录，先升级做题再回来查看吧。</div>
+            <div class="empty">
+              <strong>当前还没有错题记录</strong>
+              <span>先升级做题再回来查看吧，新的问题会按题源自动归档到这里。</span>
+            </div>
           {:else}
-            {#each items as item (item.id)}
-              <article class="wrong-card">
-                <div class="pill">错题</div>
-                <div class="times">错了 {item.wrong_count} 次</div>
+            {#each items as item, itemIndex (item.id)}
+              <article class={`wrong-card ${getItemTone(item)}`}>
+                <div class="card-topline">
+                  <span class="pill">错题 #{itemIndex + 1}</span>
+                  <span class="source-pill">{getSourceLabel(item)}</span>
+                </div>
+
+                <div class="card-head">
+                  <div class="severity-mark" aria-hidden="true">!</div>
+                  <div class="card-head-copy">
+                    <strong>错了 {item.wrong_count} 次</strong>
+                    <span>连续答对进度：{item.consecutive_correct_count}/2</span>
+                  </div>
+                </div>
+
                 <div class="question">{item.question}</div>
-                <div class="meta"><strong>你当时选了：</strong> {item.last_user_answer}</div>
-                <div class="meta"><strong>正确答案：</strong> {item.correct_answer}</div>
-                <div class="meta"><strong>解析：</strong> {item.explanation}</div>
-                <div class="meta subtle">连续答对进度：{item.consecutive_correct_count}/2</div>
+
+                <div class="answer-grid">
+                  <div class="answer-box user">
+                    <span>你当时选了</span>
+                    <strong>{item.last_user_answer}</strong>
+                  </div>
+
+                  <div class="answer-box correct">
+                    <span>正确答案</span>
+                    <strong>{item.correct_answer}</strong>
+                  </div>
+                </div>
+
+                <div class="analysis-box">
+                  <span>解析</span>
+                  <p>{item.explanation}</p>
+                </div>
               </article>
             {/each}
           {/if}
@@ -54,14 +130,28 @@
 
         <aside class="analysis">
           <div class="sticky-scroll">
-            <h3>错题分析</h3>
+            <div class="section-head">
+              <h3>错题分析</h3>
+              <span>Battle Prep Notes</span>
+            </div>
+
             <div class="stats-grid">
-              <div class="stat-box"><span>错题总数</span><strong>{stats.total}</strong></div>
-              <div class="stat-box"><span>反复错题</span><strong>{stats.repeated}</strong></div>
+              <div class="stat-box">
+                <span>错题总数</span>
+                <strong>{stats.total}</strong>
+              </div>
+              <div class="stat-box">
+                <span>反复错题</span>
+                <strong>{stats.repeated}</strong>
+              </div>
             </div>
 
             <div class="section">
-              <h4>错题类型</h4>
+              <div class="section-head compact-head">
+                <h4>错题类型</h4>
+                <span>Topic Map</span>
+              </div>
+
               {#if stats.typeEntries.length === 0}
                 <div class="empty-mini">暂时还没有可分析数据。</div>
               {:else}
@@ -71,8 +161,11 @@
               {/if}
             </div>
 
-            <div class="section">
-              <h4>学习建议</h4>
+            <div class="section advice-section">
+              <div class="section-head compact-head">
+                <h4>学习建议</h4>
+                <span>Route Tips</span>
+              </div>
               <ul>
                 {#each stats.advice as line}
                   <li>{line}</li>
@@ -93,54 +186,109 @@
     z-index: 155;
     display: grid;
     place-items: center;
-    padding: 24px;
-    background: rgba(39, 28, 19, 0.28);
-    backdrop-filter: blur(4px);
+    padding: 20px;
+    background: rgba(39, 28, 19, 0.3);
+    backdrop-filter: blur(5px);
   }
 
   .panel {
-    width: min(1220px, calc(100vw - 48px));
-    max-height: min(86dvh, 920px);
+    --prep-bg: #fffaf4;
+    --prep-bg-soft: #fffdf9;
+    --prep-border: #e3d5c7;
+    --prep-text: #5b4837;
+    --prep-text-soft: #7b6756;
+    width: min(1240px, calc(100vw - 40px));
+    max-height: min(88dvh, 940px);
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    background: #fffaf4;
-    border: 1px solid #e3d5c7;
+    background: var(--prep-bg);
+    border: 1px solid var(--prep-border);
     border-radius: 28px;
-    padding: 20px;
+    padding: 18px;
     box-shadow: 0 24px 60px rgba(54, 41, 30, 0.16);
   }
 
+  .header,
+  .section-head,
+  .card-topline,
+  .card-head,
+  .answer-grid,
+  .actions,
+  .stats-grid,
+  .top-strip,
+  .layout {
+    display: grid;
+  }
+
   .header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 16px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: start;
+    margin-bottom: 14px;
+  }
+
+  .header-copy {
+    display: grid;
+    gap: 8px;
+  }
+
+  .eyebrow,
+  .banner-tag,
+  .pill,
+  .source-pill {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .eyebrow {
+    padding: 7px 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: #fff1d7;
+    color: #a26514;
+  }
+
+  .header h2,
+  .section-head h3,
+  .section-head h4,
+  .wrong-card strong,
+  .question,
+  .answer-box strong {
+    color: var(--prep-text);
   }
 
   .header h2 {
     margin: 0;
-    font-size: 28px;
-    color: #5b4837;
+    font-size: clamp(28px, 3.8vw, 38px);
   }
 
-  .header p {
-    margin: 8px 0 0;
-    color: #7b6756;
+  .header p,
+  .wrong-card span,
+  .analysis-box p,
+  .row span,
+  .empty span,
+  ul {
+    margin: 0;
+    color: var(--prep-text-soft);
+    line-height: 1.7;
   }
 
   .actions {
-    display: flex;
+    grid-auto-flow: column;
     gap: 10px;
-    flex-wrap: wrap;
+    align-items: start;
   }
 
   .primary,
   .secondary {
     border-radius: 14px;
     padding: 10px 14px;
-    font-weight: 700;
+    font-weight: 800;
     cursor: pointer;
   }
 
@@ -156,10 +304,58 @@
     color: #8b5e3c;
   }
 
-  .layout {
+  .top-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .stat-banner,
+  .wrong-card,
+  .sticky-scroll,
+  .stat-box,
+  .section,
+  .empty,
+  .empty-mini,
+  .answer-box,
+  .analysis-box {
+    border-radius: 20px;
+    border: 1px solid var(--prep-border);
+    background: var(--prep-bg-soft);
+  }
+
+  .stat-banner {
+    padding: 14px;
     display: grid;
-    grid-template-columns: 1.75fr 0.95fr;
-    gap: 18px;
+    gap: 6px;
+  }
+
+  .stat-banner.accent {
+    background: linear-gradient(180deg, #fff8ed, var(--prep-bg-soft));
+    border-color: #edcf9c;
+  }
+
+  .banner-tag,
+  .pill,
+  .source-pill {
+    padding: 6px 10px;
+  }
+
+  .banner-tag,
+  .source-pill {
+    background: rgba(244, 237, 228, 0.96);
+    color: #7b6756;
+  }
+
+  .stat-banner strong,
+  .stat-box strong {
+    font-size: clamp(28px, 4vw, 40px);
+    line-height: 1;
+  }
+
+  .layout {
+    grid-template-columns: 1.65fr 0.95fr;
+    gap: 16px;
     min-height: 0;
     flex: 1;
   }
@@ -169,53 +365,94 @@
     overflow: auto;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+    gap: 12px;
     align-content: start;
     padding-right: 4px;
   }
 
   .wrong-card {
-    position: relative;
-    background: #fffdf9;
-    border: 1px solid #ecdccb;
-    border-radius: 20px;
-    padding: 16px;
-    box-shadow: 0 8px 18px rgba(98,79,59,0.06);
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    box-shadow: 0 8px 18px rgba(98, 79, 59, 0.06);
+  }
+
+  .wrong-card.warning {
+    border-color: #edcf9c;
+    background: linear-gradient(180deg, #fff8ed, var(--prep-bg-soft));
+  }
+
+  .wrong-card.danger {
+    border-color: #efc7b8;
+    background: linear-gradient(180deg, #fff7f4, var(--prep-bg-soft));
+  }
+
+  .card-topline,
+  .answer-grid,
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .pill {
-    display: inline-flex;
-    padding: 6px 10px;
-    border-radius: 999px;
     background: #fde7e7;
     color: #a14b4b;
-    font-size: 12px;
-    font-weight: 700;
   }
 
-  .times {
-    position: absolute;
-    right: 16px;
-    top: 16px;
-    color: #7d6858;
-    font-weight: 700;
+  .card-head {
+    grid-template-columns: 50px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+  }
+
+  .severity-mark {
+    width: 50px;
+    height: 50px;
+    display: grid;
+    place-items: center;
+    border-radius: 18px;
+    background: rgba(255, 241, 215, 0.92);
+    border: 1px solid rgba(237, 205, 154, 0.92);
+    color: #9a5c0e;
+    font-size: 24px;
+    font-weight: 900;
   }
 
   .question {
-    margin-top: 14px;
-    font-size: 18px;
-    line-height: 1.6;
-    color: #4e3c2e;
-    min-height: 86px;
+    font-size: 17px;
+    line-height: 1.65;
+    min-height: 92px;
   }
 
-  .meta {
-    margin-top: 10px;
-    color: #6e5c4c;
-    line-height: 1.6;
+  .answer-box,
+  .analysis-box,
+  .stat-box,
+  .section {
+    padding: 12px;
   }
 
-  .subtle { color: #907b6a; }
+  .answer-box,
+  .analysis-box {
+    display: grid;
+    gap: 6px;
+  }
+
+  .answer-box span,
+  .analysis-box span,
+  .stat-box span,
+  .row span,
+  .empty-mini,
+  .compact-head span {
+    color: #8b7767;
+  }
+
+  .answer-box.user {
+    background: #fff7ef;
+  }
+
+  .answer-box.correct {
+    background: #f3fbf4;
+  }
 
   .analysis {
     min-height: 0;
@@ -224,41 +461,33 @@
   .sticky-scroll {
     height: 100%;
     overflow: auto;
-    background: #fffdf9;
-    border: 1px solid #ecdccb;
-    border-radius: 20px;
     padding: 16px;
   }
 
-  .sticky-scroll h3 {
-    margin: 0 0 12px;
-    color: #5b4837;
-  }
-
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .section-head {
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
+    align-items: baseline;
   }
 
-  .stat-box,
-  .section,
-  .empty {
-    border-radius: 16px;
-    border: 1px solid #ecdccb;
-    background: #fffaf4;
-    padding: 14px;
+  .section-head h3,
+  .section-head h4 {
+    margin: 0;
   }
 
-  .stat-box span,
-  .row span,
-  .section h4,
-  .empty-mini { color: #8b7767; }
+  .compact-head {
+    margin-bottom: 10px;
+  }
+
   .stat-box strong,
-  .row strong { color: #4e3c2e; font-size: 28px; }
+  .row strong {
+    color: var(--prep-text);
+  }
 
-  .section { margin-top: 12px; }
-  .section h4 { margin: 0 0 10px; }
+  .section {
+    margin-top: 12px;
+  }
+
   .row {
     display: flex;
     justify-content: space-between;
@@ -266,25 +495,44 @@
     padding: 8px 0;
     border-bottom: 1px dashed #ebdfd0;
   }
-  .row:last-child { border-bottom: 0; }
+
+  .row:last-child {
+    border-bottom: 0;
+  }
+
   ul {
-    margin: 0;
     padding-left: 18px;
-    color: #6e5c4c;
-    line-height: 1.8;
+  }
+
+  .advice-section li + li {
+    margin-top: 8px;
   }
 
   .empty,
   .empty-mini {
     display: grid;
     place-items: center;
-    color: #7b6756;
-    min-height: 160px;
+    text-align: center;
+  }
+
+  .empty {
+    min-height: 240px;
+    gap: 8px;
+    padding: 18px;
+  }
+
+  .empty strong {
+    color: var(--prep-text);
+    font-size: 20px;
+  }
+
+  .empty-mini {
+    min-height: 120px;
   }
 
   @media (max-width: 980px) {
     .overlay {
-      padding: 14px;
+      padding: 12px;
       align-items: end;
     }
 
@@ -295,16 +543,25 @@
       padding: 14px;
     }
 
-    .header h2 {
-      font-size: 22px;
-    }
-
-    .layout {
+    .top-strip,
+    .layout,
+    .cards,
+    .card-topline,
+    .answer-grid {
       grid-template-columns: 1fr;
     }
 
-    .cards {
+    .header {
       grid-template-columns: 1fr;
+    }
+
+    .actions {
+      grid-auto-flow: row;
+    }
+
+    .primary,
+    .secondary {
+      width: 100%;
     }
 
     .question {

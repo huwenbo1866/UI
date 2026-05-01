@@ -23,7 +23,13 @@
 		KD_WRONG_COOLDOWN_MIN_ROUNDS,
 		PLAYFIELD_MIN_HEIGHT
 	} from '../config/constants';
-	import type { QuestionPack, RewardChoice, RunSummary, WrongNotebookStats } from '../core/types';
+	import type {
+		ActiveBuffIndicator,
+		QuestionPack,
+		RewardChoice,
+		RunSummary,
+		WrongNotebookStats
+	} from '../core/types';
 	import { isAnswerCorrectWithOptions } from '../core/utils';
 	import { samplePack } from '../data/sample-pack';
 	import { createInitialGameState } from '../state/game-store';
@@ -45,28 +51,33 @@
 	import { updatePlayer } from '../systems/player-system';
 	import { maybeSpawnMonster, updateMonsters } from '../systems/monster-system';
 	import { tickDamageTexts } from '../systems/combat-feedback-system';
-	import { tickAutoAttack, tickAttackSequences } from '../systems/auto-attack-system';
+	import { tickAutoAttack, tickAttackSequences, tickLasers } from '../systems/auto-attack-system';
+	import { updateDrones } from '../systems/drone-system';
 	import { updateProjectiles } from '../systems/projectile-system';
 	import {
-		castPulseAbility,
-		grantPulseOvercharge,
-		refreshPulseAbility,
-		tickAbilityCooldown
+		castActionSlot,
+		tickActionCooldowns
 	} from '../systems/ability-system';
-	import { applyRewardByKind } from '../systems/progression-system';
+	import {
+		getWeaponDefinition
+	} from '../data/weapon-definitions';
+	import { getSkillDefinition } from '../data/skill-definitions';
+	import { applyRewardByDefinitionId, getTimedBuffRemainingMs } from '../systems/progression-system';
 	import {
 		getQueuedWeaponBuffLabel,
 		updateBattlefieldDrops
 	} from '../systems/battlefield-drop-system';
-	import { addDrone, updateDrones } from '../systems/drone-system';
-	import { openRewardPanel, closeRewardPanel } from '../systems/reward-system';
+	import {
+		openRewardPanel,
+		closeRewardPanel,
+		rerollRewardPanel,
+		resetRewardPanelState
+	} from '../systems/reward-system';
 	import { deriveRunSummary } from '../systems/run-summary';
 	import {
-		KNOWLEDGE_DEFENSE_MODE_NAME,
 		deriveContentSourceSummary,
 		deriveInRunGuidance,
-		derivePreRunBriefing,
-		getAttackPreferenceLabel
+		derivePreRunBriefing
 	} from '../systems/mode-guidance';
 	import GameCanvas from './GameCanvas.svelte';
 	import HudOverlay from './HudOverlay.svelte';
@@ -96,6 +107,7 @@
 	let wrongNotebook = get(wrongNotebookStore);
 	let rewardPanelOpenedFromPending = false;
 	let showExitConfirm = false;
+	type StartWeaponChoiceId = 'straight' | 'scatter' | 'laser' | 'missile' | 'karate';
 
 	// 非阻塞的错题分析统计（默认本地回退值，AI 只在打开面板时才异步执行）
 	let wrongNotebookStats: WrongNotebookStats = {
@@ -117,6 +129,8 @@
 	let selectedKnowledgeId = '';
 	let selectedFileId = '';
 	let selectedHomeworkId = '';
+	let selectedStartWeaponId: StartWeaponChoiceId =
+		state.settings.attackPreference === 'scatter' ? 'scatter' : 'straight';
 	let usingSampleFallback = true;
 	let chapterHomeworkPayload: ChapterHomeworkItem | null = null;
 	let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -126,6 +140,9 @@
 	let showModeGuidancePanel = false;
 
 	$: expBoostRemainingMs = Math.max(0, state.buffs.expBoostUntil - Date.now());
+	$: moveSpeedBoostRemainingMs = getTimedBuffRemainingMs(state.buffs.moveSpeedBoostUntil);
+	$: attackSpeedBoostRemainingMs = getTimedBuffRemainingMs(state.buffs.attackSpeedBoostUntil);
+	$: damageBoostRemainingMs = getTimedBuffRemainingMs(state.buffs.damageBoostUntil);
 	$: runSummary = state.player.hp <= 0 ? deriveRunSummary(state) : null;
 	$: sourceSummary = deriveContentSourceSummary({
 		usingSampleFallback,
@@ -138,33 +155,48 @@
 		attackPreference: state.settings.attackPreference,
 		sourceSummary
 	});
-	$: attackModeLabel = getAttackPreferenceLabel(state.settings.attackPreference);
+	$: equippedWeaponDefinition = getWeaponDefinition(state.loadout.mainWeaponId);
+	$: hudActionSlots = (['H', 'J', 'K', 'L'] as const).reduce(
+		(acc, key) => {
+			const skillId = state.loadout.actionSlots[key];
+			if (!skillId) {
+				acc[key] = null;
+				return acc;
+			}
+			const def = getSkillDefinition(skillId);
+			acc[key] = {
+				title: def.title,
+				hint: def.hint,
+				level: Math.max(1, state.build.skillLevels[skillId] ?? 1),
+				maxLevel: def.maxLevel
+			};
+			return acc;
+		},
+		{} as Record<'H' | 'J' | 'K' | 'L', { title: string; hint: string; level: number; maxLevel: number } | null>
+	);
 	$: inRunGuidance = deriveInRunGuidance({
 		kills: state.battle.kills,
 		level: state.progress.level,
 		pendingRewards: state.progress.pendingLevelUps,
-		abilityCooldownMs: state.runtime.abilityCooldownMs,
-		pulseOverchargeStacks: state.buffs.pulseOverchargeStacks,
+		pulseCooldownMs: state.runtime.actionCooldownMs.H,
+		shieldBlockCharges: state.buffs.shieldBlockCharges,
+		activeBuffLabels: [
+			...(moveSpeedBoostRemainingMs > 0 ? ['移速提升'] : []),
+			...(attackSpeedBoostRemainingMs > 0 ? ['攻击提速'] : []),
+			...(damageBoostRemainingMs > 0 ? ['伤害提高'] : [])
+		],
 		hp: state.player.hp,
 		maxHp: state.player.maxHp,
 		usingSampleFallback
 	});
 	$: activePickupBuffs = [
-		...(state.buffs.pulseOverchargeStacks > 0
-			? [
-					{
-						id: 'pulse-overcharge',
-						label: '脉冲超载',
-						detail: `下次强化脉冲 ×${state.buffs.pulseOverchargeStacks}`
-					}
-				]
-			: []),
 		...(state.buffs.queuedWeaponBuff && state.buffs.queuedWeaponBuffUses > 0
 			? [
 					{
 						id: 'weapon',
 						label: '武器强化',
-						detail: `${getQueuedWeaponBuffLabel(state.buffs.queuedWeaponBuff)} · ${state.buffs.queuedWeaponBuffUses} 次`
+						detail: `${getQueuedWeaponBuffLabel(state.buffs.queuedWeaponBuff)} · ${state.buffs.queuedWeaponBuffUses} 次`,
+						tone: 'weapon'
 					}
 				]
 			: []),
@@ -173,11 +205,53 @@
 					{
 						id: 'xp',
 						label: '经验增幅',
-						detail: `${Math.ceil(expBoostRemainingMs / 1000)}s`
+						detail: `${Math.ceil(expBoostRemainingMs / 1000)}s`,
+						tone: 'xp'
 					}
 				]
-			: [])
-	];
+			: []),
+		...(moveSpeedBoostRemainingMs > 0
+			? [
+					{
+						id: 'move-speed',
+						label: '疾行窗口',
+						detail: `移速提升 · ${Math.ceil(moveSpeedBoostRemainingMs / 1000)}s`,
+						tone: 'buff'
+					}
+				]
+			: []),
+		...(attackSpeedBoostRemainingMs > 0
+			? [
+					{
+						id: 'attack-speed',
+						label: '火力节拍',
+						detail: `攻击提速 · ${Math.ceil(attackSpeedBoostRemainingMs / 1000)}s`,
+						tone: 'buff'
+					}
+				]
+			: []),
+		...(damageBoostRemainingMs > 0
+			? [
+					{
+						id: 'damage-boost',
+						label: '聚焦火力',
+						detail: `伤害提高 · ${Math.ceil(damageBoostRemainingMs / 1000)}s`,
+						tone: 'buff'
+					}
+				]
+			: []),
+		...(state.buffs.shieldBlockCharges > 0
+			? [
+					{
+						id: 'shield',
+						label: '格挡护盾',
+						detail: `剩余 ${state.buffs.shieldBlockCharges} 次`,
+						tone: 'shield'
+					}
+				]
+			: []),
+		
+	] as ActiveBuffIndicator[];
 
 	const unsubscribeWrongNotebook = wrongNotebookStore.subscribe((items) => {
 		wrongNotebook = items;
@@ -232,6 +306,7 @@
 	function startRun() {
 		showModeGuidancePanel = false;
 		resetRun(false);
+		applySelectedStartWeapon(selectedStartWeaponId);
 		state.ui.showStartMenu = false;
 		state.runtime.running = true;
 		state = { ...state };
@@ -248,7 +323,7 @@
 		state.ui.showSettingsPanel = false;
 		state.ui.showPrepPanel = false;
 		state.ui.showStartMenu = true;
-		closeRewardPanel(state);
+		resetRewardPanelState(state);
 		rewardPanelOpenedFromPending = false;
 		showExitConfirm = false;
 		clearTouchDirection(input);
@@ -306,10 +381,20 @@
 		await clearWrongNotebook(activePack.id).catch(() => undefined);
 	}
 
-	function changeAttackPreference(value: 'straight' | 'scatter') {
-		state.settings.attackPreference = value;
-		state.buffs.queuedWeaponBuff = null;
-		state.buffs.queuedWeaponBuffUses = 0;
+	function applySelectedStartWeapon(choice: StartWeaponChoiceId) {
+		const selected =
+			choice === 'scatter'
+				? { attackPreference: 'scatter' as const, weaponId: 'weapon_main_scatter' as const }
+				: choice === 'laser'
+					? { attackPreference: 'straight' as const, weaponId: 'weapon_main_laser' as const }
+					: choice === 'missile'
+						? { attackPreference: 'straight' as const, weaponId: 'weapon_main_missile' as const }
+						: choice === 'karate'
+							? { attackPreference: 'straight' as const, weaponId: 'weapon_main_karate' as const }
+						: { attackPreference: 'straight' as const, weaponId: 'weapon_main_straight' as const };
+
+		state.settings.attackPreference = selected.attackPreference;
+		state.loadout.mainWeaponId = selected.weaponId;
 		state = { ...state };
 	}
 
@@ -332,6 +417,12 @@
 		state = { ...state };
 	}
 
+	function handleRewardReroll() {
+		if (showExitConfirm || !state.ui.showRewardPanel) return;
+		rerollRewardPanel(state);
+		state = { ...state };
+	}
+
 	function handlePlayerActivate() {
 		if (
 			showExitConfirm ||
@@ -345,7 +436,7 @@
 		}
 	}
 
-	function handleCastAbility() {
+	function handleCastAbility(slot: 'H' | 'J' | 'K' | 'L') {
 		if (
 			showExitConfirm ||
 			state.ui.showStartMenu ||
@@ -356,7 +447,7 @@
 			state.player.hp <= 0
 		)
 			return;
-		const casted = castPulseAbility(state);
+		const casted = castActionSlot(state, slot);
 		if (casted) {
 			state = { ...state };
 		}
@@ -449,7 +540,7 @@
 		if (isCorrect) {
 			state.battle.correct += 1;
 			state.battle.qaRound += 1;
-			state.ui.rewardFeedback = `答对了：${choice.question.explanation}（脉冲已刷新，并储存 1 层超载）`;
+			state.ui.rewardFeedback = `答对了：${choice.question.explanation}`;
 			state.ui.rewardFeedbackKind = 'success';
 			void markWrongNotebookCorrect(
 				activePack.id,
@@ -458,18 +549,9 @@
 				choice.question.prompt
 			).catch(() => undefined);
 			queuePersistProgress(choice.question, selected, true);
-			refreshPulseAbility(state);
-			grantPulseOvercharge(state);
-
-			if (choice.rewardKind === 'drone') {
-				const addedDrone = addDrone(state);
-				if (!addedDrone) {
-					grantPulseOvercharge(state);
-					state.ui.rewardFeedback = `答对了：${choice.question.explanation}（无人机已满，额外转化为 1 层脉冲超载）`;
-				}
-			}
+			// no extra side-effects; full reward is applied below
 			try {
-				applyRewardByKind(state, choice.rewardKind);
+				applyRewardByDefinitionId(state, choice.rewardDefinitionId);
 			} catch (error) {
 				console.warn('奖励发放失败，已回退并继续本局', error);
 				state.ui.rewardFeedback = '奖励发放异常，本次已自动回退，不影响继续闯关。';
@@ -490,7 +572,7 @@
 			queuePersistProgress(choice.question, selected, false);
 			state.player.hp = Math.min(state.player.maxHp, state.player.hp + 12);
 			state.player.contactInvulnMs = Math.max(state.player.contactInvulnMs, 260);
-			closeRewardPanel(state);
+			resetRewardPanelState(state);
 			rewardPanelOpenedFromPending = false;
 		}
 
@@ -502,6 +584,8 @@
 		const rawDtMs = Math.min(40, ts - lastFrameTs);
 		lastFrameTs = ts;
 		state.runtime.abilityPulseFxMs = Math.max(0, state.runtime.abilityPulseFxMs - rawDtMs);
+		state.runtime.abilityDashFxMs = Math.max(0, state.runtime.abilityDashFxMs - rawDtMs);
+		state.runtime.abilityKarateFxMs = Math.max(0, state.runtime.abilityKarateFxMs - rawDtMs);
 
 		const shouldSimulate =
 			state.runtime.running &&
@@ -520,11 +604,12 @@
 			maybeSpawnMonster(state, dtMs);
 			updatePlayer(state, input, dtSeconds, dtMs);
 			updateMonsters(state, dtSeconds, dtMs);
+			updateDrones(state, dtSeconds);
 			tickAutoAttack(state, dtMs);
 			tickAttackSequences(state, dtMs);
-			tickAbilityCooldown(state, dtMs);
+			tickLasers(state, dtMs);
+			tickActionCooldowns(state, dtMs);
 			updateProjectiles(state, dtSeconds);
-			updateDrones(state, dtSeconds, dtMs);
 			updateBattlefieldDrops(state, dtMs);
 			tickDamageTexts(state, dtSeconds, dtMs);
 			state = { ...state };
@@ -540,15 +625,42 @@
 		void initializeKnowledgeSource();
 		teardownKeyboard = attachKeyboard(input);
 		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key.toLowerCase() === 'e') {
+			if (event.code === 'KeyH') {
 				event.preventDefault();
-				handleCastAbility();
+				handleCastAbility('H');
+				return;
+			}
+			if (event.code === 'KeyJ') {
+				event.preventDefault();
+				handleCastAbility('J');
+				return;
+			}
+			if (event.code === 'KeyK') {
+				event.preventDefault();
+				handleCastAbility('K');
+				return;
+			}
+			if (event.code === 'KeyL') {
+				event.preventDefault();
+				handleCastAbility('L');
 				return;
 			}
 
 			if (event.code === 'Space') {
 				event.preventDefault();
 				handlePlayerActivate();
+				return;
+			}
+
+			if (event.code === 'KeyR' && state.ui.showRewardPanel) {
+				event.preventDefault();
+				handleRewardReroll();
+				return;
+			}
+
+			if (event.key === 'Tab') {
+				event.preventDefault();
+				openModeGuidancePanel();
 				return;
 			}
 
@@ -1014,11 +1126,20 @@
 	{#if state.ui.showStartMenu}
 		<div class="start-shell">
 			<StartMenu
+				selectedWeaponId={selectedStartWeaponId}
+				wrongCount={wrongNotebook.length}
+				sourceLabel={sourceSummary.label}
+				sourceDetail={sourceSummary.detail}
+				sourceIsFallback={usingSampleFallback}
 				on:start={startRun}
 				on:settings={openSettings}
 				on:notebook={openPrepPanel}
 				on:help={openModeGuidancePanel}
 				on:exitHome={exitToAppHome}
+				on:weaponSelect={(event) => {
+					selectedStartWeaponId = event.detail.weaponId;
+					applySelectedStartWeapon(selectedStartWeaponId);
+				}}
 			/>
 		</div>
 	{:else}
@@ -1029,37 +1150,47 @@
 				player={state.player}
 				progress={state.progress}
 				monsters={state.monsters}
+				drones={state.drones}
 				battlefieldDrops={state.battlefieldDrops}
 				projectiles={state.projectiles}
-				drones={state.drones}
 				lasers={state.lasers}
 				damageTexts={state.damageTexts}
-				pendingLevelUps={state.progress.pendingLevelUps}
-				abilityPulseFxMs={state.runtime.abilityPulseFxMs}
-				onTouchStartPoint={handleSurfaceTouchStart}
+			pendingLevelUps={state.progress.pendingLevelUps}
+			abilityPulseFxMs={state.runtime.abilityPulseFxMs}
+			abilityDashFxMs={state.runtime.abilityDashFxMs}
+			abilityKarateFxMs={state.runtime.abilityKarateFxMs}
+			dashRemainingMs={state.runtime.dashRemainingMs}
+			dashDirectionX={state.runtime.dashDirectionX}
+			dashDirectionY={state.runtime.dashDirectionY}
+			karateDirectionX={state.runtime.karateDirectionX}
+			karateDirectionY={state.runtime.karateDirectionY}
+			karateRangeMultiplier={state.build.mods.karateRangeMultiplier || 1}
+			onTouchStartPoint={handleSurfaceTouchStart}
 				onTouchMovePoint={handleSurfaceTouchMove}
 				onTouchEndPoint={handleSurfaceTouchEnd}
 				onPlayerActivate={handlePlayerActivate}
 			/>
 
 			<HudOverlay
-				hp={state.player.hp}
-				maxHp={state.player.maxHp}
-				kills={state.battle.kills}
-				correct={state.battle.correct}
-				wrong={state.battle.wrong}
-				abilityCooldownMs={state.runtime.abilityCooldownMs}
-				pulseOverchargeStacks={state.buffs.pulseOverchargeStacks}
+				pendingRewards={state.progress.pendingLevelUps}
+				rewardRerollsRemaining={state.ui.rewardRerollsRemaining}
+				actionCooldownMs={state.runtime.actionCooldownMs}
+				activeBuffs={activePickupBuffs}
+				equippedWeaponTitle={equippedWeaponDefinition.title}
+				actionSlots={hudActionSlots}
 				on:exit={openExitConfirm}
-				on:castAbility={handleCastAbility}
+				on:castAction={(event) => handleCastAbility(event.detail.key)}
 			/>
 
 			{#if state.ui.showRewardPanel}
 				<RewardPanel
 					choices={state.ui.rewardChoices}
+					rerollsRemaining={state.ui.rewardRerollsRemaining}
+					rerollsUsed={state.ui.rewardRerollCount}
 					feedback={state.ui.rewardFeedback}
 					feedbackKind={state.ui.rewardFeedbackKind}
 					on:answer={handleRewardAnswer}
+					on:reroll={handleRewardReroll}
 					on:close={closeRewardPanelKeepingPending}
 				/>
 			{/if}
@@ -1084,7 +1215,6 @@
 
 	<SettingsPanel
 		visible={state.ui.showSettingsPanel}
-		attackPreference={state.settings.attackPreference}
 		{loadingKnowledgeBases}
 		{loadingKnowledgeFiles}
 		{loadingChapterHomeworks}
@@ -1098,7 +1228,6 @@
 		sourceLabel={sourceSummary.label}
 		sourceDetail={sourceSummary.detail}
 		on:close={closeSettings}
-		on:changePreference={(event) => changeAttackPreference(event.detail.value)}
 		on:changeKnowledge={(event) => handleKnowledgeChange(event.detail.value)}
 		on:changeFile={(event) => handleFileChange(event.detail.value)}
 		on:changeChapterHomework={(event) => handleChapterHomeworkChange(event.detail.value)}

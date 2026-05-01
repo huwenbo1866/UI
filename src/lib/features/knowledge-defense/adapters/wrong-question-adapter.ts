@@ -11,9 +11,6 @@ import type { WrongQuestionRecord } from '$lib/apis/knowledge-defense'; // ← �
 import type { PackSourceContext, Question } from '../core/types';
 import {
 	ENABLE_AI_WRONG_QUESTION_ANALYSIS,
-	AI_BASE_URL,
-	AI_API_KEY,
-	AI_MODEL,
 	AI_ANALYSIS_PROMPT
 } from '../config/constants';
 
@@ -104,53 +101,11 @@ export async function buildWrongNotebookStats(items: WrongQuestionRecord[]) {
 		return buildFallbackStats(items, total, repeated);
 	}
 
-	try {
-		// 结构化数据给AI（清晰、规范）
-		const questionsText = items
-			.map(
-				(item) =>
-					`题目: ${item.question}\n你选的答案: ${item.last_user_answer}\n正确答案: ${item.correct_answer}\n解析: ${item.explanation}\n错题次数: ${item.wrong_count}`
-			)
-			.join('\n\n');
-
-		const prompt = AI_ANALYSIS_PROMPT.replace('{questions}', questionsText);
-
-		const res = await fetch(`${AI_BASE_URL}/chat/completions`, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${AI_API_KEY}`
-			},
-			body: JSON.stringify({
-				model: AI_MODEL,
-				messages: [{ role: 'user', content: prompt }],
-				temperature: 0.3,
-				max_tokens: 600
-			})
-		});
-
-		if (!res.ok) throw new Error(`API 请求失败: ${res.status}`);
-
-		const data = await res.json();
-		const content = data.choices[0].message.content.trim();
-
-		const parsed = JSON.parse(content);
-
-		cachedStats = {
-			typeEntries: parsed.typeEntries || [],
-			advice: parsed.advice || []
-		};
-
-		return {
-			total,
-			repeated,
-			typeEntries: cachedStats.typeEntries,
-			advice: cachedStats.advice
-		};
-	} catch (err) {
-		console.warn('AI分析失败，回退到本地逻辑', err);
-		return buildFallbackStats(items, total, repeated);
-	}
+	// 当前仓库默认禁用前端直连外部模型（安全原因）。
+	// 为了不阻塞 UI，这里直接回退到本地分析逻辑。
+	// 若未来需要启用 AI 分析，应改为调用服务端安全代理，并对返回内容做严格校验。
+	void AI_ANALYSIS_PROMPT;
+	return buildFallbackStats(items, total, repeated);
 }
 
 // 本地降级逻辑（AI关闭或失败时的保底）

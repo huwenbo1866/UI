@@ -174,4 +174,139 @@ afterEach(() => {
 		expect(state.monsters[0].id).toBe('survivor');
 		expect(state.monsters[0].hp).toBe(30);
 	});
+
+	it('keeps missiles locked on their assigned target while it is alive', () => {
+		const state = createInitialGameState(samplePack, 1200, 820, 'straight');
+		state.monsters = [
+			{
+				id: 'locked-target',
+				difficulty: 'easy',
+				x: 720,
+				y: 380,
+				radius: 22,
+				hp: 60,
+				maxHp: 60,
+				speed: 45,
+				damage: 10,
+				isDead: false,
+				hurtFlashMs: 0,
+				attackCooldownMs: 280,
+				attackState: 'idle',
+				attackWindupMs: 0,
+				moving: false,
+				moveDirX: 0,
+				moveDirY: 1
+			},
+			{
+				id: 'nearer-other',
+				difficulty: 'easy',
+				x: 560,
+				y: 380,
+				radius: 22,
+				hp: 60,
+				maxHp: 60,
+				speed: 45,
+				damage: 10,
+				isDead: false,
+				hurtFlashMs: 0,
+				attackCooldownMs: 280,
+				attackState: 'idle',
+				attackWindupMs: 0,
+				moving: false,
+				moveDirX: 0,
+				moveDirY: 1
+			}
+		];
+		state.projectiles = [
+			{
+				id: 'missile-locked',
+				x: 600,
+				y: 410,
+				vx: 200,
+				vy: 0,
+				radius: 10,
+				damage: 30,
+				color: '#fb923c',
+				owner: 'player',
+				kind: 'missile',
+				targetMonsterId: 'locked-target',
+				homingStrength: 1,
+				ttlMs: 1000
+			}
+		];
+
+		updateProjectiles(state, 0.05);
+
+		expect(state.projectiles).toHaveLength(1);
+		expect(state.projectiles[0].targetMonsterId).toBe('locked-target');
+		expect(state.projectiles[0].vx).toBeGreaterThan(0);
+	});
+
+	it('retargets missiles to the nearest live enemy when the locked target is already dead', () => {
+		const state = createInitialGameState(samplePack, 1200, 820, 'straight');
+		state.monsters = [
+			{
+				id: 'dead-target',
+				difficulty: 'easy',
+				x: 620,
+				y: 410,
+				radius: 22,
+				hp: 0,
+				maxHp: 60,
+				speed: 45,
+				damage: 10,
+				isDead: true,
+				hurtFlashMs: 0,
+				attackCooldownMs: 280,
+				attackState: 'idle',
+				attackWindupMs: 0,
+				moving: false,
+				moveDirX: 0,
+				moveDirY: 1
+			},
+			{
+				id: 'next-target',
+				difficulty: 'easy',
+				x: 700,
+				y: 410,
+				radius: 22,
+				hp: 60,
+				maxHp: 60,
+				speed: 45,
+				damage: 10,
+				isDead: false,
+				hurtFlashMs: 0,
+				attackCooldownMs: 280,
+				attackState: 'idle',
+				attackWindupMs: 0,
+				moving: false,
+				moveDirX: 0,
+				moveDirY: 1
+			}
+		];
+		state.projectiles = [
+			{
+				id: 'missile-retarget',
+				x: 600,
+				y: 410,
+				vx: 0,
+				vy: 0,
+				radius: 10,
+				damage: 30,
+				color: '#fb923c',
+				owner: 'player',
+				kind: 'missile',
+				targetMonsterId: 'dead-target',
+				homingStrength: 1,
+				ttlMs: 1000
+			}
+		];
+
+		updateProjectiles(state, 0.05);
+
+		expect(state.projectiles).toHaveLength(1);
+		expect(state.projectiles[0].targetMonsterId).toBe('next-target');
+		expect(state.projectiles[0].vx).toBeGreaterThan(0);
+		expect(state.projectiles[0].x).toBeGreaterThan(600);
+	});
 });
