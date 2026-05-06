@@ -4,6 +4,7 @@
 		BATTLEFIELD_DROP_EXPIRING_TTL_MS,
 		KD_ASSET_PATHS,
 		KD_DRONE_TUNING,
+		getTotalExpRequiredForLevel,
 		MONSTER_ATTACK_WINDUP_MS,
 		MONSTER_DASH_TELEGRAPH_MS,
 		MONSTER_THROW_TELEGRAPH_MS
@@ -77,6 +78,12 @@
 
 	$: playerTilt = Math.max(-14, Math.min(14, player.moveDirX * 14));
 	$: playerFaceScale = player.moving ? 1.05 : 1;
+	$: currentLevelStartExp = getTotalExpRequiredForLevel(progress.level);
+	$: currentLevelSpanExp = Math.max(1, progress.nextLevelTotalExp - currentLevelStartExp);
+	$: playerExpBarWidth = `${Math.max(
+		0,
+		Math.min(100, ((progress.exp - currentLevelStartExp) / currentLevelSpanExp) * 100)
+	)}%`;
 	$: pulseOpacity = Math.max(0, Math.min(1, abilityPulseFxMs / 320));
 	$: dashOpacity = Math.max(0, Math.min(1, abilityDashFxMs / 180));
 	$: karateOpacity = Math.max(0, Math.min(1, abilityKarateFxMs / 180));
@@ -317,14 +324,21 @@
 				<span style={`width:${(player.hp / player.maxHp) * 100}%`}></span>
 				<small class="hp-text">{Math.max(0, Math.round(player.hp))}/{player.maxHp}</small>
 			</div>
+			<div class="player-exp-bar" aria-label="经验条">
+				<span style={`width:${playerExpBarWidth}`}></span>
+			</div>
 		</div>
 		{#if pendingLevelUps > 0}
 			<div class="reward-ready">!{pendingLevelUps > 1 ? `×${pendingLevelUps}` : ''}</div>
 		{/if}
-		<div
+		<img
 			class={`player-avatar ${player.moving ? 'moving' : 'idle'}`}
+			src={KD_ASSET_PATHS.playerSprite}
+			alt=""
+			aria-hidden="true"
+			draggable="false"
 			style={`--tilt:${playerTilt}deg; --face-scale:${playerFaceScale};`}
-		></div>
+		/>
 	</button>
 </div>
 
@@ -512,10 +526,10 @@
 	.player-avatar {
 		width: 100%;
 		height: 100%;
-		background-image: url(${KD_ASSET_PATHS.playerSprite});
-		background-size: contain;
-		background-position: center;
-		background-repeat: no-repeat;
+		display: block;
+		object-fit: contain;
+		pointer-events: none;
+		user-select: none;
 		transform: rotate(var(--tilt, 0deg)) scale(var(--face-scale, 1));
 		animation: playerIdleBob 980ms ease-in-out infinite;
 	}
@@ -725,6 +739,19 @@
 
 	.player-hp-bar {
 		position: relative;
+	}
+	.player-exp-bar {
+		height: 5px;
+		border-radius: 999px;
+		background: rgba(17, 24, 39, 0.14);
+		overflow: hidden;
+		box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
+	}
+	.player-exp-bar span {
+		display: block;
+		height: 100%;
+		border-radius: 999px;
+		background: linear-gradient(90deg, #60a5fa, #2563eb);
 	}
 	.reward-ready {
 		position: absolute;

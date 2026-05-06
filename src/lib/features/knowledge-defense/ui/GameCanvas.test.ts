@@ -6,6 +6,16 @@ import GameCanvas from './GameCanvas.svelte';
 import type { BattlefieldDropState, DroneState, LaserEffectState, MonsterState, ProjectileState } from '../core/types';
 import { getMonsterAnimationOffset, resolveMonsterSpriteFrame } from './monster-sprites';
 
+function createProgress(overrides: Partial<{ level: number; exp: number; nextLevelTotalExp: number; pendingLevelUps: number }> = {}) {
+	return {
+		level: 1,
+		exp: 0,
+		nextLevelTotalExp: 10,
+		pendingLevelUps: 0,
+		...overrides
+	};
+}
+
 function createMonster(overrides: Partial<MonsterState> = {}): MonsterState {
 	return {
 		id: 'monster-test',
@@ -33,7 +43,8 @@ function renderCanvas(
 	monsters: MonsterState[],
 	animationTimeMs = 0,
 	battlefieldDrops: BattlefieldDropState[] = [],
-	projectiles: ProjectileState[] = []
+	projectiles: ProjectileState[] = [],
+	progress = createProgress()
 ) {
 	return render(GameCanvas, {
 		props: {
@@ -52,12 +63,7 @@ function renderCanvas(
 				moveDirX: 0,
 				moveDirY: 1
 			},
-			progress: {
-				level: 1,
-				exp: 0,
-				nextLevelTotalExp: 10,
-				pendingLevelUps: 0
-			},
+			progress,
 			monsters,
 			battlefieldDrops,
 			projectiles,
@@ -279,6 +285,15 @@ describe('GameCanvas monster sprite rendering', () => {
 		expect(body).toContain('ability-karate');
 		expect(body).toContain('data-kind="missile"');
 		expect(body).toContain('dashing');
+	});
+
+	it('renders the player portrait as an actual image and shows exp under the hp bar', () => {
+		const { body } = renderCanvas([], 0, [], [], createProgress({ level: 2, exp: 15, nextLevelTotalExp: 30 }));
+
+		expect(body).toContain(`src="${KD_ASSET_PATHS.playerSprite}"`);
+		expect(body).toContain('player-exp-bar');
+		expect(body).toContain('aria-label="经验条"');
+		expect(body).toContain('width:25%');
 	});
 
 	it('anchors lasers from the player origin and renders drones when acquired', () => {
