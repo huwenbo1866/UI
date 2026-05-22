@@ -12,6 +12,7 @@
 	import type {
 		BattlefieldDropState,
 		DamageTextState,
+		DeployableState,
 		DroneState,
 		GameProgressState,
 		LaserEffectState,
@@ -34,6 +35,7 @@
 	export let monsters: MonsterState[] = [];
 	export let drones: DroneState[] = [];
 	export let battlefieldDrops: BattlefieldDropState[] = [];
+	export let deployables: DeployableState[] = [];
 	export let projectiles: ProjectileState[] = [];
 
 	export let lasers: LaserEffectState[] = [];
@@ -234,6 +236,15 @@
 		</div>
 	{/each}
 
+	{#each deployables as deployable (deployable.id)}
+		{#if deployable.kind === 'burn_zone'}
+			<div
+				class="deployable burn-zone"
+				style={`left:${deployable.x}px; top:${deployable.y}px; width:${deployable.radius * 2}px; height:${deployable.radius * 2}px; opacity:${Math.max(0.18, Math.min(0.72, deployable.ttlMs / 2000))};`}
+			></div>
+		{/if}
+	{/each}
+
 	{#each lasers as laser (laser.id)}
 		<div
 			class="laser"
@@ -399,6 +410,7 @@
 	.drone,
 	.battlefield-drop,
 	.projectile,
+	.deployable,
 	.laser {
 		position: absolute;
 		transform: translate(-50%, -50%);
@@ -867,7 +879,7 @@
 			0 0 14px rgba(127, 29, 29, 0.46);
 	}
 	.laser {
-		height: 3px;
+		height: calc(3px * var(--laser-width-multiplier, 1));
 		background: linear-gradient(
 			90deg,
 			rgba(96, 165, 250, 0.15),
@@ -878,6 +890,14 @@
 		pointer-events: none;
 		border-radius: 999px;
 		box-shadow: 0 0 10px rgba(96, 165, 250, 0.7);
+	}
+	.deployable.burn-zone {
+		border-radius: 999px;
+		pointer-events: none;
+		background: radial-gradient(circle, rgba(251, 146, 60, 0.5) 0%, rgba(249, 115, 22, 0.22) 55%, rgba(239, 68, 68, 0.08) 100%);
+		border: 1px solid rgba(251, 146, 60, 0.55);
+		box-shadow: 0 0 22px rgba(249, 115, 22, 0.28);
+		z-index: 20;
 	}
 	@keyframes monsterWindup {
 		from {

@@ -41,4 +41,20 @@ describe('applyRewardByDefinitionId', () => {
 			shotsRemaining: 10
 		});
 	});
+
+	it('turns reward panel stat buffs into permanent run multipliers', () => {
+		const state = createInitialGameState(samplePack, 1200, 820, 'straight');
+
+		applyRewardByDefinitionId(state, 'reward_buff_move_speed');
+		applyRewardByDefinitionId(state, 'reward_buff_attack_speed');
+		applyRewardByDefinitionId(state, 'reward_buff_damage');
+		applyRewardByDefinitionId(state, 'reward_buff_move_speed');
+
+		expect(state.buffs.permanentMoveSpeedMultiplier).toBe(1.7);
+		expect(state.buffs.permanentAttackSpeedMultiplier).toBe(1.35);
+		expect(state.buffs.permanentDamageMultiplier).toBe(1.4);
+		expect(state.buffs.moveSpeedBoostUntil).toBe(0);
+		expect(state.buffs.attackSpeedBoostUntil).toBe(0);
+		expect(state.buffs.damageBoostUntil).toBe(0);
+	});
 });

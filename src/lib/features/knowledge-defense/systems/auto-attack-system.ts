@@ -13,6 +13,7 @@ import {
 	LASER_RANGE,
 	LASER_TTL_MS,
 	LASER_WIDTH,
+	KD_WEAPON_TUNING,
 	MAX_ACTIVE_LASERS,
 	MISSILE_BURST_COUNT,
 	MISSILE_BURST_INTERVAL_MS,
@@ -202,6 +203,8 @@ function fireLaserLine(state: GameState, target: MonsterState) {
 	const dy = target.y - state.player.y;
 	const len = Math.hypot(dx, dy) || 1;
 	const laserRange = LASER_RANGE * (state.build.mods.laserRangeMultiplier || 1);
+	const laserWidthMultiplier =
+		KD_WEAPON_TUNING.laser.baseWidthMultiplier * (state.build.mods.laserWidthMultiplier || 1);
 	const endX = state.player.x + (dx / len) * laserRange;
 	const endY = state.player.y + (dy / len) * laserRange;
 	let defeatedMonster = false;
@@ -213,7 +216,7 @@ function fireLaserLine(state: GameState, target: MonsterState) {
 		to: { x: endX, y: endY },
 		ttlMs: LASER_TTL_MS,
 		targetMonsterId: target.id,
-		widthMultiplier: state.build.mods.laserWidthMultiplier || 1
+		widthMultiplier: laserWidthMultiplier
 	});
 	if (state.lasers.length > MAX_ACTIVE_LASERS) {
 		state.lasers.splice(0, state.lasers.length - MAX_ACTIVE_LASERS);
@@ -229,7 +232,7 @@ function fireLaserLine(state: GameState, target: MonsterState) {
 			endX,
 			endY
 		);
-		const width = LASER_WIDTH * (state.build.mods.laserWidthMultiplier || 1);
+		const width = LASER_WIDTH * laserWidthMultiplier;
 		if (lineDistance > width + monster.radius) continue;
 
 		hitCount += 1;
@@ -367,9 +370,14 @@ export function tickAttackSequences(state: GameState, dtMs: number) {
 				for (let i = state.projectiles.length - pelletCount; i < state.projectiles.length; i += 1) {
 					const proj = state.projectiles[i];
 					if (!proj) continue;
-					if (mods.scatterBleedDps > 0 && mods.scatterBleedMs > 0) {
-						proj.applyBleedDps = mods.scatterBleedDps;
-						proj.applyBleedMs = mods.scatterBleedMs;
+					if (
+						mods.scatterBleedDamagePerTick > 0 &&
+						mods.scatterBleedTickIntervalMs > 0 &&
+						mods.scatterBleedMaxTicks > 0
+					) {
+						proj.applyBleedDamagePerTick = mods.scatterBleedDamagePerTick;
+						proj.applyBleedTickIntervalMs = mods.scatterBleedTickIntervalMs;
+						proj.applyBleedMaxTicks = mods.scatterBleedMaxTicks;
 					}
 					if (mods.scatterCloseKnockbackChance > 0) {
 						proj.applyKnockback = mods.scatterCloseKnockback;

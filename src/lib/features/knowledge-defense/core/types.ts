@@ -148,8 +148,17 @@ export interface MonsterState {
 	// debuffs
 	slowUntil?: number;
 	slowMultiplier?: number;
-	bleedUntil?: number;
-	bleedDps?: number;
+	statusEffects?: MonsterStatusEffectState[];
+}
+
+export interface MonsterStatusEffectState {
+	id: string;
+	kind: 'bleed';
+	source: 'scatter';
+	damagePerTick: number;
+	tickIntervalMs: number;
+	nextTickAt: number;
+	remainingTicks: number;
 }
 
 export interface ProjectileState {
@@ -179,11 +188,24 @@ export interface ProjectileState {
 	applySlowChance?: number;
 	applySlowMultiplier?: number;
 	applySlowMs?: number;
-	applyBleedDps?: number;
-	applyBleedMs?: number;
+	applyBleedDamagePerTick?: number;
+	applyBleedTickIntervalMs?: number;
+	applyBleedMaxTicks?: number;
 	applyKnockback?: number;
 	applyKnockbackChance?: number;
 	applyKnockbackRange?: number;
+}
+
+export interface DeployableState {
+	id: string;
+	kind: 'burn_zone' | 'turret';
+	owner: 'player';
+	x: number;
+	y: number;
+	radius: number;
+	ttlMs: number;
+	damagePerSecond?: number;
+	attackCooldownMs?: number;
 }
 
 export interface MonsterSkillRuntimeState {
@@ -252,6 +274,9 @@ export interface BuffState {
 	attackSpeedBoostMultiplier: number;
 	damageBoostUntil: number;
 	damageBoostMultiplier: number;
+	permanentMoveSpeedMultiplier: number;
+	permanentAttackSpeedMultiplier: number;
+	permanentDamageMultiplier: number;
 	shieldBlockCharges: number;
 
 	// transient mitigation windows (e.g. dash upgrade)
@@ -361,8 +386,9 @@ export interface BuildState {
 
 		// scatter
 		scatterExtraPellets: number;
-		scatterBleedDps: number;
-		scatterBleedMs: number;
+		scatterBleedDamagePerTick: number;
+		scatterBleedTickIntervalMs: number;
+		scatterBleedMaxTicks: number;
 		scatterCloseKnockbackChance: number;
 		scatterCloseKnockback: number;
 
@@ -429,6 +455,7 @@ export interface GameState {
 	player: PlayerState;
 	monsters: MonsterState[];
 	battlefieldDrops: BattlefieldDropState[];
+	deployables: DeployableState[];
 	projectiles: ProjectileState[];
 	lasers: LaserEffectState[];
 	damageTexts: DamageTextState[];

@@ -143,7 +143,7 @@ export function derivePreRunBriefing({
 			'H / J / K / L 释放对应槽位技能；R 在奖励面板中重随机；Esc 关闭面板或退出当前局。'
 		],
 		rewardTiming:
-			'升级后奖励不会自动弹出，而是先挂在“奖励待领”里，等你觉得安全再答题领取；临时增益与护盾会持续显示，方便你判断节奏窗口。',
+			'升级后奖励不会自动弹出，而是先挂在“奖励待领”里，等你觉得安全再答题领取；属性加成与护盾会持续显示，方便你判断当前战力。',
 		reviewValue:
 			'答错会进入错题集；先复盘再开局，能更快抓住薄弱点，也不会改变现有错题与章节持久化流程。',
 		attackPreference: getAttackPreferenceLabel(attackPreference),
@@ -199,11 +199,11 @@ export function deriveInRunGuidance({
 	if (activeBuffLabels.length > 0 || shieldBlockCharges > 0) {
 		messages.push({
 			id: 'active-buffs',
-			title: '临时增益正在生效',
+			title: '当前属性加成已生效',
 			detail:
 				shieldBlockCharges > 0
-					? `当前增益：${[...activeBuffLabels, '单次格挡护盾'].join('、')}；趁窗口还在，优先拿节奏。`
-					: `当前增益：${activeBuffLabels.join('、')}；趁效果还在，把怪潮和战场掉落一起处理掉。`,
+					? `当前增益：${[...activeBuffLabels, '单次格挡护盾'].join('、')}；优先维持节奏并扩大优势。`
+					: `当前增益：${activeBuffLabels.join('、')}；继续推进，把怪潮和战场掉落一起处理掉。`,
 			tone: 'accent'
 		});
 	}

@@ -34,7 +34,7 @@ describe('mode-guidance', () => {
 		expect(getAttackPreferenceLabel('scatter')).toBe('散射');
 		expect(briefing.attackPreference).toBe('散射');
 		expect(briefing.rewardTiming).toContain('奖励不会自动弹出');
-		expect(briefing.rewardTiming).toContain('临时增益');
+		expect(briefing.rewardTiming).toContain('属性加成');
 		expect(briefing.controls[2]).toContain('H / J / K / L');
 		expect(briefing.controls[2]).toContain('R');
 		expect(briefing.reviewValue).toContain('错题集');

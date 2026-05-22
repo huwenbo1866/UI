@@ -48,6 +48,7 @@ function buildSkillOffer(
 
 	const isNew = current <= 0;
 	if (isNew && !hasEmptyActionSlot(state)) return null;
+	const description = resolveSkillOfferDescription(skillId, current, next, isNew);
 
 	return {
 		rewardDefinitionId: def.rewardDefinitionId,
@@ -55,14 +56,42 @@ function buildSkillOffer(
 		tag: isNew ? '获取 · 技能' : '升级 · 技能',
 		iconGlyph: def.rewardOfferIconGlyph,
 		title: def.title,
-		description: isNew
-			? `获得 ${def.title} 并自动挂入空槽（H/J/K/L）。`
-			: `提升 ${def.title} 等级，强化效果并刷新对应槽位冷却。`,
+		description,
 		levelFrom: isNew ? 0 : current,
 		levelTo: next,
 		offerWeight: weight,
 		priority: isNew ? def.rewardOfferPriority.new : def.rewardOfferPriority.upgrade
 	};
+}
+
+function resolveSkillOfferDescription(
+	skillId: SkillDefinitionId,
+	current: number,
+	next: number,
+	isNew: boolean
+) {
+	if (skillId === 'skill_pulse') {
+		if (next === 2) {
+			return '脉冲当前冷却时间减少 20%。';
+		}
+		if (next === 3) {
+			return '脉冲范围扩大为当前的 150%。';
+		}
+	}
+
+	if (skillId === 'skill_dash') {
+		if (isNew) {
+			return '获取技能冲刺，向前冲刺一段距离并对沿路怪物造成伤害。';
+		}
+		if (current === 1 && next === 2) {
+			return '当前冲刺技能冷却时间减少 20%。';
+		}
+		if (current === 2 && next === 3) {
+			return '当前冲刺技能的冲刺距离变长 20%。';
+		}
+	}
+
+	return isNew ? `获得技能并自动挂入空槽（H/J/K/L）。` : '提升当前技能等级并刷新对应槽位冷却。';
 }
 
 function buildMainWeaponUpgradeOffers(state: GameState): RewardOffer[] {
@@ -92,7 +121,7 @@ function buildMainWeaponUpgradeOffers(state: GameState): RewardOffer[] {
 		if (mods.scatterCloseKnockbackChance <= 0) {
 			offers.push(buildStaticRewardOffer('reward_upgrade_scatter_knockback', 'weapon'));
 		}
-		if (mods.scatterBleedDps <= 0) {
+		if (mods.scatterBleedDamagePerTick <= 0) {
 			offers.push(buildStaticRewardOffer('reward_upgrade_scatter_bleed', 'weapon'));
 		}
 	}

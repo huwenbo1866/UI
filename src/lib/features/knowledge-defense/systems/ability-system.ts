@@ -77,7 +77,7 @@ function applyAbilityHit(state: GameState, monster: MonsterState, damage: number
 function castPulse(state: GameState, level: number) {
 	// upgrades: Lv2 radius +30%, Lv3 cooldown -40% (handled by caller)
 	const overcharged = state.buffs.pulseOverchargeStacks > 0;
-	const radiusMultiplier = level >= 2 ? KD_ABILITY_TUNING.pulse.levelTwoRadiusMultiplier : 1;
+	const radiusMultiplier = level >= 3 ? KD_ABILITY_TUNING.pulse.levelThreeRadiusMultiplier : 1;
 	const pulseRadius =
 		ABILITY_PULSE_RADIUS * radiusMultiplier + (overcharged ? ABILITY_PULSE_OVERCHARGE_RADIUS_BONUS : 0);
 	const pulseDamage = scalePlayerDamage(
@@ -128,7 +128,7 @@ function castPulse(state: GameState, level: number) {
 
 function castDash(state: GameState, level: number) {
 	const direction = resolveAbilityDirection(state);
-	const distanceMultiplier = level >= 2 ? KD_ABILITY_TUNING.dash.levelTwoDistanceMultiplier : 1;
+	const distanceMultiplier = level >= 3 ? KD_ABILITY_TUNING.dash.levelThreeDistanceMultiplier : 1;
 	const dashDistance = ABILITY_DASH_DISTANCE * distanceMultiplier;
 	const startX = state.player.x;
 	const startY = state.player.y;
@@ -158,14 +158,6 @@ function castDash(state: GameState, level: number) {
 	state.runtime.dashDirectionY = direction.y;
 	state.runtime.dashSpeed = Math.hypot(endX - startX, endY - startY) / (ABILITY_DASH_DURATION_MS / 1000);
 	state.runtime.abilityDashFxMs = ABILITY_DASH_FX_MS;
-
-	// upgrades: Lv3 grants a short damage reduction window (not invincible)
-	if (level >= 3) {
-		state.buffs.damageMitigation = {
-			until: Date.now() + KD_ABILITY_TUNING.dash.levelThreeMitigationWindowMs,
-			multiplier: KD_ABILITY_TUNING.dash.levelThreeMitigationMultiplier
-		};
-	}
 
 	if (hitCount > 0 && defeatedMonster) {
 		removeDefeatedMonsters(state);
@@ -256,14 +248,17 @@ function castKarate(state: GameState, level: number) {
 
 function resolveCooldownMs(skillId: SkillDefinitionId, level: number) {
 	if (skillId === 'skill_pulse') {
-		// base 16s; Lv3 cooldown -40%
+		// base 16s; Lv2 cooldown -20%
 		return Math.round(
 			KD_ABILITY_TUNING.pulse.cooldownMs *
-				(level >= 3 ? KD_ABILITY_TUNING.pulse.levelThreeCooldownMultiplier : 1)
+				(level >= 2 ? KD_ABILITY_TUNING.pulse.levelTwoCooldownMultiplier : 1)
 		);
 	}
 	if (skillId === 'skill_dash') {
-		return KD_ABILITY_TUNING.dash.cooldownMs;
+		return Math.round(
+			KD_ABILITY_TUNING.dash.cooldownMs *
+				(level >= 2 ? KD_ABILITY_TUNING.dash.levelTwoCooldownMultiplier : 1)
+		);
 	}
 	if (skillId === 'skill_karate') {
 		return KD_ABILITY_TUNING.karate.cooldownMs;

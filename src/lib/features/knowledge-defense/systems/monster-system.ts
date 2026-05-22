@@ -380,14 +380,32 @@ export function updateMonsters(state: GameState, dtSeconds: number, dtMs: number
 		if (monster.isDead) continue;
 
 		// debuffs
-		if ((monster.bleedUntil ?? 0) > now && (monster.bleedDps ?? 0) > 0) {
-			const bleedDamage = (monster.bleedDps ?? 0) * dtSeconds;
-			monster.hp = Math.max(0, monster.hp - bleedDamage);
-			markMonsterHit(state, monster, bleedDamage);
-			if (monster.hp <= 0) {
-				finalizeMonsterDeath(state, monster);
+		const remainingStatusEffects = [];
+		for (const statusEffect of monster.statusEffects ?? []) {
+			if (statusEffect.kind === 'bleed') {
+				if (now >= statusEffect.nextTickAt) {
+					monster.hp = Math.max(0, monster.hp - statusEffect.damagePerTick);
+					markMonsterHit(state, monster, statusEffect.damagePerTick);
+					statusEffect.remainingTicks -= 1;
+					statusEffect.nextTickAt = now + statusEffect.tickIntervalMs;
+				}
+
+				if (monster.hp <= 0) {
+					finalizeMonsterDeath(state, monster);
+					continue;
+				}
+
+				if (statusEffect.remainingTicks > 0) {
+					remainingStatusEffects.push(statusEffect);
+				}
 				continue;
 			}
+
+			remainingStatusEffects.push(statusEffect);
+		}
+		monster.statusEffects = remainingStatusEffects;
+		if (monster.isDead) {
+			continue;
 		}
 		if ((monster.slowUntil ?? 0) <= now) {
 			monster.slowUntil = undefined;

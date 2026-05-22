@@ -49,21 +49,24 @@ export function hasTimedBuff(until: number, now = Date.now()) {
 }
 
 export function resolveMoveSpeedMultiplier(state: GameState, now = Date.now()) {
-	return hasTimedBuff(state.buffs.moveSpeedBoostUntil, now)
+	const timedMultiplier = hasTimedBuff(state.buffs.moveSpeedBoostUntil, now)
 		? state.buffs.moveSpeedBoostMultiplier
 		: 1;
+	return state.buffs.permanentMoveSpeedMultiplier * timedMultiplier;
 }
 
 export function resolveAttackSpeedMultiplier(state: GameState, now = Date.now()) {
-	return hasTimedBuff(state.buffs.attackSpeedBoostUntil, now)
+	const timedMultiplier = hasTimedBuff(state.buffs.attackSpeedBoostUntil, now)
 		? state.buffs.attackSpeedBoostMultiplier
 		: 1;
+	return state.buffs.permanentAttackSpeedMultiplier * timedMultiplier;
 }
 
 export function resolveDamageMultiplier(state: GameState, now = Date.now()) {
-	return hasTimedBuff(state.buffs.damageBoostUntil, now)
+	const timedMultiplier = hasTimedBuff(state.buffs.damageBoostUntil, now)
 		? state.buffs.damageBoostMultiplier
 		: 1;
+	return state.buffs.permanentDamageMultiplier * timedMultiplier;
 }
 
 export function scalePlayerDamage(state: GameState, baseDamage: number, now = Date.now()) {
@@ -152,6 +155,18 @@ function grantTimedStatBuff(
 	state.buffs[field] = Math.max(state.buffs[field], now) + durationMs;
 }
 
+function grantPermanentStatBuff(
+	state: GameState,
+	field:
+		| 'permanentMoveSpeedMultiplier'
+		| 'permanentAttackSpeedMultiplier'
+		| 'permanentDamageMultiplier',
+	multiplier: number
+) {
+	const increment = Math.max(0, multiplier - 1);
+	state.buffs[field] = Number((state.buffs[field] + increment).toFixed(4));
+}
+
 export function grantMoveSpeedBoost(
 	state: GameState,
 	durationMs = MOVE_SPEED_REWARD_DURATION_MS,
@@ -184,6 +199,27 @@ export function grantDamageBoost(
 	now = Date.now()
 ) {
 	grantTimedStatBuff(state, 'damageBoostUntil', 'damageBoostMultiplier', durationMs, multiplier, now);
+}
+
+export function grantPermanentMoveSpeedBoost(
+	state: GameState,
+	multiplier = MOVE_SPEED_REWARD_MULTIPLIER
+) {
+	grantPermanentStatBuff(state, 'permanentMoveSpeedMultiplier', multiplier);
+}
+
+export function grantPermanentAttackSpeedBoost(
+	state: GameState,
+	multiplier = ATTACK_SPEED_REWARD_MULTIPLIER
+) {
+	grantPermanentStatBuff(state, 'permanentAttackSpeedMultiplier', multiplier);
+}
+
+export function grantPermanentDamageBoost(
+	state: GameState,
+	multiplier = DAMAGE_BOOST_REWARD_MULTIPLIER
+) {
+	grantPermanentStatBuff(state, 'permanentDamageMultiplier', multiplier);
 }
 
 export function grantShieldBlock(state: GameState, charges = 1) {
@@ -325,13 +361,17 @@ export function applyRewardByDefinitionId(state: GameState, rewardDefinitionId: 
 			);
 			break;
 		case 'reward_upgrade_scatter_bleed':
-			state.build.mods.scatterBleedDps = Math.max(
-				state.build.mods.scatterBleedDps,
-				KD_WEAPON_TUNING.scatter.bleedDps
+			state.build.mods.scatterBleedDamagePerTick = Math.max(
+				state.build.mods.scatterBleedDamagePerTick,
+				KD_WEAPON_TUNING.scatter.bleedDamagePerTick
 			);
-			state.build.mods.scatterBleedMs = Math.max(
-				state.build.mods.scatterBleedMs,
-				KD_WEAPON_TUNING.scatter.bleedMs
+			state.build.mods.scatterBleedTickIntervalMs = Math.max(
+				state.build.mods.scatterBleedTickIntervalMs,
+				KD_WEAPON_TUNING.scatter.bleedTickIntervalMs
+			);
+			state.build.mods.scatterBleedMaxTicks = Math.max(
+				state.build.mods.scatterBleedMaxTicks,
+				KD_WEAPON_TUNING.scatter.bleedMaxTicks
 			);
 			break;
 		case 'reward_upgrade_missile_radius':
@@ -369,13 +409,13 @@ export function applyRewardByDefinitionId(state: GameState, rewardDefinitionId: 
 			acquireOrUpgradeSkill(state, 'skill_karate');
 			break;
 		case 'reward_buff_move_speed':
-			grantMoveSpeedBoost(state);
+			grantPermanentMoveSpeedBoost(state);
 			break;
 		case 'reward_buff_attack_speed':
-			grantAttackSpeedBoost(state);
+			grantPermanentAttackSpeedBoost(state);
 			break;
 		case 'reward_buff_damage':
-			grantDamageBoost(state);
+			grantPermanentDamageBoost(state);
 			break;
 		case 'reward_buff_shield':
 			grantShieldBlock(state);

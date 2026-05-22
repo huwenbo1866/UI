@@ -4,6 +4,7 @@ import { clamp, distance } from '../core/utils';
 import { audioManager } from './audio-manager';
 import { finalizeMonsterDeath, removeDefeatedMonsters } from './battlefield-drop-system';
 import { markMonsterHit } from './combat-feedback-system';
+import { spawnBurnZone } from './deployable-system';
 import { applyPlayerContactDamage } from './player-system';
 
 export function updateProjectiles(state: GameState, dtSeconds: number) {
@@ -25,8 +26,11 @@ export function updateProjectiles(state: GameState, dtSeconds: number) {
 				const desiredVx = (dx / len) * speed;
 				const desiredVy = (dy / len) * speed;
 				const steer = Math.max(0, Math.min(1, projectile.homingStrength ?? 0));
-				projectile.vx = projectile.vx * (1 - steer) + desiredVx * steer;
-				projectile.vy = projectile.vy * (1 - steer) + desiredVy * steer;
+				const blendedVx = projectile.vx * (1 - steer) + desiredVx * steer;
+				const blendedVy = projectile.vy * (1 - steer) + desiredVy * steer;
+				const blendedLength = Math.hypot(blendedVx, blendedVy) || 1;
+				projectile.vx = (blendedVx / blendedLength) * speed;
+				projectile.vy = (blendedVy / blendedLength) * speed;
 			} else {
 				// 没有可用目标时朝当前方向继续飞行，避免卡死
 				projectile.targetMonsterId = null;
@@ -84,15 +88,21 @@ export function updateProjectiles(state: GameState, dtSeconds: number) {
 							}
 							aoeTarget.hp = clamp(aoeTarget.hp - damage, 0, aoeTarget.maxHp);
 							markMonsterHit(state, aoeTarget, damage);
-							if ((projectile.leaveBurningMs ?? 0) > 0 && (projectile.leaveBurningDps ?? 0) > 0) {
-								aoeTarget.bleedUntil = Math.max(aoeTarget.bleedUntil ?? 0, now) + (projectile.leaveBurningMs ?? 0);
-								aoeTarget.bleedDps = Math.max(aoeTarget.bleedDps ?? 0, projectile.leaveBurningDps ?? 0);
-							}
 							if (aoeTarget.hp <= 0) {
 								finalizeMonsterDeath(state, aoeTarget);
 								killed = true;
 								audioManager.playDeath();
 							}
+						}
+						if ((projectile.leaveBurningMs ?? 0) > 0 && (projectile.leaveBurningDps ?? 0) > 0) {
+							spawnBurnZone(
+								state,
+								projectile.x,
+								projectile.y,
+								projectile.explosionRadius ?? 0,
+								projectile.leaveBurningMs ?? 0,
+								projectile.leaveBurningDps ?? 0
+							);
 						}
 						if (killed) {
 							defeatedMonster = true;
@@ -115,9 +125,17 @@ export function updateProjectiles(state: GameState, dtSeconds: number) {
 							monster.slowMultiplier = Math.max(0.2, Math.min(1, projectile.applySlowMultiplier ?? 1));
 						}
 					}
-					if ((projectile.applyBleedDps ?? 0) > 0 && (projectile.applyBleedMs ?? 0) > 0) {
-						monster.bleedUntil = Math.max(monster.bleedUntil ?? 0, now) + (projectile.applyBleedMs ?? 0);
-						monster.bleedDps = Math.max(monster.bleedDps ?? 0, projectile.applyBleedDps ?? 0);
+					if (
+						(projectile.applyBleedDamagePerTick ?? 0) > 0 &&
+						(projectile.applyBleedTickIntervalMs ?? 0) > 0 &&
+						(projectile.applyBleedMaxTicks ?? 0) > 0
+					) {
+						applyOrRefreshMonsterBleed(monster, {
+							damagePerTick: projectile.applyBleedDamagePerTick ?? 0,
+							tickIntervalMs: projectile.applyBleedTickIntervalMs ?? 0,
+							maxTicks: projectile.applyBleedMaxTicks ?? 0,
+							now
+						});
 					}
 					if ((projectile.applyKnockback ?? 0) > 0 && (projectile.applyKnockbackChance ?? 0) > 0) {
 						const range = projectile.applyKnockbackRange ?? Infinity;
@@ -160,6 +178,41 @@ export function updateProjectiles(state: GameState, dtSeconds: number) {
 	if (defeatedMonster) {
 		removeDefeatedMonsters(state);
 	}
+}
+
+function applyOrRefreshMonsterBleed(
+	monster: GameState['monsters'][number],
+	options: {
+		damagePerTick: number;
+		tickIntervalMs: number;
+		maxTicks: number;
+		now: number;
+	}
+) {
+	const statusEffects = monster.statusEffects ?? [];
+	const existingBleed = statusEffects.find(
+		(statusEffect) => statusEffect.kind === 'bleed' && statusEffect.source === 'scatter'
+	);
+	if (existingBleed) {
+		existingBleed.damagePerTick = options.damagePerTick;
+		existingBleed.tickIntervalMs = options.tickIntervalMs;
+		existingBleed.remainingTicks = options.maxTicks;
+		monster.statusEffects = [...statusEffects];
+		return;
+	}
+
+	monster.statusEffects = [
+		...statusEffects,
+		{
+			id: `bleed_${monster.id}`,
+			kind: 'bleed',
+			source: 'scatter',
+			damagePerTick: options.damagePerTick,
+			tickIntervalMs: options.tickIntervalMs,
+			nextTickAt: options.now + options.tickIntervalMs,
+			remainingTicks: options.maxTicks
+		}
+	];
 }
 
 function resolveMissileTarget(state: GameState, projectile: GameState['projectiles'][number]) {

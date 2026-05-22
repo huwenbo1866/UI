@@ -14,13 +14,27 @@ export const PLAYFIELD_MIN_HEIGHT = 760; // 游戏战场最小高度（像素）
 
 export const MAX_ALIVE_MONSTERS = 8; // 场上最多同时存在的怪物数量
 
+// 本文件是 knowledge-defense 模式的“单一参数源”。
+// 使用方式分两层：
+// 1) 上半部分的基础常量：直接给各个 system / UI 模块使用。
+// 2) 下半部分的 KD_*_TUNING / *_CONFIGS：把基础常量重新组织成“面向模块”的配置对象，
+//    方便 data/*、systems/*、ui/* 在一个入口读取自己关心的参数。
+
 // ==================== 玩家参数 ====================
+// 主要被以下模块消费：
+// - state/game-store.ts：初始化玩家初始生命、半径、速度。
+// - systems/player-system.ts：处理移动、碰撞、受伤无敌帧。
+// - ui/GameCanvas.svelte：玩家在画布中的尺寸/表现依赖这些基础值。
 export const PLAYER_MAX_HP = 200; // 玩家最大血量
 export const PLAYER_RADIUS = 34; // 玩家碰撞半径（像素）
 export const PLAYER_SPEED = 80; // 玩家移动速度（像素/秒）
 export const PLAYER_CONTACT_IFRAME_MS = 700; // 玩家被怪物接触后的无敌时间（毫秒）
 
 // ==================== 怪物参数 ====================
+// 主要被以下模块消费：
+// - systems/monster-system.ts：怪物刷新、寻路、近战/冲刺/投掷 AI、软分离。
+// - state/game-store.ts：怪物运行时状态初始化时需要默认字段。
+// - ui/GameCanvas.svelte：怪物尺寸、血条、攻击前摇表现间接依赖这些值。
 export const MONSTER_SPAWN_INTERVAL_MS = 1250; // 怪物刷新间隔（毫秒）
 
 export const MONSTER_BASE_SPEED = {
@@ -67,6 +81,11 @@ export const MONSTER_PLAYER_STANDOFF = 24; // 怪物围住玩家时的额外留�
 export const MONSTER_MIN_GAP = 10; // 怪物之间的最小可读间距
 
 // ==================== 攻击参数 ====================
+// 主要被以下模块消费：
+// - systems/auto-attack-system.ts：主武器弹道、散射、导弹、激光、空手道主武器。
+// - systems/projectile-system.ts：投射物移动、碰撞、导弹追踪、导弹爆炸。
+// - systems/monster-system.ts：高难怪投掷物。
+// - ui/GameCanvas.svelte：投射物 / 激光的视觉尺寸与可视化表现。
 export const AUTO_ATTACK_COOLDOWN_MS = 1000; // 自动攻击冷却时间（毫秒）
 export const DEFAULT_ATTACK_PREFERENCE: AttackPreference = 'straight'; // 默认攻击模式
 
@@ -106,10 +125,22 @@ export const MISSILE_BURNING_DPS = 10; // 灼烧每秒伤害（用于升级）
 
 export const LASER_RANGE = 340; // 激光武器最远射程
 export const LASER_WIDTH = 20; // 激光判定宽度
+export const LASER_BASE_WIDTH_MULTIPLIER = 6; // 主武器激光基础粗度倍率
 export const LASER_DAMAGE = 64; // 激光命中伤害
 export const LASER_TTL_MS = 160; // 激光特效持续时间
 
+export const SCATTER_BLEED_DAMAGE_PER_TICK = 3; // 散射流血每次跳伤
+export const SCATTER_BLEED_TICK_INTERVAL_MS = 1000; // 散射流血跳伤间隔
+export const SCATTER_BLEED_MAX_TICKS = 3; // 散射流血最大跳伤次数
+
 // ==================== 奖励 & 无人机 ====================
+// 这一段混合了“局内经济/奖励”和“无人机伴随体”两类参数。
+// 主要被以下模块消费：
+// - systems/progression-system.ts：经验、永久/临时增益、护盾、武器强化次数。
+// - systems/battlefield-drop-system.ts：战场掉落寿命、拾取效果、反馈显示。
+// - data/reward-pool.ts / KD_REWARD_OFFER_CONFIGS：奖励池生成时引用对应数值。
+// - systems/drone-system.ts：无人机索敌、移动、攻速、编队、数量上限。
+// - ui/HudOverlay.svelte / ui/KnowledgeDefenseGame.svelte：HUD 状态条、待领奖励、掉落反馈。
 export const EXP_PER_KILL = 10; // 击杀怪物获得的基础经验
 export const EXP_BOOST_MULTIPLIER = 1.5; // 经验增幅奖励倍率
 export const EXP_BOOST_DURATION_MS = 60_000; // 经验增幅持续时间（毫秒）
@@ -165,6 +196,11 @@ export const MAX_ACTIVE_LASERS = 12; // 同屏激光特效上限
 export const MAX_ACTIVE_DAMAGE_TEXTS = 28; // 同屏伤害数字上限
 
 // ==================== 主动技能（脉冲爆发）====================
+// 主要被以下模块消费：
+// - systems/ability-system.ts：H/J/K/L 主动技能的实际释放逻辑。
+// - systems/progression-system.ts：与技能升级相关的永久增幅（如空手道范围）。
+// - data/reward-pool.ts：技能奖励描述需要和这里的真实效果保持一致。
+// - ui/GameCanvas.svelte：脉冲、冲刺、空手道的特效持续时间与表现。
 export const ABILITY_COOLDOWN_MS = 16_000; // 主动技能冷却（毫秒）
 export const ABILITY_PULSE_RADIUS = 170; // 主动技能作用半径（像素）
 export const ABILITY_PULSE_DAMAGE = 80; // 主动技能基础伤害
@@ -194,6 +230,7 @@ export const ABILITY_KARATE_KNOCKBACK = 56; // 空手短打击退距离
 export const ABILITY_KARATE_FX_MS = 180; // 空手道拳风特效持续时间
 
 // ==================== 音效控制（系统化开关）===================
+// 主要被 systems/audio-manager.ts 使用，用来统一控制 BGM / 点击 / 命中 / 面板音效是否启用。
 export const ENABLE_AUDIO = false; // 总音效开关（关闭后所有音效失效）
 
 export const ENABLE_BGM = true; // 背景音乐开关
@@ -203,11 +240,13 @@ export const ENABLE_DEATH_SOUND = true; // 怪物死亡音效开关
 export const ENABLE_PANEL_SOUND = true; // 面板打开/关闭音效开关
 
 // ==================== 错题分析 AI 配置 ====================
+// 主要被错题分析 / 题库回写链路使用；知识防御战斗系统本身不直接依赖这些参数。
 // 安全约束：仓库内不允许硬编码任何第三方 API Key。
 // 错题分析默认走本地降级逻辑；如需启用外部模型，请在部署侧自行实现安全的服务端代理。
 export const ENABLE_AI_WRONG_QUESTION_ANALYSIS = false; // 是否开启 AI 分析（总开关）
 
 // ==================== 自定义大模型配置 ====================
+// 主要给题目分析与外部模型接入预留；前端知识防御的战斗循环不直接使用。
 export const AI_BASE_URL = ''; // 留空：避免在前端直连外部模型
 export const AI_API_KEY = ''; // 留空：禁止在仓库/前端内保存密钥
 export const AI_MODEL = ''; // 留空：外部模型由部署侧提供
@@ -227,6 +266,10 @@ export const AI_ANALYSIS_PROMPT = `
 `;
 
 // ==================== 知识闯关题库回写/强化配置 ====================
+// 主要被以下模块消费：
+// - adapters/wrong-question-adapter.ts：错题记录、统计与清理。
+// - ui/KnowledgeDefenseGame.svelte：答题后回写节奏、延迟同步与章节题量控制。
+// - data/reward-questions.ts：强化题 / 自适应抽题权重。
 export const KD_ENABLE_DEBUG_LOGS = true; // 是否输出知识闯关的调试日志
 export const KD_SYNC_BATCH_SIZE = 6; // 累积多少次答题后立即回写
 export const KD_SYNC_DEFER_MS = 12_000; // 未达到批次时的延迟回写时间
@@ -271,6 +314,8 @@ export const KD_ASSET_PATHS = {
 	droneSprite: '/knowledge-defense/drone.png'
 } as const;
 
+// KD_PLAYER_TUNING：把“玩家基础常量”重新组织成 player-system / game-store 更容易消费的结构。
+// 主要给 state/game-store.ts 和 systems/player-system.ts 统一读取，避免散落地 import 多个独立常量。
 export const KD_PLAYER_TUNING = {
 	maxHp: PLAYER_MAX_HP,
 	radius: PLAYER_RADIUS,
@@ -278,6 +323,13 @@ export const KD_PLAYER_TUNING = {
 	contactIFrameMs: PLAYER_CONTACT_IFRAME_MS
 } as const;
 
+// KD_MONSTER_TUNING：monster-system 的主配置对象。
+// 负责怪物的：
+// - 刷新频率与场上数量上限
+// - 按难度区分的血量 / 速度 / 半径 / 伤害
+// - 近战、冲刺、投掷三类攻击的读条与冷却
+// - 怪物之间以及怪物与玩家之间的空间排布参数
+// - 随玩家等级提升的刷怪难度曲线
 export const KD_MONSTER_TUNING = {
 	maxAlive: MAX_ALIVE_MONSTERS,
 	spawnIntervalMs: MONSTER_SPAWN_INTERVAL_MS,
@@ -311,6 +363,11 @@ export const KD_MONSTER_TUNING = {
 } as const;
 
 export const KD_WEAPON_TUNING = {
+	// KD_WEAPON_TUNING：auto-attack-system / projectile-system 的主配置对象。
+	// 负责主武器及其升级项的所有参数，包括：
+	// - 普通直射 / 散射 / 导弹 / 激光 / 怪物投掷物
+	// - 升级上限、强化步进、特殊效果（减速、穿透、流血、灼烧）
+	// - 激光基础粗度倍率、导弹追踪强度、连发节奏等战斗核心体验
 	autoAttackCooldownMs: AUTO_ATTACK_COOLDOWN_MS,
 	defaultAttackPreference: DEFAULT_ATTACK_PREFERENCE,
 	projectile: {
@@ -327,18 +384,19 @@ export const KD_WEAPON_TUNING = {
 		freezeChance: 0.25,
 		pierceMax: 2
 	},
-	scatter: {
-		basePelletCount: BASE_SCATTER_PELLET_COUNT,
-		basePelletDamage: BASE_SCATTER_PELLET_DAMAGE,
-		baseSpreadRadians: BASE_SCATTER_SPREAD_RADIANS,
-		upgradePelletCount: SCATTER7_PELLET_COUNT,
-		upgradePelletDamage: SCATTER7_PELLET_DAMAGE,
-		upgradeSpreadRadians: SCATTER7_SPREAD_RADIANS,
-		upgradeMaxExtraPellets: 3,
-		knockbackChance: 0.5,
-		bleedDps: 10,
-		bleedMs: 2000
-	},
+		scatter: {
+			basePelletCount: BASE_SCATTER_PELLET_COUNT,
+			basePelletDamage: BASE_SCATTER_PELLET_DAMAGE,
+			baseSpreadRadians: BASE_SCATTER_SPREAD_RADIANS,
+			upgradePelletCount: SCATTER7_PELLET_COUNT,
+			upgradePelletDamage: SCATTER7_PELLET_DAMAGE,
+			upgradeSpreadRadians: SCATTER7_SPREAD_RADIANS,
+			upgradeMaxExtraPellets: 3,
+			knockbackChance: 0.5,
+			bleedDamagePerTick: SCATTER_BLEED_DAMAGE_PER_TICK,
+			bleedTickIntervalMs: SCATTER_BLEED_TICK_INTERVAL_MS,
+			bleedMaxTicks: SCATTER_BLEED_MAX_TICKS
+		},
 	missile: {
 		burstCount: MISSILE_BURST_COUNT,
 		burstIntervalMs: MISSILE_BURST_INTERVAL_MS,
@@ -356,13 +414,14 @@ export const KD_WEAPON_TUNING = {
 		upgradeRadiusCap: 66,
 		upgradeVolleyShots: 10
 	},
-	laser: {
-		range: LASER_RANGE,
-		width: LASER_WIDTH,
-		damage: LASER_DAMAGE,
-		ttlMs: LASER_TTL_MS,
-		upgradePermanentRangeMultiplier: 1.5,
-		upgradePermanentWidthMultiplier: 1.5,
+		laser: {
+			range: LASER_RANGE,
+			width: LASER_WIDTH,
+			baseWidthMultiplier: LASER_BASE_WIDTH_MULTIPLIER,
+			damage: LASER_DAMAGE,
+			ttlMs: LASER_TTL_MS,
+			upgradePermanentRangeMultiplier: 1.5,
+			upgradePermanentWidthMultiplier: 1.5,
 		upgradeWidthStepMultiplier: 1.3,
 		upgradeWidthCap: 1.55,
 		maxActive: MAX_ACTIVE_LASERS
@@ -376,6 +435,12 @@ export const KD_WEAPON_TUNING = {
 } as const;
 
 export const KD_DRONE_TUNING = {
+	// KD_DRONE_TUNING：drone-system 的主配置对象。
+	// 负责无人机的：
+	// - 伤害、攻速、追击范围
+	// - 环绕 / 巡逻 / 编队 / 软分离
+	// - 升级步进（攻速、移速）和最大上限
+	// - 激光特效持续时间与显示尺寸
 	damage: DRONE_DAMAGE,
 	speed: DRONE_SPEED,
 	cooldownMs: DRONE_COOLDOWN_MS,
@@ -403,12 +468,17 @@ export const KD_DRONE_TUNING = {
 } as const;
 
 export const KD_ABILITY_TUNING = {
-	pulse: {
-		cooldownMs: ABILITY_COOLDOWN_MS,
-		radius: ABILITY_PULSE_RADIUS,
-		levelTwoRadiusMultiplier: 1.3,
-		levelThreeCooldownMultiplier: 0.6,
-		damage: ABILITY_PULSE_DAMAGE,
+	// KD_ABILITY_TUNING：ability-system 的主配置对象。
+	// 负责主动技能的真实数值，不是文案：
+	// - pulse：冷却、范围、击退、回复、超载加成、升级倍率
+	// - dash：位移、伤害、击退、无敌、视觉特效、升级倍率
+	// - karate：近战范围、反弹投射物、反弹伤害倍率与升级增幅
+		pulse: {
+			cooldownMs: ABILITY_COOLDOWN_MS,
+			radius: ABILITY_PULSE_RADIUS,
+			levelTwoCooldownMultiplier: 0.8,
+			levelThreeRadiusMultiplier: 1.5,
+			damage: ABILITY_PULSE_DAMAGE,
 		knockback: ABILITY_PULSE_KNOCKBACK,
 		iFrameMs: ABILITY_PULSE_IFRAME_MS,
 		healOnHit: ABILITY_PULSE_HEAL_ON_HIT,
@@ -420,19 +490,18 @@ export const KD_ABILITY_TUNING = {
 		overchargeIFrameBonusMs: ABILITY_PULSE_OVERCHARGE_IFRAME_BONUS_MS,
 		overchargeMaxStacks: ABILITY_PULSE_OVERCHARGE_MAX_STACKS
 	},
-	dash: {
-		distance: ABILITY_DASH_DISTANCE,
-		levelTwoDistanceMultiplier: 1.1,
-		damage: ABILITY_DASH_DAMAGE,
-		strikeRadius: ABILITY_DASH_STRIKE_RADIUS,
-		iFrameMs: ABILITY_DASH_IFRAME_MS,
-		knockback: ABILITY_DASH_KNOCKBACK,
-		durationMs: ABILITY_DASH_DURATION_MS,
-		fxMs: ABILITY_DASH_FX_MS,
-		cooldownMs: 5000,
-		levelThreeMitigationWindowMs: 900,
-		levelThreeMitigationMultiplier: 0.8
-	},
+		dash: {
+			distance: ABILITY_DASH_DISTANCE,
+			levelTwoCooldownMultiplier: 0.8,
+			levelThreeDistanceMultiplier: 1.2,
+			damage: ABILITY_DASH_DAMAGE,
+			strikeRadius: ABILITY_DASH_STRIKE_RADIUS,
+			iFrameMs: ABILITY_DASH_IFRAME_MS,
+			knockback: ABILITY_DASH_KNOCKBACK,
+			durationMs: ABILITY_DASH_DURATION_MS,
+			fxMs: ABILITY_DASH_FX_MS,
+			cooldownMs: 5000
+		},
 	karate: {
 		range: ABILITY_KARATE_RANGE,
 		damage: ABILITY_KARATE_DAMAGE,
@@ -450,6 +519,13 @@ export const KD_ABILITY_TUNING = {
 } as const;
 
 export const KD_WEAPON_CONFIGS: Record<WeaponDefinitionId, {
+	// KD_WEAPON_CONFIGS：data/weapon-definitions.ts 的底层数据源。
+	// 负责把“武器 id”映射到：
+	// - attackPattern（实际战斗行为）
+	// - attackPreference（开局偏好归属）
+	// - title（UI/HUD 展示名）
+	// - isTemporaryBuff（是否为短期强化弹幕）
+	// - upgradeRewardIds（该武器能抽到哪些专属升级）
 	id: WeaponDefinitionId;
 	attackPattern: AttackPattern;
 	attackPreference: AttackPreference;
@@ -467,6 +543,11 @@ export const KD_WEAPON_CONFIGS: Record<WeaponDefinitionId, {
 };
 
 export const KD_SKILL_CONFIGS: Record<SkillDefinitionId, {
+	// KD_SKILL_CONFIGS：data/skill-definitions.ts 和 reward-pool.ts 的底层数据源。
+	// 负责主动技能的“静态身份信息”：
+	// - UI 名称 / 槽位标签 / 提示文案
+	// - 最大等级
+	// - 奖励池中的 rewardDefinitionId、权重、图标、优先级
 	id: SkillDefinitionId;
 	kind: 'pulse' | 'dash' | 'karate';
 	title: string;
@@ -484,6 +565,11 @@ export const KD_SKILL_CONFIGS: Record<SkillDefinitionId, {
 };
 
 export const KD_BUILD_DEFAULTS = {
+	// KD_BUILD_DEFAULTS：state/game-store.ts 初始化本局 build 时使用。
+	// 负责定义：
+	// - 开局自带哪些技能 / 武器等级
+	// - 每个升级分支的默认数值（全部从 0/1 起步）
+	// - 这些字段随后会被 progression-system、auto-attack-system、ability-system 读取和修改
 	skillLevels: {
 		skill_pulse: 1,
 		skill_dash: 0,
@@ -506,8 +592,9 @@ export const KD_BUILD_DEFAULTS = {
 		straightFreezeMs: 1600,
 		straightPierce: 0,
 		scatterExtraPellets: 0,
-		scatterBleedDps: 0,
-		scatterBleedMs: 0,
+		scatterBleedDamagePerTick: 0,
+		scatterBleedTickIntervalMs: 0,
+		scatterBleedMaxTicks: 0,
 		scatterCloseKnockbackChance: 0,
 		scatterCloseKnockback: 42,
 		missileExplosionRadiusBonus: 0,
@@ -519,6 +606,11 @@ export const KD_BUILD_DEFAULTS = {
 } as const;
 
 export const KD_DROP_CONFIGS: Record<BattlefieldDropDefinitionId, {
+	// KD_DROP_CONFIGS：data/drop-definitions.ts / battlefield-drop-system.ts / GameCanvas.svelte 使用。
+	// 负责战场掉落的“静态展示与掉落权重”：
+	// - kind、标题、短标签、地图字形
+	// - 拾取后 HUD 反馈文案
+	// - 掉落随机权重
 	id: BattlefieldDropDefinitionId;
 	kind: BattlefieldDropKind;
 	title: string;
@@ -538,29 +630,37 @@ export const KD_DROP_CONFIGS: Record<BattlefieldDropDefinitionId, {
 };
 
 export const KD_REWARD_OFFER_CONFIGS: Partial<Record<RewardDefinitionId, { tag: string; iconGlyph: string; title: string; description: string; offerWeight: number; priority: number }>> = {
-	reward_upgrade_straight_burst: { tag: '升级 · 主武器', iconGlyph: '+', title: '直线射击 · 连发 +1', description: '每次发射额外增加一发（稳定输出）。', offerWeight: 0.85, priority: 22 },
-	reward_upgrade_straight_trajectory: { tag: '升级 · 主武器', iconGlyph: '≡', title: '直线射击 · 弹道 +1', description: '增加平行弹道，提高覆盖。', offerWeight: 0.82, priority: 22 },
-	reward_upgrade_straight_freeze: { tag: '升级 · 主武器', iconGlyph: '❄', title: '直线射击 · 冰冻附着', description: '子弹有 25% 概率减速敌人一段时间。', offerWeight: 0.78, priority: 24 },
-	reward_upgrade_straight_pierce: { tag: '升级 · 主武器', iconGlyph: '↯', title: '直线射击 · 穿透', description: '子弹可穿透敌人，但每次穿透后伤害衰减。', offerWeight: 0.74, priority: 24 },
-	reward_upgrade_scatter_pellets: { tag: '升级 · 主武器', iconGlyph: '+', title: '散射 · 数量 +1', description: '每次散射额外增加一发子弹。', offerWeight: 0.85, priority: 22 },
-	reward_upgrade_scatter_knockback: { tag: '升级 · 主武器', iconGlyph: '⇠', title: '散射 · 近距击退', description: '近距离命中时有概率触发击退，帮你解围。', offerWeight: 0.78, priority: 24 },
-	reward_upgrade_scatter_bleed: { tag: '升级 · 主武器', iconGlyph: '✹', title: '散射 · 流血', description: '命中后附加短暂持续伤害。', offerWeight: 0.76, priority: 24 },
-	reward_upgrade_missile_radius: { tag: '升级 · 主武器', iconGlyph: '◎', title: '导弹 · 爆炸半径增加', description: '爆炸影响更大范围的敌人。', offerWeight: 0.82, priority: 22 },
-	reward_upgrade_missile_burn: { tag: '升级 · 主武器', iconGlyph: '≈', title: '导弹 · 灼烧区域', description: '爆炸后留下短暂灼烧区域，对范围内敌人持续伤害。', offerWeight: 0.74, priority: 24 },
-	reward_upgrade_laser_width: { tag: '升级 · 主武器', iconGlyph: '┃', title: '激光 · 宽度 +30%', description: '扩大激光命中宽度，清线更稳。', offerWeight: 0.82, priority: 22 },
+	// KD_REWARD_OFFER_CONFIGS：reward-pool.ts 与 RewardPanel.svelte 的主要文案来源。
+	// 负责奖励面板里每个 rewardDefinitionId 的：
+	// - tag（例如“升级 · 主武器”）
+	// - 图标、标题、详细描述
+	// - 出现权重和优先级
+	// 注意：这里写的是“用户可见文案”，必须和 systems/progression-system.ts / ability-system.ts 的真实效果保持同步。
+	reward_upgrade_straight_burst: { tag: '升级 · 主武器', iconGlyph: '+', title: '直线射击 · 连发 +1', description: '每次直射额外追加 1 发子弹。', offerWeight: 0.85, priority: 22 },
+	reward_upgrade_straight_trajectory: { tag: '升级 · 主武器', iconGlyph: '≡', title: '直线射击 · 弹道 +1', description: '每次直射额外增加 1 条平行弹道。', offerWeight: 0.82, priority: 22 },
+	reward_upgrade_straight_freeze: { tag: '升级 · 主武器', iconGlyph: '❄', title: '直线射击 · 冰冻附着', description: '子弹有 25% 概率将敌人减速至 60%，持续 1.6 秒。', offerWeight: 0.78, priority: 24 },
+	reward_upgrade_straight_pierce: { tag: '升级 · 主武器', iconGlyph: '↯', title: '直线射击 · 穿透', description: '当前直射子弹额外穿透 +1，穿透后伤害衰减为原来的 60%。', offerWeight: 0.74, priority: 24 },
+	reward_upgrade_scatter_pellets: { tag: '升级 · 主武器', iconGlyph: '+', title: '散射 · 数量 +1', description: '每次散射额外增加 1 发子弹。', offerWeight: 0.85, priority: 22 },
+	reward_upgrade_scatter_knockback: { tag: '升级 · 主武器', iconGlyph: '⇠', title: '散射 · 近距击退', description: '90 像素内命中有 50% 概率击退目标 42 像素。', offerWeight: 0.78, priority: 24 },
+	reward_upgrade_scatter_bleed: { tag: '升级 · 主武器', iconGlyph: '✹', title: '散射 · 流血', description: '命中附加流血：每 1 秒造成 3 点伤害，共 3 次；再次命中会刷新计数。', offerWeight: 0.76, priority: 24 },
+	reward_upgrade_missile_radius: { tag: '升级 · 主武器', iconGlyph: '◎', title: '导弹 · 爆炸半径增加', description: '导弹爆炸半径 +22 像素。', offerWeight: 0.82, priority: 22 },
+	reward_upgrade_missile_burn: { tag: '升级 · 主武器', iconGlyph: '≈', title: '导弹 · 灼烧区域', description: '导弹爆炸后在地面留下灼烧区域，持续 2 秒，每秒造成 10 点伤害。', offerWeight: 0.74, priority: 24 },
+	reward_upgrade_laser_width: { tag: '升级 · 主武器', iconGlyph: '┃', title: '激光 · 宽度 +30%', description: '当前主武器激光粗度提升 30%。', offerWeight: 0.82, priority: 22 },
 	reward_drone_acquire: { tag: '获取 · 无人机', iconGlyph: '✈', title: '无人机支援', description: '获得 1 架跟随无人机，自动攻击最近敌人。', offerWeight: 0.38, priority: 20 },
-	reward_upgrade_drone_count: { tag: '升级 · 无人机', iconGlyph: '+', title: '无人机 · 数量 +1', description: '增加 1 架无人机，提升火力覆盖。', offerWeight: 0.42, priority: 24 },
-	reward_upgrade_drone_attack_speed: { tag: '升级 · 无人机', iconGlyph: '≋', title: '无人机 · 攻速提升', description: '无人机攻击间隔缩短，输出更密集。', offerWeight: 0.36, priority: 26 },
-	reward_buff_move_speed: { tag: '增益 · 临时', iconGlyph: '»', title: '移速提升', description: '短时间移速提升，更易吃掉落与拉扯。', offerWeight: 0.7, priority: 52 },
-	reward_buff_attack_speed: { tag: '增益 · 临时', iconGlyph: '≋', title: '攻速提升', description: '短时间攻击更快，适合抢节奏。', offerWeight: 0.68, priority: 52 },
-	reward_buff_damage: { tag: '增益 · 临时', iconGlyph: '✹', title: '伤害提升', description: '短时间伤害提高，适合斩高压目标。', offerWeight: 0.64, priority: 52 },
+	reward_upgrade_drone_count: { tag: '升级 · 无人机', iconGlyph: '+', title: '无人机 · 数量 +1', description: '当前无人机数量 +1。', offerWeight: 0.42, priority: 24 },
+	reward_upgrade_drone_attack_speed: { tag: '升级 · 无人机', iconGlyph: '≋', title: '无人机 · 攻速提升', description: '所有无人机攻击速度提升 20%。', offerWeight: 0.36, priority: 26 },
+	reward_buff_move_speed: { tag: '增益 · 永久', iconGlyph: '»', title: '移速提升', description: '本局移速 +35%。', offerWeight: 0.7, priority: 52 },
+	reward_buff_attack_speed: { tag: '增益 · 永久', iconGlyph: '≋', title: '攻速提升', description: '本局攻击速度 +35%。', offerWeight: 0.68, priority: 52 },
+	reward_buff_damage: { tag: '增益 · 永久', iconGlyph: '✹', title: '伤害提升', description: '本局造成伤害 +40%。', offerWeight: 0.64, priority: 52 },
 	reward_buff_shield: { tag: '增益 · 防护', iconGlyph: '◈', title: '格挡护盾', description: '获得 1 次格挡，抵挡下一次受到的伤害。', offerWeight: 0.62, priority: 54 },
-	reward_weapon_upgrade: { tag: '补给 · 武器强化', iconGlyph: '✦', title: '武器强化', description: '接下来数次攻击获得强化弹幕。', offerWeight: 0.9, priority: 40 },
-	reward_xp_boost: { tag: '增益 · 经验', iconGlyph: 'XP', title: '经验增幅', description: '短时间内经验获取提高。', offerWeight: 0.72, priority: 50 }
+	reward_weapon_upgrade: { tag: '补给 · 武器强化', iconGlyph: '✦', title: '武器强化', description: '接下来 3 次攻击获得强化弹幕。', offerWeight: 0.9, priority: 40 },
+	reward_xp_boost: { tag: '增益 · 经验', iconGlyph: 'XP', title: '经验增幅', description: '60 秒内经验获取 +50%。', offerWeight: 0.72, priority: 50 }
 };
 
 type KDMonsterVisualState = 'idle' | 'move' | 'telegraph' | 'hurt';
 
+// KD_MONSTER_SPRITE_SEQUENCES：ui/monster-sprites.ts 与 GameCanvas.svelte 使用。
+// 负责不同难度怪物在 idle / move / telegraph / hurt 四种视觉状态下的贴图序列与帧时长。
 export const KD_MONSTER_SPRITE_SEQUENCES = {
 	easy: {
 		idle: { frames: ['/knowledge-defense/monsters/easy/idle-1.svg', '/knowledge-defense/monsters/easy/idle-2.svg'], frameDurationMs: 420 },
@@ -583,6 +683,7 @@ export const KD_MONSTER_SPRITE_SEQUENCES = {
 } as const satisfies Record<'easy' | 'medium' | 'hard', Record<KDMonsterVisualState, { frames: readonly string[]; frameDurationMs: number }>>;
 
 export const KD_AUDIO_ASSETS = {
+	// KD_AUDIO_ASSETS：systems/audio-manager.ts 使用，负责知识防御模式内的音频资源路径映射。
 	bgm: '/sounds/bgm.mp3',
 	click: '/sounds/click.mp3',
 	hit: '/sounds/hit.mp3',
@@ -591,6 +692,8 @@ export const KD_AUDIO_ASSETS = {
 } as const;
 
 export function getTotalExpRequiredForLevel(level: number) {
+	// getTotalExpRequiredForLevel：progression-system.ts / game-store.ts / GameCanvas.svelte 使用。
+	// 负责统一经验曲线，确保升级判定、初始 nextLevelTotalExp 和经验条展示都按同一公式计算。
 	if (level <= 1) return 0;
 	return 10 * (2 ** (level - 1) - 1);
 }

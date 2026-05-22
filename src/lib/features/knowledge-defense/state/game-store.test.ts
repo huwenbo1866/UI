@@ -32,10 +32,14 @@ describe('createInitialGameState', () => {
 		expect(state.buffs.moveSpeedBoostUntil).toBe(0);
 		expect(state.buffs.attackSpeedBoostUntil).toBe(0);
 		expect(state.buffs.damageBoostUntil).toBe(0);
+		expect(state.buffs.permanentMoveSpeedMultiplier).toBe(1);
+		expect(state.buffs.permanentAttackSpeedMultiplier).toBe(1);
+		expect(state.buffs.permanentDamageMultiplier).toBe(1);
 		expect(state.buffs.shieldBlockCharges).toBe(0);
 		expect(state.build.weaponLevels.weapon_main_karate).toBe(0);
-		expect(state.build.mods.scatterBleedDps).toBe(0);
-		expect(state.build.mods.scatterBleedMs).toBe(0);
+		expect(state.build.mods.scatterBleedDamagePerTick).toBe(0);
+		expect(state.build.mods.scatterBleedTickIntervalMs).toBe(0);
+		expect(state.build.mods.scatterBleedMaxTicks).toBe(0);
 		expect(state.ui.recentRewardDefinitionIds).toEqual([]);
 		expect(state.ui.recentQuestionIds).toEqual([]);
 	});

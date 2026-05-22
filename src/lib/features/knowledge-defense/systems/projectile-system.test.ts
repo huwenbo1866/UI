@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { samplePack } from '../data/sample-pack';
 import { createInitialGameState } from '../state/game-store';
+import { updateMonsters } from './monster-system';
 import { updateProjectiles } from './projectile-system';
 
 afterEach(() => {
@@ -308,5 +309,160 @@ afterEach(() => {
 		expect(state.projectiles[0].targetMonsterId).toBe('next-target');
 		expect(state.projectiles[0].vx).toBeGreaterThan(0);
 		expect(state.projectiles[0].x).toBeGreaterThan(600);
+	});
+
+	it('preserves missile travel speed while making a sharp retarget turn', () => {
+		const state = createInitialGameState(samplePack, 1200, 820, 'straight');
+		state.monsters = [
+			{
+				id: 'turn-target',
+				difficulty: 'easy',
+				x: 600,
+				y: 520,
+				radius: 22,
+				hp: 60,
+				maxHp: 60,
+				speed: 45,
+				damage: 10,
+				isDead: false,
+				hurtFlashMs: 0,
+				attackCooldownMs: 280,
+				attackState: 'idle',
+				attackWindupMs: 0,
+				moving: false,
+				moveDirX: 0,
+				moveDirY: 1
+			}
+		];
+		state.projectiles = [
+			{
+				id: 'missile-sharp-turn',
+				x: 600,
+				y: 410,
+				vx: 700,
+				vy: 0,
+				radius: 10,
+				damage: 30,
+				owner: 'player',
+				kind: 'missile',
+				targetMonsterId: 'turn-target',
+				homingStrength: 0.08,
+				ttlMs: 1000
+			}
+		];
+
+		updateProjectiles(state, 0.05);
+
+		const speed = Math.hypot(state.projectiles[0].vx, state.projectiles[0].vy);
+		expect(speed).toBeCloseTo(700, 3);
+	});
+
+	it('spawns a burning ground zone instead of reusing monster bleed fields', () => {
+		const state = createInitialGameState(samplePack, 1200, 820, 'straight');
+		state.monsters = [
+			{
+				id: 'burn-target',
+				difficulty: 'easy',
+				x: 520,
+				y: 380,
+				radius: 22,
+				hp: 60,
+				maxHp: 60,
+				speed: 45,
+				damage: 10,
+				isDead: false,
+				hurtFlashMs: 0,
+				attackCooldownMs: 280,
+				attackState: 'idle',
+				attackWindupMs: 0,
+				moving: false,
+				moveDirX: 0,
+				moveDirY: 1
+			}
+		];
+		state.projectiles = [
+			{
+				id: 'burn-missile',
+				x: 520,
+				y: 380,
+				vx: 0,
+				vy: 0,
+				radius: 10,
+				damage: 20,
+				owner: 'player',
+				kind: 'missile',
+				explosionRadius: 92,
+				leaveBurningMs: 2000,
+				leaveBurningDps: 10
+			}
+		];
+
+		updateProjectiles(state, 0);
+
+		expect(state.deployables).toHaveLength(1);
+		expect(state.deployables[0]).toMatchObject({
+			kind: 'burn_zone',
+			radius: 92,
+			ttlMs: 2000,
+			damagePerSecond: 10
+		});
+		expect(state.monsters[0].statusEffects ?? []).toHaveLength(0);
+	});
+
+	it('refreshes scatter bleed stacks without delaying the next scheduled tick', () => {
+		const state = createInitialGameState(samplePack, 1200, 820, 'straight');
+		state.monsters = [
+			{
+				id: 'bleed-refresh-target',
+				difficulty: 'easy',
+				x: 520,
+				y: 380,
+				radius: 22,
+				hp: 60,
+				maxHp: 60,
+				speed: 45,
+				damage: 10,
+				isDead: false,
+				hurtFlashMs: 0,
+				attackCooldownMs: 280,
+				attackState: 'idle',
+				attackWindupMs: 0,
+				moving: false,
+				moveDirX: 0,
+				moveDirY: 1,
+				statusEffects: [
+					{
+						id: 'bleed_1',
+						kind: 'bleed',
+						source: 'scatter',
+						damagePerTick: 3,
+						tickIntervalMs: 1000,
+						nextTickAt: Date.now(),
+						remainingTicks: 1
+					}
+				]
+			}
+		];
+		state.projectiles = [
+			{
+				id: 'refresh-pellet',
+				x: 520,
+				y: 380,
+				vx: 0,
+				vy: 0,
+				radius: 8,
+				damage: 1,
+				owner: 'player',
+				applyBleedDamagePerTick: 3,
+				applyBleedTickIntervalMs: 1000,
+				applyBleedMaxTicks: 3
+			}
+		];
+
+		updateProjectiles(state, 0);
+		updateMonsters(state, 0.1, 100);
+
+		expect(state.monsters[0].hp).toBe(56);
+		expect(state.monsters[0].statusEffects?.[0]?.remainingTicks).toBe(2);
 	});
 });

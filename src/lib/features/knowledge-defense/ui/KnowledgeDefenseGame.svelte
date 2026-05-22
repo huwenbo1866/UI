@@ -49,6 +49,7 @@
 		clearWrongNotebook
 	} from '../adapters/wrong-question-adapter';
 	import { updatePlayer } from '../systems/player-system';
+	import { updateDeployables } from '../systems/deployable-system';
 	import { maybeSpawnMonster, updateMonsters } from '../systems/monster-system';
 	import { tickDamageTexts } from '../systems/combat-feedback-system';
 	import { tickAutoAttack, tickAttackSequences, tickLasers } from '../systems/auto-attack-system';
@@ -143,6 +144,9 @@
 	$: moveSpeedBoostRemainingMs = getTimedBuffRemainingMs(state.buffs.moveSpeedBoostUntil);
 	$: attackSpeedBoostRemainingMs = getTimedBuffRemainingMs(state.buffs.attackSpeedBoostUntil);
 	$: damageBoostRemainingMs = getTimedBuffRemainingMs(state.buffs.damageBoostUntil);
+	$: permanentMoveSpeedPercent = Math.round((state.buffs.permanentMoveSpeedMultiplier - 1) * 100);
+	$: permanentAttackSpeedPercent = Math.round((state.buffs.permanentAttackSpeedMultiplier - 1) * 100);
+	$: permanentDamagePercent = Math.round((state.buffs.permanentDamageMultiplier - 1) * 100);
 	$: runSummary = state.player.hp <= 0 ? deriveRunSummary(state) : null;
 	$: sourceSummary = deriveContentSourceSummary({
 		usingSampleFallback,
@@ -181,9 +185,12 @@
 		pulseCooldownMs: state.runtime.actionCooldownMs.H,
 		shieldBlockCharges: state.buffs.shieldBlockCharges,
 		activeBuffLabels: [
-			...(moveSpeedBoostRemainingMs > 0 ? ['移速提升'] : []),
-			...(attackSpeedBoostRemainingMs > 0 ? ['攻击提速'] : []),
-			...(damageBoostRemainingMs > 0 ? ['伤害提高'] : [])
+			...(permanentMoveSpeedPercent > 0 ? [`移速 +${permanentMoveSpeedPercent}%`] : []),
+			...(permanentAttackSpeedPercent > 0 ? [`攻速 +${permanentAttackSpeedPercent}%`] : []),
+			...(permanentDamagePercent > 0 ? [`伤害 +${permanentDamagePercent}%`] : []),
+			...(moveSpeedBoostRemainingMs > 0 ? ['临时移速提升'] : []),
+			...(attackSpeedBoostRemainingMs > 0 ? ['临时攻击提速'] : []),
+			...(damageBoostRemainingMs > 0 ? ['临时伤害提高'] : [])
 		],
 		hp: state.player.hp,
 		maxHp: state.player.maxHp,
@@ -247,6 +254,36 @@
 						label: '格挡护盾',
 						detail: `剩余 ${state.buffs.shieldBlockCharges} 次`,
 						tone: 'shield'
+					}
+				]
+			: []),
+		...(permanentMoveSpeedPercent > 0
+			? [
+					{
+						id: 'permanent-move-speed',
+						label: '移速提升',
+						detail: `本局 +${permanentMoveSpeedPercent}%`,
+						tone: 'buff'
+					}
+				]
+			: []),
+		...(permanentAttackSpeedPercent > 0
+			? [
+					{
+						id: 'permanent-attack-speed',
+						label: '攻速提升',
+						detail: `本局 +${permanentAttackSpeedPercent}%`,
+						tone: 'buff'
+					}
+				]
+			: []),
+		...(permanentDamagePercent > 0
+			? [
+					{
+						id: 'permanent-damage',
+						label: '伤害提升',
+						detail: `本局 +${permanentDamagePercent}%`,
+						tone: 'buff'
 					}
 				]
 			: []),
@@ -603,6 +640,7 @@
 			state.runTelemetry.elapsedMs += dtMs;
 			maybeSpawnMonster(state, dtMs);
 			updatePlayer(state, input, dtSeconds, dtMs);
+			updateDeployables(state, dtSeconds, dtMs);
 			updateMonsters(state, dtSeconds, dtMs);
 			updateDrones(state, dtSeconds, dtMs);
 			tickAutoAttack(state, dtMs);
@@ -1152,6 +1190,7 @@
 				monsters={state.monsters}
 				drones={state.drones}
 				battlefieldDrops={state.battlefieldDrops}
+				deployables={state.deployables}
 				projectiles={state.projectiles}
 				lasers={state.lasers}
 				damageTexts={state.damageTexts}

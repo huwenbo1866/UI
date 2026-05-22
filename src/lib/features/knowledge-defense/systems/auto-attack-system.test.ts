@@ -175,8 +175,9 @@ describe('tickAttackSequences', () => {
 		tickAttackSequences(state, 0);
 
 		expect(state.projectiles).toHaveLength(3);
-		expect(state.projectiles.every((projectile) => projectile.applyBleedDps === undefined)).toBe(true);
-		expect(state.projectiles.every((projectile) => projectile.applyBleedMs === undefined)).toBe(true);
+		expect(state.projectiles.every((projectile) => projectile.applyBleedDamagePerTick === undefined)).toBe(true);
+		expect(state.projectiles.every((projectile) => projectile.applyBleedTickIntervalMs === undefined)).toBe(true);
+		expect(state.projectiles.every((projectile) => projectile.applyBleedMaxTicks === undefined)).toBe(true);
 	});
 
 	it('fires karate as a close-range main weapon without spawning bullets', () => {

@@ -65,6 +65,7 @@ export function createInitialGameState(
 		},
 		monsters: [],
 		battlefieldDrops: [],
+		deployables: [],
 		projectiles: [],
 		lasers: [],
 		damageTexts: [],
@@ -87,6 +88,9 @@ export function createInitialGameState(
 			attackSpeedBoostMultiplier: 1,
 			damageBoostUntil: 0,
 			damageBoostMultiplier: 1,
+			permanentMoveSpeedMultiplier: 1,
+			permanentAttackSpeedMultiplier: 1,
+			permanentDamageMultiplier: 1,
 			shieldBlockCharges: 0,
 			damageMitigation: null
 		},

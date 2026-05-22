@@ -39,7 +39,6 @@
 		return {
 			label: '武器升级',
 			tone: 'weapon',
-			effect: '完整领取后获得对应武器强化或换装效果。',
 			iconLabel: 'I'
 		};
 	}
@@ -48,7 +47,6 @@
 		return {
 			label: '经验增幅',
 			tone: 'xp',
-			effect: '完整领取后获得一段时间的经验加速推进。',
 			iconLabel: 'XP'
 		};
 	}
@@ -57,7 +55,6 @@
 		return {
 			label: '技能',
 			tone: 'skill',
-			effect: '答对后获得新技能或升级已有技能，并自动挂入底部技能栏。',
 			iconLabel: 'H'
 		};
 	}
@@ -66,7 +63,6 @@
 		return {
 			label: '战术增益',
 			tone: 'buff',
-			effect: '完整领取后立刻获得临时增益或单次格挡，HUD 会持续显示剩余状态。',
 			iconLabel: '↑'
 		};
 	}
@@ -74,7 +70,6 @@
 	return {
 		label: '—',
 		tone: 'xp',
-		effect: '答对领取完整奖励。',
 		iconLabel: '·'
 	};
   }
@@ -149,12 +144,7 @@
             </div>
           </div>
 
-          <div class="effect-ribbon">
-            <strong>答对效果</strong>
-            <span>{getRewardMeta(choice.rewardKind).effect}</span>
-          </div>
-
-          <div class="question-box">
+					<div class="question-box">
             <div class="question-head">
               <span class={`difficulty ${choice.question.difficulty}`}>{getDifficultyLabel(choice.question.difficulty)}</span>
               <span class="question-tag">Question</span>
@@ -215,12 +205,11 @@
     box-shadow: 0 24px 60px rgba(54, 41, 30, 0.18);
   }
 
-  .header,
-  .choice-head,
-  .question-head,
-  .choice-topline,
-  .effect-ribbon,
-  .header-actions {
+	.header,
+	.choice-head,
+	.question-head,
+	.choice-topline,
+	.header-actions {
     display: flex;
     gap: 12px;
   }
@@ -292,12 +281,11 @@
     background: var(--reward-bg-soft);
   }
 
-  .micro-note strong,
-  .reward-copy h3,
-  .prompt,
-  .effect-ribbon strong {
-    color: var(--reward-text);
-  }
+	.micro-note strong,
+	.reward-copy h3,
+	.prompt {
+		color: var(--reward-text);
+	}
 
   .close {
 		border: 1px solid #b69b7c;
@@ -375,12 +363,11 @@
 		border-color: #bfdcff;
 	}
 
-  .choice-topline,
-  .question-head,
-  .effect-ribbon {
-    justify-content: space-between;
-    align-items: center;
-  }
+	.choice-topline,
+	.question-head {
+		justify-content: space-between;
+		align-items: center;
+	}
 
   .choice-index {
     padding: 6px 10px;
@@ -532,19 +519,11 @@
     font-size: 22px;
   }
 
-  .effect-ribbon,
-  .question-box {
-    border-radius: 18px;
-    border: 1px solid rgba(228, 214, 200, 0.96);
-    background: rgba(255, 250, 244, 0.94);
-  }
-
-  .effect-ribbon {
-    padding: 10px 12px;
-    align-items: baseline;
-    color: var(--reward-text-soft);
-    line-height: 1.6;
-  }
+	.question-box {
+		border-radius: 18px;
+		border: 1px solid rgba(228, 214, 200, 0.96);
+		background: rgba(255, 250, 244, 0.94);
+	}
 
   .question-box {
     padding: 12px;

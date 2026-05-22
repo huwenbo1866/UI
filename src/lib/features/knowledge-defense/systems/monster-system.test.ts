@@ -304,4 +304,39 @@ describe('updateMonsters', () => {
 
 		expect(state.projectiles).toHaveLength(1);
 	});
+
+	it('applies discrete bleed ticks and expires after the configured count', () => {
+		const state = createInitialGameState(samplePack, 1200, 820, 'straight');
+		state.monsters = [
+			createMonster({
+				id: 'bleeding-monster',
+				hp: 30,
+				maxHp: 30,
+				statusEffects: [
+					{
+						id: 'bleed_1',
+						kind: 'bleed',
+						source: 'scatter',
+						damagePerTick: 3,
+						tickIntervalMs: 1000,
+						nextTickAt: Date.now(),
+						remainingTicks: 3
+					}
+				]
+			})
+		];
+
+		updateMonsters(state, 0.1, 100);
+		expect(state.monsters[0].hp).toBe(27);
+		expect(state.monsters[0].statusEffects).toHaveLength(1);
+
+		state.monsters[0].statusEffects![0].nextTickAt = Date.now();
+		updateMonsters(state, 0.1, 100);
+		expect(state.monsters[0].hp).toBe(24);
+
+		state.monsters[0].statusEffects![0].nextTickAt = Date.now();
+		updateMonsters(state, 0.1, 100);
+		expect(state.monsters[0].hp).toBe(21);
+		expect(state.monsters[0].statusEffects).toHaveLength(0);
+	});
 });
