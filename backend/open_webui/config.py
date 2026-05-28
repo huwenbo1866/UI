@@ -3869,6 +3869,9 @@ WHISPER_MODEL = PersistentConfig(
     os.getenv("WHISPER_MODEL", "base"),
 )
 
+# STT 模型类型选择: "faster-whisper" 或 "qwen-audio" 或其他
+STT_MODEL_TYPE = os.getenv("STT_MODEL_TYPE", "faster-whisper")
+
 WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 WHISPER_MODEL_DIR = os.getenv("WHISPER_MODEL_DIR", f"{CACHE_DIR}/whisper/models")
 WHISPER_MODEL_AUTO_UPDATE = (

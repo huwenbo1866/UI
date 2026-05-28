@@ -166,27 +166,27 @@ def prepare_audio_for_stt(file_path):
 
 
 def set_faster_whisper_model(model: str, auto_update: bool = False):
-    whisper_model = None
-    if model:
-        from faster_whisper import WhisperModel
-
-        faster_whisper_kwargs = {
-            "model_size_or_path": model,
-            "device": DEVICE_TYPE if DEVICE_TYPE and DEVICE_TYPE == "cuda" else "cpu",
-            "compute_type": WHISPER_COMPUTE_TYPE,
-            "download_root": WHISPER_MODEL_DIR,
-            "local_files_only": not auto_update,
-        }
-
-        try:
-            whisper_model = WhisperModel(**faster_whisper_kwargs)
-        except Exception:
-            log.warning(
-                "WhisperModel initialization failed, attempting download with local_files_only=False"
-            )
-            faster_whisper_kwargs["local_files_only"] = False
-            whisper_model = WhisperModel(**faster_whisper_kwargs)
-    return whisper_model
+    """
+    兼容旧版本的 Whisper 模型加载函数
+    使用新的 STT 模型框架
+    """
+    from open_webui.utils.stt_models import STTModelFactory
+    
+    if not model:
+        return None
+    
+    try:
+        return STTModelFactory.get_model(
+            model_id=model,
+            model_type="faster-whisper",
+            device=DEVICE_TYPE if DEVICE_TYPE and DEVICE_TYPE == "cuda" else "cpu",
+            compute_type=WHISPER_COMPUTE_TYPE,
+            download_root=str(WHISPER_MODEL_DIR),
+            local_files_only=not auto_update,
+        )
+    except Exception as e:
+        log.error(f"Failed to load STT model {model}: {e}")
+        return None
 
 
 
@@ -704,62 +704,36 @@ def transcription_handler(
             )
 
         model = request.app.state.faster_whisper_model
-        whisper_kwargs = {
-            "language": languages[0],
-            "multilingual": WHISPER_MULTILINGUAL,
-        }
         
-        if stt_profile == "interactive":
-            whisper_kwargs.update(
-                {
-                    "beam_size": 1,
-                    "vad_filter": False,
-                    "condition_on_previous_text": False,
-                }
-            )
-        else:
-            whisper_kwargs.update(
-                {
-                    "beam_size": 5,
-                    "vad_filter": WHISPER_VAD_FILTER,
-                    "condition_on_previous_text": True,
-                }
-            )
+        if model is None:
+            raise Exception("Failed to load STT model")
         
-        segments_iter, info = model.transcribe(file_path, **whisper_kwargs)
-
-        log.info(
-            "Detected language '%s' with probability %f"
-            % (info.language, info.language_probability)
-        )
-
-        segment_items = []
-        transcript_parts = []
-
-        for segment in segments_iter:
-            text = normalize_to_simplified_chinese((segment.text or "").strip())
-            if not text:
-                continue
-
-            transcript_parts.append(text)
-            segment_items.append(
-                {
-                    "start_ms": int(segment.start * 1000),
-                    "end_ms": int(segment.end * 1000),
-                    "text": text,
-                }
+        try:
+            # 使用新的 STT 模型框架的转录方法
+            data = model.transcribe(
+                audio_path=file_path,
+                language=languages[0],
+                stt_profile=stt_profile,
+                multilingual=WHISPER_MULTILINGUAL,
             )
+            
+            # 转录结果中文本标准化
+            data["text"] = normalize_to_simplified_chinese((data.get("text") or "").strip())
+            data["segments"] = normalize_segments_to_simplified_chinese(data.get("segments", []))
+            
+            log.info(
+                "Detected language '%s'"
+                % (data.get("detected_language", "unknown"),)
+            )
+            
+            maybe_save_transcript_json(file_dir, id, data, enabled=save_transcript_file)
+            log.debug(data)
+            return data
+        
+        except Exception as e:
+            log.exception(f"Error in STT transcription: {e}")
+            raise Exception(f"STT transcription failed: {e}")
 
-        data = {
-            "text": normalize_to_simplified_chinese(" ".join(transcript_parts).strip()),
-            "detected_language": info.language,
-            "segments": segment_items,
-        }
-
-        maybe_save_transcript_json(file_dir, id, data, enabled=save_transcript_file)
-
-        log.debug(data)
-        return data
     elif request.app.state.config.STT_ENGINE == "openai":
         r = None
         try:
