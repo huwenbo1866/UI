@@ -137,42 +137,32 @@ class FastWhisperModel(STTModel):
 
 
 class ModelScopeQwenAudioModel(STTModel):
-    """基于 HuggingFace Transformers 的 Qwen-Audio STT 模型"""
+    """基于 FunASR 的 Qwen-Audio 中文语音识别模型"""
     
     def __init__(self, model_id: str, device: str = "cpu", **kwargs):
         super().__init__(model_id, **kwargs)
         self.device = device
-        self.processor = None
-        self.model_name = kwargs.get("model_name", "Qwen/Qwen-Audio")
     
     def load(self):
         if self.model is not None:
             return
         
         try:
-            from transformers import AutoProcessor, Qwen2AudioForConditionalGeneration
-            import torch
+            from funasr import AutoModel
             
-            # 加载处理器
-            self.processor = AutoProcessor.from_pretrained(
-                self.model_name,
-                trust_remote_code=True,
+            # 使用 FunASR 加载模型
+            # 支持语音识别 (ASR)、语音活动检测 (VAD)、标点符号补全 (PUNC)
+            self.model = AutoModel(
+                model='paraformer-zh-streaming',  # 中文流式识别模型
+                vad_model='fsmn-vad',              # 语音活动检测
+                punc_model='ct-punc',              # 标点符号补全
+                device=self.device,
+                disable_update=True,               # 禁用版本检查
             )
             
-            # 根据设备类型设置精度
-            torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
-            
-            # 加载模型
-            self.model = Qwen2AudioForConditionalGeneration.from_pretrained(
-                self.model_name,
-                torch_dtype=torch_dtype,
-                device_map=self.device,
-                trust_remote_code=True,
-            )
-            
-            log.info(f"Loaded Qwen-Audio model: {self.model_name}")
+            log.info(f"Loaded Qwen-Audio model via FunASR: {self.model_id}")
         except Exception as e:
-            log.error(f"Failed to load Qwen-Audio model {self.model_name}: {e}")
+            log.error(f"Failed to load Qwen-Audio model {self.model_id}: {e}")
             raise
     
     def transcribe(self, audio_path: str, language: Optional[str] = None, stt_profile: str = "artifact", **kwargs) -> Dict[str, Any]:
@@ -180,34 +170,20 @@ class ModelScopeQwenAudioModel(STTModel):
             self.load()
         
         try:
-            import librosa
-            import torch
-            
-            # 加载音频文件
-            waveform, sr = librosa.load(audio_path, sr=None)
-            
-            # 使用处理器处理音频
-            audio_dict = self.processor(
-                audios=waveform,
-                sampling_rate=sr,
-                return_tensors="pt"
+            # 使用 FunASR 进行转录
+            # 该模型会自动进行语音活动检测、转录和标点符号补全
+            result = self.model.generate(
+                input=audio_path,
+                batch_size_s=300,
+                hotword=None,
             )
             
-            # 移至指定设备
-            audio_dict = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in audio_dict.items()}
-            
-            # 生成转录
-            with torch.no_grad():
-                output_ids = self.model.generate(
-                    **audio_dict,
-                    max_new_tokens=128,
-                )
-            
-            # 解码结果
-            transcription = self.processor.batch_decode(
-                output_ids,
-                skip_special_tokens=True
-            )[0]
+            # 获取转录文本
+            if isinstance(result, list) and len(result) > 0:
+                result_dict = result[0]
+                transcription = result_dict.get('text', '') or result_dict.get('raw_text', '')
+            else:
+                transcription = str(result)
             
             # 返回标准化格式
             return {
@@ -226,9 +202,7 @@ class ModelScopeQwenAudioModel(STTModel):
     def unload(self):
         if self.model is not None:
             del self.model
-            del self.processor
             self.model = None
-            self.processor = None
             log.info("Unloaded Qwen-Audio model")
 
 
