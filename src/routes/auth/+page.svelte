@@ -188,7 +188,13 @@
 		setLogoImage();
 
 		// 自动登录逻辑
-		if (PUBLIC_AUTO_LOGIN_ENABLED === 'true' && PUBLIC_AUTO_LOGIN_EMAIL && PUBLIC_AUTO_LOGIN_PASSWORD) {
+		console.log('AUTO_LOGIN_DEBUG:', {
+			enabled: PUBLIC_AUTO_LOGIN_ENABLED,
+			email: PUBLIC_AUTO_LOGIN_EMAIL,
+			password: PUBLIC_AUTO_LOGIN_PASSWORD?.substring(0, 3) + '***'
+		});
+		if ((PUBLIC_AUTO_LOGIN_ENABLED === 'true' || PUBLIC_AUTO_LOGIN_ENABLED === true) && PUBLIC_AUTO_LOGIN_EMAIL && PUBLIC_AUTO_LOGIN_PASSWORD) {
+			console.log('Attempting auto-login with:', PUBLIC_AUTO_LOGIN_EMAIL);
 			email = PUBLIC_AUTO_LOGIN_EMAIL;
 			password = PUBLIC_AUTO_LOGIN_PASSWORD;
 			await signInHandler();
