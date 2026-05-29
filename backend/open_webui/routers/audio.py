@@ -2106,4 +2106,7 @@ async def get_voices(request: Request, user=Depends(get_verified_user)):
         "voices": [
             {"id": k, "name": v} for k, v in get_available_voices(request).items()
         ]
-    }
+    }export http_proxy='http://172.31.68.180:7890'  # 根据实际IP和端口修改地址
+export https_proxy='http://172.31.68.180:7890'
+export all_proxy='socks5://172.31.68.180:7890'
+export ALL_PROXY='socks5://172.31.68.180:7890'

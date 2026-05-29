@@ -7,6 +7,7 @@
 	import { onMount, getContext, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
+	import { PUBLIC_AUTO_LOGIN_ENABLED, PUBLIC_AUTO_LOGIN_EMAIL, PUBLIC_AUTO_LOGIN_PASSWORD } from '$env/static/public';
 
 	import { getBackendConfig } from '$lib/apis';
 	import {
@@ -186,7 +187,12 @@
 		loaded = true;
 		setLogoImage();
 
-		if (($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false) {
+		// 自动登录逻辑
+		if (PUBLIC_AUTO_LOGIN_ENABLED === 'true' && PUBLIC_AUTO_LOGIN_EMAIL && PUBLIC_AUTO_LOGIN_PASSWORD) {
+			email = PUBLIC_AUTO_LOGIN_EMAIL;
+			password = PUBLIC_AUTO_LOGIN_PASSWORD;
+			await signInHandler();
+		} else if (($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false) {
 			await signInHandler();
 		} else {
 			onboarding = $config?.onboarding ?? false;
