@@ -165,28 +165,66 @@ def prepare_audio_for_stt(file_path):
 
 
 
+def set_stt_model(
+    model_id: str = None,
+    model_type: str = "faster-whisper",
+    auto_update: bool = False,
+    device: str = None,
+):
+    """
+    加载 STT 模型（支持多种模型类型）
+    
+    Args:
+        model_id: 模型 ID（如 "base", "qwen-audio"）
+        model_type: 模型类型（"faster-whisper", "qwen-audio"）
+        auto_update: 是否允许自动更新/下载模型
+        device: 计算设备（"cpu" 或 "cuda"）
+    
+    Returns:
+        加载的模型实例，或 None 如果失败
+    """
+    from open_webui.utils.stt_models import STTModelFactory
+    
+    if not model_id:
+        return None
+    
+    try:
+        if device is None:
+            device = DEVICE_TYPE if DEVICE_TYPE and DEVICE_TYPE == "cuda" else "cpu"
+        
+        if model_type == "faster-whisper":
+            return STTModelFactory.get_model(
+                model_id=model_id,
+                model_type="faster-whisper",
+                device=device,
+                compute_type=WHISPER_COMPUTE_TYPE,
+                download_root=str(WHISPER_MODEL_DIR),
+                local_files_only=not auto_update,
+            )
+        elif model_type == "qwen-audio":
+            return STTModelFactory.get_model(
+                model_id="qwen-audio",
+                model_type="qwen-audio",
+                device=device,
+            )
+        else:
+            log.error(f"Unknown STT model type: {model_type}")
+            return None
+    except Exception as e:
+        log.error(f"Failed to load STT model {model_id} ({model_type}): {e}")
+        return None
+
+
 def set_faster_whisper_model(model: str, auto_update: bool = False):
     """
     兼容旧版本的 Whisper 模型加载函数
     使用新的 STT 模型框架
     """
-    from open_webui.utils.stt_models import STTModelFactory
-    
-    if not model:
-        return None
-    
-    try:
-        return STTModelFactory.get_model(
-            model_id=model,
-            model_type="faster-whisper",
-            device=DEVICE_TYPE if DEVICE_TYPE and DEVICE_TYPE == "cuda" else "cpu",
-            compute_type=WHISPER_COMPUTE_TYPE,
-            download_root=str(WHISPER_MODEL_DIR),
-            local_files_only=not auto_update,
-        )
-    except Exception as e:
-        log.error(f"Failed to load STT model {model}: {e}")
-        return None
+    return set_stt_model(
+        model_id=model,
+        model_type="faster-whisper",
+        auto_update=auto_update,
+    )
 
 
 
@@ -685,6 +723,7 @@ def transcription_handler(
     user=None,
     stt_profile: str = "interactive",
     save_transcript_file: bool = False,
+    stt_model_type: str = "faster-whisper",  # 支持指定 STT 模型类型
 ):
     filename = os.path.basename(file_path)
     file_dir = os.path.dirname(file_path)
@@ -698,15 +737,30 @@ def transcription_handler(
     ]
 
     if request.app.state.config.STT_ENGINE == "":
-        if request.app.state.faster_whisper_model is None:
-            request.app.state.faster_whisper_model = set_faster_whisper_model(
-                request.app.state.config.WHISPER_MODEL
-            )
-
-        model = request.app.state.faster_whisper_model
+        # 根据 stt_model_type 加载相应的模型
+        if stt_model_type == "qwen-audio":
+            # 使用 qwen-audio 模型
+            if not hasattr(request.app.state, "qwen_audio_model"):
+                request.app.state.qwen_audio_model = None
+            
+            if request.app.state.qwen_audio_model is None:
+                request.app.state.qwen_audio_model = set_stt_model(
+                    model_id="qwen-audio",
+                    model_type="qwen-audio",
+                    device=DEVICE_TYPE if DEVICE_TYPE and DEVICE_TYPE == "cuda" else "cpu",
+                )
+            
+            model = request.app.state.qwen_audio_model
+        else:
+            # 默认使用 faster-whisper
+            if request.app.state.faster_whisper_model is None:
+                request.app.state.faster_whisper_model = set_faster_whisper_model(
+                    request.app.state.config.WHISPER_MODEL
+                )
+            model = request.app.state.faster_whisper_model
         
         if model is None:
-            raise Exception("Failed to load STT model")
+            raise Exception(f"Failed to load STT model: {stt_model_type}")
         
         try:
             # 使用新的 STT 模型框架的转录方法
@@ -1176,8 +1230,9 @@ def transcribe(
     user=None,
     progress_callback: Optional[Callable[..., None]] = None,
     profile: Optional[str] = None,
+    stt_model_type: str = "faster-whisper",  # 支持指定 STT 模型类型
 ):
-    log.info(f"transcribe: {file_path} {metadata}")
+    log.info(f"transcribe: {file_path} {metadata} (model_type: {stt_model_type})")
 
     stt_profile = resolve_stt_profile(metadata, profile)
 
@@ -1203,6 +1258,7 @@ def transcribe(
             user,
             stt_profile="interactive",
             save_transcript_file=False,
+            stt_model_type=stt_model_type,
         )
 
         emit_progress(
@@ -1296,6 +1352,7 @@ def transcribe(
                     user,
                     "artifact",
                     True,
+                    stt_model_type,  # 传递 stt_model_type 参数
                 ): idx
                 for idx, chunk in enumerate(chunk_items)
             }

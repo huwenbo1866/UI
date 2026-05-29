@@ -504,6 +504,7 @@ def process_uploaded_file(
                         user,
                         progress_callback=stt_progress_callback,
                         profile="artifact",
+                        stt_model_type="qwen-audio",  # 为纪要功能使用 qwen-audio 模型
                     )
                     
                     raw_text = (result.get("text", "") or "").strip()
